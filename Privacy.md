@@ -12,7 +12,6 @@ We collect and store information you provide about your meals, calorie intake, m
 ### B. AI Interactions
 When you use our AI Chat feature, we process the text you type or speak.
 
-- **Apple Intelligence:** If you choose on-device processing, your data never leaves your phone.
 - **Nomva Cloud (OpenAI):** If you choose Cloud processing, your messages are sent to OpenAI purely for the purpose of identifying food and calculating nutrition. This data is not used to train their models and is not associated with your identity.
 
 ## 2. How We Use Your Information
