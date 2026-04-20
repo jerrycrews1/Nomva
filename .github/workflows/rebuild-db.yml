@@ -1,0 +1,61 @@
+name: Rebuild Food Database
+
+on:
+  schedule:
+    # Runs quarterly: Jan 1, Apr 1, Jul 1, Oct 1 at 9am UTC
+    - cron: '0 9 1 1,4,7,10 *'
+  workflow_dispatch:   # Also allows manual trigger from GitHub UI anytime
+
+jobs:
+  build-database:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install requests pandas
+
+      - name: Download USDA SR Legacy dataset
+        run: |
+          curl -L -o sr_legacy.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2019-04-02.zip"
+          unzip -q sr_legacy.zip -d sr_legacy/
+
+      - name: Download USDA Branded Foods dataset
+        run: |
+          # Check https://fdc.nal.usda.gov/download-foods.html for the current filename
+          curl -L -o branded.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2024-10-31.zip"
+          unzip -q branded.zip -d branded/
+
+      - name: Download Open Food Facts export
+        run: |
+          mkdir -p open_food_facts
+          curl -L -o open_food_facts/openfoodfacts-products.jsonl.gz \
+            "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz"
+
+      - name: Build SQLite database
+        env:
+          OPEN_FOOD_FACTS_PATH: open_food_facts/openfoodfacts-products.jsonl.gz
+        run: python scripts/build_db.py
+
+      - name: Generate changelog summary
+        id: changelog
+        run: echo "summary=$(python scripts/changelog.py)" >> $GITHUB_OUTPUT
+
+      - name: Commit new database to repo
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add Nomva/Resources/foods.sqlite
+          # Only commit if the file actually changed
+          git diff --cached --quiet || \
+            git commit -m "DB rebuild $(date +'%Y-%m-%d'): ${{ steps.changelog.outputs.summary }}"
+          git push

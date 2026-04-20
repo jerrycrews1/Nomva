@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Nomva</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #fafafa; color: #1a1a1a; line-height: 1.7;
+    }
+    header {
+      background: #fff; border-bottom: 1px solid #e5e5e5;
+      padding: 20px 0; text-align: center;
+    }
+    header img { width: 56px; height: 56px; border-radius: 14px; }
+    header h1 { font-size: 20px; font-weight: 700; margin-top: 8px; }
+    main {
+      max-width: 680px; margin: 40px auto; padding: 0 24px 80px;
+    }
+    h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; }
+    p { margin-bottom: 16px; font-size: 15px; color: #333; }
+    .updated { font-size: 13px; color: #888; margin-bottom: 32px; }
+    footer {
+      text-align: center; padding: 24px; font-size: 13px; color: #999;
+      border-top: 1px solid #e5e5e5;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="/logo.png" alt="Nomva">
+    <h1>Nomva Privacy Policy</h1>
+  </header>
+  <main>
+    <p class="updated">Last updated: April 18, 2026</p>
+
+    <h2>Overview</h2>
+    <p>Nomva is a nutrition tracking app designed to help you log meals, monitor macros, and reach your health goals. Your privacy matters, and this policy explains what data we collect, how we use it, and the choices you have.</p>
+
+    <h2>Data We Collect</h2>
+    <p>Nomva stores your food log entries, daily goals, weight entries, and custom foods on your device using local storage and optional iCloud sync. When you use AI-powered features such as meal parsing or chat, the text you type, along with limited recent AI context needed to answer correctly, is sent through Nomva's server to our AI provider for processing.</p>
+
+    <h2>Health & Fitness Data</h2>
+    <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) on your device solely to adjust your daily calorie goals. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
+
+    <h2>Garmin Connect</h2>
+    <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. This data is used only to personalize your calorie targets within the app. We store a Garmin access token on our server to maintain your connection; no Garmin data is sold, shared, or used for advertising.</p>
+
+    <h2>Third-Party Services</h2>
+    <p>Nomva uses OpenAI's API to power AI features. AI chat and meal-parsing text is relayed through Nomva's server and then sent to OpenAI for processing. We do not intentionally store the content of those AI conversations on our server after processing, and we avoid logging raw prompt and response text in production. Text sent for processing is also subject to OpenAI's data usage policies. Barcode lookups may query the Open Food Facts API, a public food database.</p>
+
+    <h2>iCloud Sync</h2>
+    <p>When enabled, your food logs, goals, and custom foods sync across your Apple devices via your private iCloud account. Nomva does not have access to your iCloud credentials or data stored in iCloud.</p>
+
+    <h2>Analytics & Advertising</h2>
+    <p>Nomva does not include any third-party analytics SDKs, tracking pixels, or advertising frameworks. We do not track you and we do not sell your data.</p>
+
+    <h2>Data Retention</h2>
+    <p>All nutrition and health data is stored locally on your device (and in your private iCloud container if sync is enabled). We do not maintain server-side copies of your food logs, weight entries, or health data. AI requests pass through our server in order to be processed, but we do not intentionally retain full AI message content after the response is returned.</p>
+
+    <h2>Your Rights</h2>
+    <p>You can delete all of your data at any time by removing the app from your device. If you use iCloud sync, you can also delete your data from iCloud through your device settings. To disconnect Garmin, visit the Garmin Connect app or website.</p>
+
+    <h2>Contact</h2>
+    <p>If you have questions about this privacy policy, contact us at <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>.</p>
+  </main>
+  <footer>&copy; 2026 Nomva. All rights reserved.</footer>
+</body>
+</html>

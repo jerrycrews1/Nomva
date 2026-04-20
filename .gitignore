@@ -1,0 +1,33 @@
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.deriveddata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+build/
+.build-xcode.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Large files / Models / Data Artifacts
+*.gguf
+.ql/
+_build_data/
+open_food_facts/
+*.sqlite
+scripts/*.json
+branded/
+sr_legacy/
+*.zip
+
+# SQLite database is generated — committed via GitHub Actions only
+# Resources/foods.sqlite   ← this IS committed by the CI pipeline
+
+# SPM
+.swiftpm/

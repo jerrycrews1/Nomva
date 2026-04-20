@@ -1,0 +1,2 @@
+# foods.sqlite goes here after running: python scripts/build_db.py
+# See scripts/build_db.py and .github/workflows/rebuild-db.yml

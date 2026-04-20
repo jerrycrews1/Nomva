@@ -1,0 +1,62 @@
+{
+  "identifier" : "E8A1B2C3-D4E5-F6A7-B8C9-D0E1F2A3B4C5",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "0",
+    "_developerTeamID" : "",
+    "_lastSynchronizedDate" : "2026-04-17T00:00:00Z"
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "nomva_pro_group",
+      "localizations" : [
+
+      ],
+      "name" : "Nomva Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "nomva_pro_monthly_001",
+          "introductoryOffer" : {
+            "displayPrice" : "0",
+            "internalID" : "free_trial_offer",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Unlimited AI food logging with Nomva Pro",
+              "displayName" : "Nomva Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.nerdquad.nomva.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Nomva Pro Monthly",
+          "subscriptionGroupID" : "nomva_pro_group",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

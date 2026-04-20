@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nomva</title>
+  <meta
+    name="description"
+    content="Nomva is a nutrition tracking app that makes logging food, scanning barcodes, and staying on top of your goals feel simple."
+  >
+  <style>
+    :root {
+      --bg: #fcf7f1;
+      --paper: rgba(255, 255, 255, 0.82);
+      --paper-solid: #fffdf9;
+      --text: #1d160f;
+      --muted: #6d6257;
+      --line: rgba(64, 45, 24, 0.1);
+      --accent: #ef8e38;
+      --accent-deep: #d96f12;
+      --accent-soft: rgba(239, 142, 56, 0.14);
+      --shadow: 0 20px 60px rgba(65, 41, 16, 0.08);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(239, 142, 56, 0.18), transparent 32%),
+        radial-gradient(circle at 85% 18%, rgba(255, 209, 168, 0.7), transparent 26%),
+        linear-gradient(180deg, #fff9f2 0%, var(--bg) 45%, #f7f2eb 100%);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .shell {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 10px 30px rgba(65, 41, 16, 0.04);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand img {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(239, 142, 56, 0.24);
+    }
+
+    .nav-links {
+      display: inline-flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent-deep);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+      gap: 28px;
+      align-items: stretch;
+      margin-top: 28px;
+    }
+
+    .hero-copy,
+    .hero-panel,
+    .info-panel,
+    .feature-card {
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+    }
+
+    .hero-copy {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 251, 246, 0.94));
+      border-radius: var(--radius-xl);
+      padding: 34px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .hero h1 {
+      margin: 18px 0 16px;
+      font-size: clamp(42px, 7vw, 72px);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 620px;
+      font-size: 18px;
+      line-height: 1.65;
+      color: var(--muted);
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 52px;
+      padding: 0 22px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 700;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, #f79f4d 0%, #e17f26 100%);
+      color: white;
+      box-shadow: 0 16px 30px rgba(225, 127, 38, 0.24);
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    .hero-panel {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(circle at 22% 20%, rgba(255, 211, 168, 0.95), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 249, 240, 0.92));
+      padding: 28px;
+    }
+
+    .hero-panel::before {
+      content: "";
+      position: absolute;
+      inset: auto -20% -32% auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: rgba(239, 142, 56, 0.08);
+      filter: blur(12px);
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .stat {
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(65, 41, 16, 0.06);
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 8px;
+      letter-spacing: -0.04em;
+    }
+
+    .stat span {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .mini-card {
+      position: relative;
+      z-index: 1;
+      padding: 22px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(65, 41, 16, 0.06);
+    }
+
+    .mini-card h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .mini-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .feature-card {
+      background: var(--paper);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .feature-card h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+
+    .feature-card p {
+      margin: 0;
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .info-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .info-panel {
+      background: var(--paper-solid);
+      border-radius: var(--radius-xl);
+      padding: 26px;
+    }
+
+    .info-panel h2 {
+      margin: 0 0 12px;
+      font-size: 26px;
+      letter-spacing: -0.04em;
+    }
+
+    .info-panel p,
+    .info-panel li {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .info-panel ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .support-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+      color: var(--accent-deep);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .footer {
+      margin-top: 32px;
+      padding: 18px 8px 0;
+      text-align: center;
+      font-size: 13px;
+      color: #86796c;
+    }
+
+    @media (max-width: 920px) {
+      .hero,
+      .section-grid,
+      .info-row {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-copy,
+      .hero-panel,
+      .info-panel,
+      .feature-card {
+        padding: 24px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100vw - 20px, 1120px);
+        padding-top: 14px;
+      }
+
+      .nav {
+        border-radius: 24px;
+        padding: 16px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links {
+        gap: 14px;
+      }
+
+      .hero h1 {
+        font-size: 42px;
+      }
+
+      .hero p {
+        font-size: 16px;
+      }
+
+      .stat-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="nav">
+      <a class="brand" href="/">
+        <img src="/logo.png" alt="Nomva">
+        <span>Nomva</span>
+      </a>
+      <div class="nav-links">
+        <a href="/privacy.html">Privacy</a>
+        <a href="/support.html">Support</a>
+        <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>
+      </div>
+    </nav>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">Nutrition Tracking, Simplified</div>
+          <h1>Food logging that feels fast, clear, and human.</h1>
+          <p>
+            Nomva helps people log meals, scan barcodes, track weight, and stay aligned with calorie and macro goals
+            without turning nutrition into homework.
+          </p>
+          <div class="cta-row">
+            <a class="button primary" href="/support.html">Get Support</a>
+            <a class="button secondary" href="/privacy.html">Read Privacy Policy</a>
+          </div>
+        </div>
+
+        <div class="hero-panel">
+          <div class="stat-grid">
+            <div class="stat">
+              <strong>1M+</strong>
+              <span>Foods in the searchable nutrition database</span>
+            </div>
+            <div class="stat">
+              <strong>AI</strong>
+              <span>Natural-language meal logging built into the app</span>
+            </div>
+            <div class="stat">
+              <strong>Scan</strong>
+              <span>Packaged food lookups with barcode support</span>
+            </div>
+            <div class="stat">
+              <strong>Private</strong>
+              <span>Logs stay on device, with optional private iCloud sync</span>
+            </div>
+          </div>
+
+          <div class="mini-card">
+            <h2>Built for real daily use</h2>
+            <p>
+              The goal is simple: make it easy to capture what you ate, understand where your day stands,
+              and keep moving without wrestling with a clunky nutrition app.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-grid">
+        <article class="feature-card">
+          <h3>Log Meals Naturally</h3>
+          <p>Type what you ate in plain English and let Nomva turn it into structured food entries with calories and macros.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Scan Barcodes Faster</h3>
+          <p>Packaged foods can be looked up quickly without manually digging through search results or generic category matches.</p>
+        </article>
+        <article class="feature-card">
+          <h3>Track What Matters</h3>
+          <p>Keep an eye on calorie targets, macros, weight trends, and activity-aware goals in one place.</p>
+        </article>
+      </section>
+
+      <section class="info-row">
+        <article class="info-panel">
+          <h2>Need help?</h2>
+          <p>
+            For bug reports, support requests, App Store questions, or product feedback, reach out directly and we’ll get back to you.
+          </p>
+          <a class="support-link" href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>
+        </article>
+
+        <article class="info-panel">
+          <h2>Quick links</h2>
+          <ul>
+            <li><a href="/privacy.html">Privacy Policy</a></li>
+            <li><a href="/support.html">Support</a></li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      &copy; 2026 Nomva. Built and supported by Nerdquad.
+    </footer>
+  </div>
+</body>
+</html>
