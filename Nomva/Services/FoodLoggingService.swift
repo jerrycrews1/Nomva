@@ -1683,7 +1683,7 @@ final class FoodLoggingService {
 
         // Try to find a decimal number pattern
         let pattern = #"(\d+\.?\d*)\s*(lbs?|pounds?|kg|kilos?)?"#
-        if let match = userMessage.range(of: pattern, options: .regularExpression) {
+        if let match = userMessage.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
             let weightStr = String(userMessage[match])
             let numPattern = #"\d+\.?\d*"#
             if let numMatch = weightStr.range(of: numPattern, options: .regularExpression) {
