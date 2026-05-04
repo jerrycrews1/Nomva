@@ -170,29 +170,15 @@ final class FoodLoggingService {
     static let shared = FoodLoggingService()
     private let db = DatabaseManager.shared
 
-    // Known restaurant brands to boost when the user explicitly names a chain.
-    private static let knownBrandPatterns: [(key: String, aliases: [String])] = [
-        ("chick-fil-a",     ["chick-fil-a", "chick fil a"]),
-        ("mcdonald's",      ["mcdonald's", "mcdonalds"]),
-        ("burger king",     ["burger king"]),
-        ("wendy's",         ["wendy's"]),
-        ("taco bell",       ["taco bell"]),
-        ("kfc",             ["kfc"]),
-        ("subway",          ["subway"]),
-        ("chipotle",        ["chipotle"]),
-        ("panera bread",    ["panera bread", "panera"]),
-    ]
-
-    private func detectedBrand(in query: String) -> String? {
-        let lower = query.lowercased()
-        for (key, aliases) in Self.knownBrandPatterns {
-            for alias in aliases {
-                if lower.contains(alias) {
-                    return key
-                }
-            }
-        }
-        return nil
+    /// Returns the likely restaurant or brand phrase mentioned in a query
+    /// by taking all identity tokens except the last one (the food item).
+    /// For example, "chick-fil-a nuggets" → "chick fil a".
+    private func potentialBrandPhrase(in query: String) -> String? {
+        let tokens = identityTokens(in: query)
+        guard tokens.count > 1 else { return nil }
+        let phraseTokens = tokens.dropLast()
+        let phrase = phraseTokens.joined(separator: " ")
+        return phrase.isEmpty ? nil : phrase
     }
 
     enum ChatAction {
@@ -863,8 +849,9 @@ final class FoodLoggingService {
         )
         guard let candidate = candidates.first else { return nil }
 
-        let brandMatched = detectedBrand(in: mention) != nil
-            && (candidate.brand?.lowercased().contains(detectedBrand(in: mention) ?? "") ?? false)
+        let brandPhrase = potentialBrandPhrase(in: mention)
+        let brandMatched = brandPhrase != nil
+            && (candidate.brand?.lowercased().contains(brandPhrase!) ?? false)
 
         if (candidate.portionBasis == .grams && candidate.score >= 48)
             || (brandMatched && candidate.score >= 48) {
@@ -881,21 +868,6 @@ final class FoodLoggingService {
     private func isFoodFamilyMatch(_ candidate: SearchCandidate, mention: String) -> Bool {
         let mentionTokens = Set(identityTokens(in: mention).map(singularized))
         let candidateTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
-        let mentionsChickFilA = mentionTokens.contains("chick") && mentionTokens.contains("fil")
-
-        if mentionsChickFilA,
-           mentionTokens.contains("nugget"),
-           candidateTokens.contains("chicken"),
-           candidateTokens.contains("nugget") {
-            return true
-        }
-
-        if mentionsChickFilA,
-           mentionTokens.contains("fry"),
-           candidateTokens.contains("waffle"),
-           candidateTokens.contains("fry") {
-            return true
-        }
 
         if mentionTokens.contains("egg"),
            candidateTokens.contains("egg"),
@@ -1888,21 +1860,16 @@ final class FoodLoggingService {
         }
         applyDensityOutlierPenalty(to: &scored, query: query)
 
-        // Boost candidates that share a known brand mentioned in the query
-        if let brandKey = detectedBrand(in: query) {
+        // Boost candidates whose brand or name contains the likely brand phrase
+        if let brandPhrase = potentialBrandPhrase(in: query) {
+            let lowerBrandPhrase = brandPhrase.lowercased()
             for i in scored.indices {
-                let brandLower = (scored[i].brand?.lowercased() ?? "")
-                let nameLower = scored[i].name.lowercased()
-                let aliases = Self.knownBrandPatterns.first(where: { $0.key == brandKey })?.aliases ?? []
-                for alias in aliases {
-                    if brandLower.contains(alias) {
-                        scored[i].score += 1000
-                        break
-                    }
-                    if nameLower.contains(alias) {
-                        scored[i].score += 800
-                        break
-                    }
+                let candidateLowerBrand = (scored[i].brand?.lowercased() ?? "")
+                let candidateLowerName = scored[i].name.lowercased()
+                if candidateLowerBrand.contains(lowerBrandPhrase) {
+                    scored[i].score += 1000
+                } else if candidateLowerName.contains(lowerBrandPhrase) {
+                    scored[i].score += 800
                 }
             }
         }
@@ -1942,9 +1909,6 @@ final class FoodLoggingService {
         let plainWholeQuery = looksLikePlainWholeFoodQuery(query)
         let queryHasPreparation = tokens.contains { preparationWords.contains($0) }
         let countBased = isCountBased(query)
-        let querySingularTokens = Set(identityTokens(in: query).map(singularized))
-        let candidateSingularTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
-        let mentionsChickFilA = querySingularTokens.contains("chick") && querySingularTokens.contains("fil")
         var score = 0
 
         if name == normalizedQuery {
@@ -1976,27 +1940,6 @@ final class FoodLoggingService {
 
         if genericQuery && name.contains(" raw") {
             score += 16
-        }
-
-        if mentionsChickFilA,
-           querySingularTokens.contains("nugget"),
-           candidateSingularTokens.contains("chicken"),
-           candidateSingularTokens.contains("nugget") {
-            score += 48
-        }
-
-        if mentionsChickFilA,
-           querySingularTokens.contains("fry"),
-           candidateSingularTokens.contains("waffle"),
-           candidateSingularTokens.contains("fry") {
-            score += 48
-        }
-
-        if mentionsChickFilA,
-           querySingularTokens.contains("fry"),
-           candidateSingularTokens.contains(where: { ["small", "medium", "large"].contains($0) }),
-           !querySingularTokens.contains(where: { ["small", "medium", "large"].contains($0) }) {
-            score -= 48
         }
 
         if countBased, let servingGrams = candidate.servingGrams {
@@ -2256,21 +2199,20 @@ final class FoodLoggingService {
 
         variants.append(contentsOf: foodFamilySearchVariants(for: coreTokens))
 
-        // Brand‑aware variants when a known restaurant is part of the query
-        if let brandKey = detectedBrand(in: query),
-           let entry = Self.knownBrandPatterns.first(where: { $0.key == brandKey }) {
-            for alias in entry.aliases {
-                let brandTokens = alias.split(separator: " ").map(String.init)
-                let remaining = coreTokens.filter { t in !brandTokens.contains(t.lowercased()) }
-                let variant = ([alias] + remaining).joined(separator: " ")
-                if !variant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    variants.append(variant)
-                }
-                let singularRemaining = remaining.map(singularized)
-                let singularVariant = ([alias] + singularRemaining).joined(separator: " ")
-                if singularVariant != variant {
-                    variants.append(singularVariant)
-                }
+        // Generic brand‑aware variants when a brand phrase can be extracted
+        if let brandPhrase = potentialBrandPhrase(in: query) {
+            let lowerBrandTokens = brandPhrase.split(separator: " ").map { String($0) }
+            let remaining = coreTokens.filter { t in !lowerBrandTokens.contains(t.lowercased()) }
+            let variant = ([brandPhrase] + remaining).joined(separator: " ")
+            if !variant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                variants.append(variant)
+            }
+
+            // Also try a compact version without spaces inside the brand name
+            let compactBrand = brandPhrase.replacingOccurrences(of: " ", with: "")
+            if !compactBrand.isEmpty {
+                let compactVariant = ([compactBrand] + remaining).joined(separator: " ")
+                variants.append(compactVariant)
             }
         }
 
@@ -2288,11 +2230,9 @@ final class FoodLoggingService {
         let singularTokens = Set(tokens.map(singularized))
         var variants: [String] = []
 
-        let mentionsChickFilA = singularTokens.contains("chick") && singularTokens.contains("fil")
-        let mentionsChicken = singularTokens.contains("chicken") || mentionsChickFilA
+        let mentionsChicken = singularTokens.contains("chicken")
         let mentionsNuggets = singularTokens.contains("nugget")
         let mentionsFries = singularTokens.contains("fry") || singularTokens.contains("frie")
-        let mentionsWaffle = singularTokens.contains("waffle") || mentionsChickFilA
 
         if mentionsNuggets, mentionsChicken {
             variants.append("chicken nuggets")
@@ -2300,9 +2240,7 @@ final class FoodLoggingService {
             variants.append("chicken nuggets")
         }
 
-        if mentionsFries, mentionsWaffle {
-            variants.append("waffle fries")
-        } else if mentionsFries, tokens.count <= 2 {
+        if mentionsFries, tokens.count <= 2 {
             variants.append("french fries")
         }
 
