@@ -170,6 +170,31 @@ final class FoodLoggingService {
     static let shared = FoodLoggingService()
     private let db = DatabaseManager.shared
 
+    // Known restaurant brands to boost when the user explicitly names a chain.
+    private static let knownBrandPatterns: [(key: String, aliases: [String])] = [
+        ("chick-fil-a",     ["chick-fil-a", "chick fil a"]),
+        ("mcdonald's",      ["mcdonald's", "mcdonalds"]),
+        ("burger king",     ["burger king"]),
+        ("wendy's",         ["wendy's"]),
+        ("taco bell",       ["taco bell"]),
+        ("kfc",             ["kfc"]),
+        ("subway",          ["subway"]),
+        ("chipotle",        ["chipotle"]),
+        ("panera bread",    ["panera bread", "panera"]),
+    ]
+
+    private func detectedBrand(in query: String) -> String? {
+        let lower = query.lowercased()
+        for (key, aliases) in Self.knownBrandPatterns {
+            for alias in aliases {
+                if lower.contains(alias) {
+                    return key
+                }
+            }
+        }
+        return nil
+    }
+
     enum ChatAction {
         case logFood([FoodEntry])
         case replaceEntry(deleteName: String, newEntries: [FoodEntry])
@@ -836,17 +861,21 @@ final class FoodLoggingService {
             recentEntries: recentEntries,
             customFoods: customFoods
         )
-        guard let candidate = candidates.first,
-              candidate.portionBasis == .grams,
-              candidate.score >= 48,
-              isFoodFamilyMatch(candidate, mention: mention) else {
-            return nil
-        }
+        guard let candidate = candidates.first else { return nil }
 
-        return CandidateResolution(
-            candidate: candidate,
-            servingsInfo: initialServingsInfo
-        )
+        let brandMatched = detectedBrand(in: mention) != nil
+            && (candidate.brand?.lowercased().contains(detectedBrand(in: mention) ?? "") ?? false)
+
+        if (candidate.portionBasis == .grams && candidate.score >= 48)
+            || (brandMatched && candidate.score >= 48) {
+            if brandMatched || isFoodFamilyMatch(candidate, mention: mention) {
+                return CandidateResolution(
+                    candidate: candidate,
+                    servingsInfo: initialServingsInfo
+                )
+            }
+        }
+        return nil
     }
 
     private func isFoodFamilyMatch(_ candidate: SearchCandidate, mention: String) -> Bool {
@@ -1858,6 +1887,26 @@ final class FoodLoggingService {
             return copy
         }
         applyDensityOutlierPenalty(to: &scored, query: query)
+
+        // Boost candidates that share a known brand mentioned in the query
+        if let brandKey = detectedBrand(in: query) {
+            for i in scored.indices {
+                let brandLower = (scored[i].brand?.lowercased() ?? "")
+                let nameLower = scored[i].name.lowercased()
+                let aliases = Self.knownBrandPatterns.first(where: { $0.key == brandKey })?.aliases ?? []
+                for alias in aliases {
+                    if brandLower.contains(alias) {
+                        scored[i].score += 1000
+                        break
+                    }
+                    if nameLower.contains(alias) {
+                        scored[i].score += 800
+                        break
+                    }
+                }
+            }
+        }
+
         scored.sort {
             if $0.score == $1.score {
                 let leftQuality = servingQuality(for: $0)
@@ -2206,6 +2255,24 @@ final class FoodLoggingService {
         }
 
         variants.append(contentsOf: foodFamilySearchVariants(for: coreTokens))
+
+        // Brand‑aware variants when a known restaurant is part of the query
+        if let brandKey = detectedBrand(in: query),
+           let entry = Self.knownBrandPatterns.first(where: { $0.key == brandKey }) {
+            for alias in entry.aliases {
+                let brandTokens = alias.split(separator: " ").map(String.init)
+                let remaining = coreTokens.filter { t in !brandTokens.contains(t.lowercased()) }
+                let variant = ([alias] + remaining).joined(separator: " ")
+                if !variant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    variants.append(variant)
+                }
+                let singularRemaining = remaining.map(singularized)
+                let singularVariant = ([alias] + singularRemaining).joined(separator: " ")
+                if singularVariant != variant {
+                    variants.append(singularVariant)
+                }
+            }
+        }
 
         var unique: [String] = []
         for variant in variants {
