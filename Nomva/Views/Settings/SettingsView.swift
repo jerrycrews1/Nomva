@@ -4,11 +4,18 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var garminManager: GarminManager
+    @EnvironmentObject private var syncManager: SyncManager
+    @EnvironmentObject private var routeCenter: NomvaRouteCenter
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @State private var dbMetadata: (totalFoods: Int, buildDate: String) = (0, "Unknown")
     @State private var showPaywallPreview = false
+    @State private var showGoalsFromWidget = false
+    #if targetEnvironment(simulator)
+    @State private var showSeedScreenshotDataConfirm = false
+    @State private var simulatorSeedMessage: String?
+    @State private var isSeedingSimulatorData = false
+    #endif
 
-    @State private var isPremiumLocal: Bool = UserDefaults.standard.bool(forKey: "is_premium_dev_override")
-    @AppStorage("show_debug_tools") private var showDebugTools = false
     private let contentInset: CGFloat = NomvaTheme.contentInset
 
     var body: some View {
@@ -20,7 +27,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: NomvaTheme.sectionGap) {
                         aiOverviewCard
 
-                        SettingsSectionCard("Nutrition", detail: "Adjust the targets that power your log and daily summaries, including Apple Health-based goal suggestions.") {
+                        SettingsSectionCard("Nutrition", detail: "Adjust calorie and macro targets, including Apple Health.") {
                             NavigationLink {
                                 GoalsSettingsView()
                             } label: {
@@ -33,20 +40,33 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        SettingsSectionCard("Integrations", detail: "Connect activity sources that can personalize your calorie targets and daily summaries.") {
-                            NavigationLink {
-                                GarminSettingsDetailView()
-                            } label: {
-                                SettingsLinkRow(
-                                    icon: "dot.radiowaves.left.and.right",
-                                    title: "Garmin Connect",
-                                    subtitle: garminSubtitle
-                                )
+                        SettingsSectionCard("Integrations", detail: "Connect activity sources that can adjust your calorie target.") {
+                            VStack(spacing: 12) {
+                                NavigationLink {
+                                    AppleHealthSettingsDetailView()
+                                } label: {
+                                    SettingsLinkRow(
+                                        icon: "heart.fill",
+                                        title: "Apple Health",
+                                        subtitle: appleHealthSubtitle
+                                    )
+                                }
+                                .buttonStyle(.plain)
+
+                                NavigationLink {
+                                    GarminSettingsDetailView()
+                                } label: {
+                                    SettingsLinkRow(
+                                        icon: "dot.radiowaves.left.and.right",
+                                        title: "Garmin Connect",
+                                        subtitle: garminSubtitle
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
 
-                        SettingsSectionCard("Data", detail: "Keep your food library and sync preferences easy to find.") {
+                        SettingsSectionCard("Data", detail: "Manage sync and your custom food library.") {
                             VStack(spacing: 12) {
                                 NavigationLink {
                                     iCloudSyncSettingsView()
@@ -54,7 +74,7 @@ struct SettingsView: View {
                                     SettingsLinkRow(
                                         icon: "icloud",
                                         title: "iCloud Sync",
-                                        subtitle: "Private cross-device syncing"
+                                        subtitle: iCloudSubtitle
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -72,7 +92,7 @@ struct SettingsView: View {
                             }
                         }
 
-                        SettingsSectionCard("Membership", detail: "Restore purchases or confirm that premium features are active.") {
+                        SettingsSectionCard("Membership", detail: "Check your plan or restore purchases.") {
                             VStack(spacing: 14) {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
@@ -87,7 +107,7 @@ struct SettingsView: View {
 
                                     NomvaTag(
                                         text: membershipStatus,
-                                        tint: isPremiumLocal ? .green : NomvaTheme.accent
+                                        tint: subscriptionManager.isPremium ? .green : NomvaTheme.accent
                                     )
                                 }
 
@@ -105,23 +125,7 @@ struct SettingsView: View {
                             }
                         }
 
-                        if showDebugTools {
-                            SettingsSectionCard("Developer Tools", detail: "Hidden by default so the customer-facing settings stay clean.") {
-                                VStack(spacing: 14) {
-                                    Toggle("Pro Status Override", isOn: $isPremiumLocal)
-                                        .onChange(of: isPremiumLocal) { _, newValue in
-                                            UserDefaults.standard.set(newValue, forKey: "is_premium_dev_override")
-                                        }
-
-                                    Button("Seed Data for Screenshots") {
-                                        SeedData.seedAppStoreData(context: modelContext)
-                                    }
-                                    .buttonStyle(NomvaSecondaryButtonStyle())
-                                }
-                            }
-                        }
-
-                        SettingsSectionCard("Backup & Export", detail: "Export your data for backup or share reports with your coach.") {
+                        SettingsSectionCard("Backup & Export", detail: "Export your data or save a backup.") {
                             NavigationLink {
                                 ExportSettingsView()
                             } label: {
@@ -134,7 +138,7 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
 
-                        SettingsSectionCard("Food Database", detail: "Reference info for the local nutrition catalog bundled with the app.") {
+                        SettingsSectionCard("Food Database", detail: "Info about the nutrition database included with the app.") {
                             HStack(spacing: 12) {
                                 SettingsStatTile(
                                     title: "Total Foods",
@@ -148,16 +152,12 @@ struct SettingsView: View {
                             }
                         }
 
-                        SettingsSectionCard("About", detail: "Legal links and build info.") {
+                        SettingsSectionCard("About", detail: "Legal links and app info.") {
                             VStack(spacing: 12) {
                                 SettingsValueRow(
                                     title: "Version",
                                     value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
                                 )
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 5) {
-                                    showDebugTools.toggle()
-                                }
 
                                 Link(destination: URL(string: "https://nomva.nerdquad.com/privacy.html")!) {
                                     SettingsLinkRow(
@@ -168,16 +168,52 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.plain)
 
-//                                Link(destination: URL(string: "https://example.com/terms")!) {
-//                                    SettingsLinkRow(
-//                                        icon: "doc.text",
-//                                        title: "Terms of Service",
-//                                        subtitle: "Subscription and usage terms"
-//                                    )
-//                                }
-//                                .buttonStyle(.plain)
+                                Link(destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!) {
+                                    SettingsLinkRow(
+                                        icon: "doc.text",
+                                        title: "Terms of Use",
+                                        subtitle: "Apple standard app license"
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
+
+                        #if targetEnvironment(simulator)
+                        SettingsSectionCard("Simulator Tools", detail: "Reset the simulator to a fixed sample state for screenshots and previews.") {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Button {
+                                    showSeedScreenshotDataConfirm = true
+                                } label: {
+                                    HStack {
+                                        if isSeedingSimulatorData {
+                                            ProgressView()
+                                                .tint(.white)
+                                        } else {
+                                            Image(systemName: "photo.on.rectangle.angled")
+                                                .font(.headline.weight(.semibold))
+                                        }
+
+                                        Text(isSeedingSimulatorData ? "Seeding Screenshot Data..." : "Seed Screenshot Data")
+                                            .font(.headline)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(NomvaPrimaryButtonStyle())
+                                .disabled(isSeedingSimulatorData)
+
+                                Text("This replaces the simulator's local app data with repeatable meals, chat, hydration, goals, and weight history.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                if let simulatorSeedMessage {
+                                    Text(simulatorSeedMessage)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        #endif
                     }
                     .padding(.horizontal, contentInset)
                     .padding(.top, NomvaTheme.pageTopGap)
@@ -186,14 +222,32 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showGoalsFromWidget) {
+                GoalsSettingsView()
+            }
         }
         .task {
             dbMetadata = await DatabaseManager.shared.metadata()
             await garminManager.refreshIfNeeded()
         }
+        .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
+            guard route == .goals else { return }
+            showGoalsFromWidget = true
+            routeCenter.clear(route)
+        }
         .sheet(isPresented: $showPaywallPreview) {
             PaywallView()
         }
+        #if targetEnvironment(simulator)
+        .alert("Replace simulator data?", isPresented: $showSeedScreenshotDataConfirm) {
+            Button("Seed Screenshot Data", role: .destructive) {
+                seedScreenshotData()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This resets the simulator's local app data to a repeatable sample state for screenshots.")
+        }
+        #endif
     }
 
     private var aiOverviewCard: some View {
@@ -202,7 +256,7 @@ struct SettingsView: View {
                 Text("Nomva Cloud")
                     .font(.title3.weight(.semibold))
 
-                Text("AI features run through Nomva Cloud with GPT-4o-mini so food logging and edits stay consistent.")
+                Text("Some AI features run through Nomva Cloud with GPT-4o-mini. These tools need an internet connection.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -226,19 +280,42 @@ struct SettingsView: View {
     }
 
     private var membershipSubtitle: String {
-        if isPremiumLocal {
-            return showDebugTools
-                ? "Developer override is currently enabled."
-                : "Premium features are currently available on this build."
+        if subscriptionManager.isPremium {
+            return "Pro features are active on this device."
         }
-        return "Restore your purchase on this device."
+        return "Restore a purchase on this device."
     }
 
     private var membershipStatus: String {
-        if isPremiumLocal {
-            return showDebugTools ? "Active" : "Available"
+        if subscriptionManager.isPremium {
+            return "Active"
         }
         return "Restore"
+    }
+
+    private var iCloudSubtitle: String {
+        if syncManager.iCloudEnabled {
+            return "Active in your private iCloud"
+        }
+        if let error = syncManager.lastErrorMessage, !error.isEmpty {
+            return "Local only • issue needs attention"
+        }
+        if syncManager.isAccountAvailable {
+            return "On-device only"
+        }
+        return "Local only • iCloud unavailable"
+    }
+
+    @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
+
+    private var appleHealthSubtitle: String {
+        guard AppleHealthService.isAvailable() else {
+            return "Not available on this device"
+        }
+        if activitySourceRaw == GoalActivitySource.appleHealth.rawValue {
+            return "Active — adjusting your calorie goals"
+        }
+        return "Available — tap to connect"
     }
 
     private var garminSubtitle: String {
@@ -256,6 +333,22 @@ struct SettingsView: View {
         }
         return "Connect Garmin to personalize goals"
     }
+
+    #if targetEnvironment(simulator)
+    private func seedScreenshotData() {
+        isSeedingSimulatorData = true
+        simulatorSeedMessage = nil
+
+        do {
+            try SeedData.seedAppStoreData(context: modelContext)
+            simulatorSeedMessage = "Screenshot data loaded. You can capture the same polished sample state anytime."
+        } catch {
+            simulatorSeedMessage = "Couldn't seed screenshot data: \(error.localizedDescription)"
+        }
+
+        isSeedingSimulatorData = false
+    }
+    #endif
 }
 
 struct SettingsSectionCard<Content: View>: View {
@@ -371,12 +464,12 @@ private struct GarminSettingsDetailView: View {
                     Text("Garmin Connect")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
 
-                    Text("Connect Garmin so Nomva Cloud can receive your daily activity summaries and feed them back into your calorie goals.")
+                    Text("Use your Garmin activity data to automatically adjust your daily calorie goals.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
-                SettingsSectionCard("Connection", detail: "Garmin sign-in happens in a secure browser session and returns to Nomva when it finishes.") {
+                SettingsSectionCard("Connection", detail: "You'll sign in to Garmin through a secure browser. Nomva only reads your daily active calories.") {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -477,11 +570,12 @@ private struct GarminSettingsDetailView: View {
                     }
                 }
 
-                SettingsSectionCard("How It Works", detail: "This is a cloud-to-cloud integration, so Garmin data routes through Nomva Cloud before the app reads it.") {
+                SettingsSectionCard("How It Works", detail: "Garmin syncs through Nomva Cloud so the app can receive your daily summaries.") {
                     VStack(alignment: .leading, spacing: 10) {
-                        SettingsValueRow(title: "OAuth", value: "Garmin Connect in browser")
-                        SettingsValueRow(title: "Sync", value: "Daily summary webhook")
-                        SettingsValueRow(title: "Used For", value: "Calorie goal personalization")
+                        SettingsValueRow(title: "Data Read", value: "Daily active calories")
+                        SettingsValueRow(title: "Syncs", value: "Automatically each day")
+                        SettingsValueRow(title: "Used For", value: "Calorie goal adjustment")
+                        SettingsValueRow(title: "Privacy", value: "No data sold or shared")
                     }
                 }
             }
@@ -499,15 +593,15 @@ private struct GarminSettingsDetailView: View {
 
     private var connectionSubtitle: String {
         if !garminManager.isConfigured {
-            return "Nomva Cloud still needs Garmin credentials and webhook configuration."
+            return "Garmin integration isn't set up yet."
         }
         if let lastWebhook = garminManager.status.lastWebhookAt {
-            return "Last sync: \(formattedTimestamp(lastWebhook))"
+            return "Last synced: \(formattedTimestamp(lastWebhook))"
         }
         if garminManager.isConnected {
-            return "Connected and waiting for your latest Garmin daily summaries."
+            return "Connected — waiting for today's activity data."
         }
-        return "Connect Garmin to let activity personalize your calorie goals."
+        return "Tap Connect to link your Garmin account."
     }
 
     private func formattedTimestamp(_ isoString: String) -> String {
@@ -529,6 +623,215 @@ private struct GarminSettingsDetailView: View {
         displayFormatter.timeZone = .current // Explicitly use local time
         
         return displayFormatter.string(from: date)
+    }
+}
+
+// MARK: - Apple Health Settings Detail
+
+private struct AppleHealthSettingsDetailView: View {
+    @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
+    @State private var summary: AppleHealthActivitySummary?
+    @State private var isLoading = true
+    @State private var isConnected = false
+    @State private var errorMessage: String?
+    @State private var showSuccess = false
+
+    private var isActive: Bool {
+        activitySourceRaw == GoalActivitySource.appleHealth.rawValue
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Apple Health")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+
+                    Text("Use your actual activity data to automatically adjust your daily calorie goals.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                SettingsSectionCard("Connection", detail: "Nomva reads your active calories on-device. Nothing is sent to any server.") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(connectionTitle)
+                                    .font(.headline)
+                                Text(connectionSubtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            NomvaTag(
+                                text: isActive ? "Active" : isConnected ? "Connected" : "Off",
+                                tint: isActive ? .green : isConnected ? .blue : NomvaTheme.accent
+                            )
+                        }
+
+                        if let summary {
+                            HStack(spacing: 12) {
+                                SettingsStatTile(
+                                    title: "Avg Active",
+                                    value: "\(Int(summary.averageActiveCalories.rounded())) kcal"
+                                )
+                                SettingsStatTile(
+                                    title: "Sample Days",
+                                    value: "\(summary.sampledDays) of \(summary.windowDays)"
+                                )
+                            }
+                        }
+
+                        if isLoading {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                Text("Checking Apple Health…")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if !AppleHealthService.isAvailable() {
+                            Text("Apple Health is not available on this device.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else if !isConnected {
+                            Button("Connect Apple Health") {
+                                Task { await connectAppleHealth() }
+                            }
+                            .buttonStyle(NomvaPrimaryButtonStyle())
+                        } else {
+                            HStack(spacing: 12) {
+                                Button(isActive ? "Active Source ✓" : "Set as Activity Source") {
+                                    withAnimation {
+                                        activitySourceRaw = GoalActivitySource.appleHealth.rawValue
+                                    }
+                                }
+                                .modifier(ActivitySourceButtonStyleModifier(isActive: isActive))
+                                .disabled(isActive || summary == nil)
+
+                                Button("Refresh") {
+                                    Task { await refreshData() }
+                                }
+                                .buttonStyle(NomvaSecondaryButtonStyle())
+                            }
+
+                            if isActive {
+                                Text("Apple Health is adjusting your calorie goals.")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                        }
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.caption.bold())
+                                .foregroundStyle(.red)
+                        }
+
+                        if showSuccess {
+                            Text("✓ Activity data refreshed.")
+                                .font(.caption.bold())
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
+
+                SettingsSectionCard("How It Works", detail: "All data stays on your device — nothing is sent to Nomva's servers.") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SettingsValueRow(title: "Data Read", value: "Daily active calories")
+                        SettingsValueRow(title: "Window", value: "Last 28 days")
+                        SettingsValueRow(title: "Used For", value: "Calorie goal adjustment")
+                        SettingsValueRow(title: "Privacy", value: "On-device only, always")
+                    }
+                }
+            }
+            .padding(.horizontal, NomvaTheme.contentInset)
+            .padding(.top, 20)
+            .padding(.bottom, 40)
+        }
+        .background(NomvaScreenBackground())
+        .navigationTitle("Apple Health")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await checkStatus()
+        }
+    }
+
+    private var connectionTitle: String {
+        if !AppleHealthService.isAvailable() { return "Unavailable" }
+        if isConnected { return isActive ? "Active Source" : "Connected" }
+        return "Not Connected"
+    }
+
+    private var connectionSubtitle: String {
+        if !AppleHealthService.isAvailable() {
+            return "Apple Health is not available on this device."
+        }
+        if let summary {
+            return "Avg \(Int(summary.averageActiveCalories.rounded())) active kcal/day over \(summary.sampledDays) days"
+        }
+        if isConnected {
+            return "Connected — waiting for activity data"
+        }
+        return "Tap Connect to get started."
+    }
+
+    private func checkStatus() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        guard AppleHealthService.isAvailable() else { return }
+
+        do {
+            let status = try await AppleHealthService.requestStatus()
+            switch status {
+            case .ready:
+                isConnected = true
+                await refreshData()
+            case .shouldRequest:
+                isConnected = false
+            default:
+                isConnected = false
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func connectAppleHealth() async {
+        do {
+            try await AppleHealthService.requestAuthorization()
+            isConnected = true
+            await refreshData()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshData() async {
+        do {
+            summary = try await AppleHealthService.fetchAverageActiveCalories()
+            withAnimation {
+                showSuccess = true
+            }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            withAnimation { showSuccess = false }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ActivitySourceButtonStyleModifier: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.buttonStyle(NomvaSecondaryButtonStyle())
+        } else {
+            content.buttonStyle(NomvaPrimaryButtonStyle())
+        }
     }
 }
 
@@ -576,4 +879,5 @@ struct CustomFoodsListView: View {
 #Preview {
     SettingsView()
         .environmentObject(GarminManager.shared)
+        .environmentObject(NomvaRouteCenter.shared)
 }

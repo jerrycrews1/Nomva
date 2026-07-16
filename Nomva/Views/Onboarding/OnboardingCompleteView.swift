@@ -9,7 +9,7 @@ struct OnboardingCompleteView: View {
         OnboardingShell {
             OnboardingSectionCard(
                 title: "You're all set",
-                subtitle: "Nomva is ready to help you log meals the easy way.",
+                subtitle: "You can start logging right away.",
                 tone: .hero
             ) {
                 VStack(alignment: .leading, spacing: 18) {
@@ -32,7 +32,7 @@ struct OnboardingCompleteView: View {
                         NomvaTag(text: "Ready", tint: .green)
                     }
 
-                    Text("Just tell me what you ate, ask what you have left, or correct an entry in plain English.")
+                    Text("Log a meal, check what's left, or fix an entry without leaving the app.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -40,23 +40,23 @@ struct OnboardingCompleteView: View {
 
             OnboardingSectionCard(
                 title: "What you can do next",
-                subtitle: "The core product is ready from the moment you land on the main tabs."
+                subtitle: "A few places to start."
             ) {
                 VStack(spacing: 14) {
                     OnboardingFeatureRow(
                         icon: "bubble.left.and.bubble.right",
                         title: "Log by talking",
-                        detail: "Type a meal naturally instead of manually searching."
+                        detail: "Type your meal instead of searching for every item."
                     )
                     OnboardingFeatureRow(
                         icon: "slider.horizontal.3",
                         title: "Correct entries quickly",
-                        detail: "Say things like “make that 3 eggs” and keep moving."
+                        detail: "Make quick fixes like \"change that to 3 eggs.\""
                     )
                     OnboardingFeatureRow(
                         icon: "chart.line.uptrend.xyaxis",
                         title: "See your trends",
-                        detail: "Watch calories, macros, water, and weight line up in one place."
+                        detail: "Check calories, macros, water, and weight in one place."
                     )
                 }
             }

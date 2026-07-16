@@ -83,7 +83,7 @@ struct WeightInsightsSection: View {
         let recent = Array(insight.dataPoints.suffix(30))
 
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Fat Loss Velocity")
+            Text("Weight Change Velocity")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
@@ -302,7 +302,7 @@ struct WeightInsightsTeaser: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                featureRow(icon: "chart.line.uptrend.xyaxis", text: "Fat loss velocity chart — see the real trend behind daily noise")
+                featureRow(icon: "chart.line.uptrend.xyaxis", text: "Weight velocity chart — see the real trend behind daily noise")
                 featureRow(icon: "exclamationmark.triangle", text: "Plateau early warnings — know 7–10 days before the scale stalls")
                 featureRow(icon: "gauge.with.needle", text: "EWMA smoothing — scientifically filter out water weight swings")
             }

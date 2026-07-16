@@ -8,7 +8,7 @@ struct OnboardingWelcomeView: View {
         OnboardingShell {
             OnboardingSectionCard(
                 title: "Nomva",
-                subtitle: "Track meals in plain English instead of digging through menus.",
+                subtitle: "Log meals faster.",
                 tone: .hero
             ) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -18,14 +18,12 @@ struct OnboardingWelcomeView: View {
                             .foregroundStyle(NomvaTheme.accentGradient)
 
                         Spacer()
-
-                        NomvaTag(text: "AI-first", tint: NomvaTheme.accent)
                     }
 
                     Text("Just say what you ate.")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
 
-                    Text("Nomva helps you log, revise, and understand your day without making food tracking feel like paperwork.")
+                    Text("Log food, fix entries, and keep an eye on your day without turning tracking into busywork.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -33,23 +31,23 @@ struct OnboardingWelcomeView: View {
 
             OnboardingSectionCard(
                 title: "What gets easier",
-                subtitle: "A quick setup gives the app context for smarter summaries."
+                subtitle: "A quick setup gives your daily targets a better starting point."
             ) {
                 VStack(spacing: 14) {
                     OnboardingFeatureRow(
                         icon: "message.badge.waveform",
                         title: "Natural meal logging",
-                        detail: "Describe meals the way you actually think about them."
+                        detail: "Describe a meal the way you'd normally type it."
                     )
                     OnboardingFeatureRow(
                         icon: "slider.horizontal.3",
                         title: "Personalized targets",
-                        detail: "Use your body info to estimate calories and macros that fit you."
+                        detail: "Start with calorie and macro targets that fit you better."
                     )
                     OnboardingFeatureRow(
                         icon: "icloud",
                         title: "Optional sync",
-                        detail: "Keep your data private on-device or sync across Apple devices."
+                        detail: "Keep your data on this device or sync with iCloud."
                     )
                 }
             }

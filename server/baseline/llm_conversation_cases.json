@@ -1,0 +1,2853 @@
+[
+  {
+    "difficulty": "hard",
+    "category": "food_update",
+    "id": "lunch_edit_then_delete_context",
+    "description": "User logs multiple lunch foods, corrects only the fries one turn later, then deletes the sandwich by partial name.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "For lunch I had a grilled chicken sandwich and a small fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Grilled Chicken Sandwich (1 sandwich) — 420 cal\n✓ French Fries (small) — 220 cal"
+      }
+    ],
+    "logSummary": "Grilled Chicken Sandwich (1 sandwich, lunch)\nFrench Fries (small, lunch)",
+    "message": "Actually the fries were medium.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "French Fries",
+      "editRequest": {
+        "currentEntryName": "French Fries",
+        "currentPortionDescription": "small",
+        "hasExplicitPortion": true,
+        "portionDescription": "medium"
+      }
+    }
+  },
+  {
+    "difficulty": "medium",
+    "category": "food_delete",
+    "id": "delete_previous_sandwich_after_correction",
+    "description": "User deletes a food after a correction turn happened in between.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "For lunch I had a grilled chicken sandwich and a small fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Grilled Chicken Sandwich (1 sandwich) — 420 cal\n✓ French Fries (small) — 220 cal"
+      },
+      {
+        "role": "user",
+        "content": "Actually the fries were medium."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated French Fries to medium."
+      }
+    ],
+    "logSummary": "Grilled Chicken Sandwich (1 sandwich, lunch)\nFrench Fries (medium, lunch)",
+    "message": "Remove the sandwich.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Grilled Chicken Sandwich"
+      ]
+    }
+  },
+  {
+    "difficulty": "hard",
+    "category": "food_update",
+    "id": "ordinal_first_item_edit_after_followup",
+    "description": "User refers to the first item from a breakfast log after another food was added.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal with blueberries and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Blueberries (1 serving) — 80 cal\n✓ Coffee (1 cup) — 5 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also a banana."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Banana (1 medium) — 105 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBlueberries (1 serving, breakfast)\nCoffee (1 cup, breakfast)\nBanana (1 medium, breakfast)",
+    "message": "Make the first one half a cup instead.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Oatmeal",
+      "editRequest": {
+        "currentEntryName": "Oatmeal",
+        "currentPortionDescription": "1 bowl",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "1/2 cup"
+      }
+    }
+  },
+  {
+    "difficulty": "medium",
+    "category": "food_update",
+    "id": "ordinal_second_item_edit",
+    "description": "User corrects the second item from a multi-food assistant confirmation.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had eggs, bacon, and toast for breakfast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Bacon (2 slices) — 90 cal\n✓ Toast (1 slice) — 80 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nBacon (2 slices, breakfast)\nToast (1 slice, breakfast)",
+    "message": "Actually the second one was 3 slices.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Bacon",
+      "editRequest": {
+        "currentEntryName": "Bacon",
+        "currentPortionDescription": "2 slices",
+        "hasExplicitPortion": true,
+        "servings": 3,
+        "portionDescription": "3 slices"
+      }
+    }
+  },
+  {
+    "difficulty": "hard",
+    "category": "food_update",
+    "id": "replace_food_identity_after_last_log",
+    "description": "User corrects the food identity, not just the amount, after the assistant logged the wrong protein.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken curry with rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Curry (1 bowl) — 430 cal\n✓ Rice (1 cup) — 205 cal"
+      }
+    ],
+    "logSummary": "Chicken Curry (1 bowl, dinner)\nRice (1 cup, dinner)",
+    "message": "Actually not chicken curry, it was tofu curry.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chicken Curry",
+      "editRequest": {
+        "currentEntryName": "Chicken Curry",
+        "currentPortionDescription": "1 bowl",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    }
+  },
+  {
+    "difficulty": "hard",
+    "category": "food_delete",
+    "id": "meal_delete_after_multiple_messages",
+    "description": "User clears breakfast after several logged foods and a later water message.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal, blueberries, and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Blueberries (1 serving) — 80 cal\n✓ Coffee (1 cup) — 5 cal"
+      },
+      {
+        "role": "user",
+        "content": "I drank 16 oz water too."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Logged 16 oz of water."
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBlueberries (1 serving, breakfast)\nCoffee (1 cup, breakfast)\nChicken Salad (1 bowl, lunch)",
+    "message": "Actually clear breakfast.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Oatmeal",
+        "Blueberries",
+        "Coffee"
+      ]
+    }
+  },
+  {
+    "difficulty": "medium",
+    "category": "food_delete",
+    "id": "pronoun_delete_last_added_food",
+    "description": "User says remove that after the assistant just logged one additional food.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had soup and crackers."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Soup (1 bowl) — 180 cal\n✓ Crackers (6 crackers) — 120 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also a banana."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Banana (1 medium) — 105 cal"
+      }
+    ],
+    "logSummary": "Soup (1 bowl, lunch)\nCrackers (6 crackers, lunch)\nBanana (1 medium, snack)",
+    "message": "Remove that.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Banana"
+      ]
+    }
+  },
+  {
+    "difficulty": "hard",
+    "category": "clarification",
+    "id": "vague_object_needs_clarification",
+    "description": "User says fix it when several plausible entries exist; model should avoid guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a turkey wrap and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Turkey Wrap (1 wrap) — 390 cal\n✓ Chips (1 bag) — 160 cal"
+      }
+    ],
+    "logSummary": "Turkey Wrap (1 wrap, lunch)\nChips (1 bag, lunch)",
+    "message": "Fix it.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "edit_coffee_two_cups",
+    "difficulty": "easy",
+    "category": "food_update",
+    "description": "Multi-turn edit: Coffee -> 2 cups.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was coffee and a bagel."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Coffee (1 cup) — 5 cal\n✓ Bagel (1 bagel) — 270 cal"
+      }
+    ],
+    "logSummary": "Coffee (1 cup, breakfast)\nBagel (1 bagel, breakfast)",
+    "message": "Actually make the coffee 2 cups.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Coffee",
+      "editRequest": {
+        "currentEntryName": "Coffee",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 cups",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_chips_small_handful_after_thanks",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Chips -> small handful.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a ham sandwich and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Ham Sandwich (1 sandwich) — 350 cal\n✓ Chips (1 bag) — 160 cal"
+      },
+      {
+        "role": "user",
+        "content": "thanks"
+      },
+      {
+        "role": "assistant",
+        "content": "You got it."
+      }
+    ],
+    "logSummary": "Ham Sandwich (1 sandwich, lunch)\nChips (1 bag, lunch)",
+    "message": "Actually the chips were a small handful, not a bag.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chips",
+      "editRequest": {
+        "currentEntryName": "Chips",
+        "currentPortionDescription": "1 bag",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "small handful",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_pizza_three_slices_after_water",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Pizza -> 3 slices.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was pizza and salad."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pizza (2 slices) — 560 cal\n✓ Salad (1 bowl) — 120 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also 20 oz water."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Logged 20 oz water."
+      }
+    ],
+    "logSummary": "Pizza (2 slices, dinner)\nSalad (1 bowl, dinner)",
+    "message": "No, the pizza was 3 slices.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Pizza",
+      "editRequest": {
+        "currentEntryName": "Pizza",
+        "currentPortionDescription": "2 slices",
+        "hasExplicitPortion": true,
+        "servings": 3,
+        "portionDescription": "3 slices",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_ranch_not_hummus",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Ranch Dressing -> 1 tbsp.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had carrots with hummus and ranch dressing."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Carrots (1 cup) — 50 cal\n✓ Hummus (2 tbsp) — 70 cal\n✓ Ranch Dressing (2 tbsp) — 130 cal"
+      }
+    ],
+    "logSummary": "Carrots (1 cup, snack)\nHummus (2 tbsp, snack)\nRanch Dressing (2 tbsp, snack)",
+    "message": "Make the ranch 1 tbsp.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Ranch Dressing",
+      "editRequest": {
+        "currentEntryName": "Ranch Dressing",
+        "currentPortionDescription": "2 tbsp",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "1 tbsp",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_prior_banana_after_yogurt",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Banana -> half banana.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was a banana."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Banana (1 medium) — 105 cal"
+      },
+      {
+        "role": "user",
+        "content": "Then I had yogurt."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Yogurt (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Banana (1 medium, snack)\nYogurt (1 cup, snack)",
+    "message": "Actually that banana was half.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Banana",
+      "editRequest": {
+        "currentEntryName": "Banana",
+        "currentPortionDescription": "1 medium",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half banana",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_chicken_taco_named_duplicate",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Chicken Taco -> 2 tacos.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was a chicken taco and a beef taco."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Taco (1 taco) — 210 cal\n✓ Beef Taco (1 taco) — 240 cal"
+      }
+    ],
+    "logSummary": "Chicken Taco (1 taco, dinner)\nBeef Taco (1 taco, dinner)",
+    "message": "Make the chicken taco two tacos.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chicken Taco",
+      "editRequest": {
+        "currentEntryName": "Chicken Taco",
+        "currentPortionDescription": "1 taco",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 tacos",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_toast_two_slices",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Multi-turn edit: Toast -> 2 slices.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs and toast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nToast (1 slice, breakfast)",
+    "message": "Toast should be two slices.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Toast",
+      "editRequest": {
+        "currentEntryName": "Toast",
+        "currentPortionDescription": "1 slice",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 slices",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_smoothie_large",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Multi-turn edit: Smoothie -> large.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had a smoothie and granola bar."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Smoothie (1 medium) — 240 cal\n✓ Granola Bar (1 bar) — 190 cal"
+      }
+    ],
+    "logSummary": "Smoothie (1 medium, snack)\nGranola Bar (1 bar, snack)",
+    "message": "The smoothie was large.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Smoothie",
+      "editRequest": {
+        "currentEntryName": "Smoothie",
+        "currentPortionDescription": "1 medium",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "large",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_rice_quarter_cup",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Rice -> 1/4 cup.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was tofu curry with rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Tofu Curry (1 bowl) — 380 cal\n✓ Rice (1 cup) — 205 cal"
+      }
+    ],
+    "logSummary": "Tofu Curry (1 bowl, dinner)\nRice (1 cup, dinner)",
+    "message": "Actually only a quarter cup of rice.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Rice",
+      "editRequest": {
+        "currentEntryName": "Rice",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 0.25,
+        "portionDescription": "1/4 cup",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_dressing_not_salad",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Caesar Dressing -> half.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had a caesar salad with caesar dressing."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Caesar Salad (1 bowl) — 180 cal\n✓ Caesar Dressing (2 tbsp) — 160 cal"
+      }
+    ],
+    "logSummary": "Caesar Salad (1 bowl, lunch)\nCaesar Dressing (2 tbsp, lunch)",
+    "message": "Not the salad, the dressing was half that.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Caesar Dressing",
+      "editRequest": {
+        "currentEntryName": "Caesar Dressing",
+        "currentPortionDescription": "2 tbsp",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_without_cheese_sandwich",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Turkey Sandwich -> 1/2 sandwich.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a turkey sandwich and a grilled cheese sandwich."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Turkey Sandwich (1 sandwich) — 330 cal\n✓ Grilled Cheese Sandwich (1 sandwich) — 420 cal"
+      }
+    ],
+    "logSummary": "Turkey Sandwich (1 sandwich, lunch)\nGrilled Cheese Sandwich (1 sandwich, lunch)",
+    "message": "Make the one without cheese half a sandwich.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Turkey Sandwich",
+      "editRequest": {
+        "currentEntryName": "Turkey Sandwich",
+        "currentPortionDescription": "1 sandwich",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "1/2 sandwich",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_not_second_first",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Pancakes -> 2 pancakes.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was pancakes and sausage."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pancakes (3 pancakes) — 300 cal\n✓ Sausage (2 links) — 180 cal"
+      },
+      {
+        "role": "user",
+        "content": "Make the sausage 3 links."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Sausage to 3 links."
+      }
+    ],
+    "logSummary": "Pancakes (3 pancakes, breakfast)\nSausage (3 links, breakfast)",
+    "message": "Wait, not the second thing. The first thing was only two.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Pancakes",
+      "editRequest": {
+        "currentEntryName": "Pancakes",
+        "currentPortionDescription": "3 pancakes",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 pancakes",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_fries_after_clarify",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Fries -> medium.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger and large fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (large) — 480 cal"
+      },
+      {
+        "role": "user",
+        "content": "Fix it."
+      },
+      {
+        "role": "assistant",
+        "content": "What should I change?"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (large, lunch)",
+    "message": "The fries. Medium.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Fries",
+      "editRequest": {
+        "currentEntryName": "Fries",
+        "currentPortionDescription": "large",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "medium",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_greek_yogurt_three_quarter",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Greek Yogurt -> 3/4 cup.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal, blueberries, and greek yogurt."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Blueberries (1 cup) — 85 cal\n✓ Greek Yogurt (1 cup) — 130 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBlueberries (1 cup, breakfast)\nGreek Yogurt (1 cup, breakfast)",
+    "message": "Actually make the yogurt 3/4 cup.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Greek Yogurt",
+      "editRequest": {
+        "currentEntryName": "Greek Yogurt",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 0.75,
+        "portionDescription": "3/4 cup",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_milk_in_coffee",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Milk -> 1/4 cup.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Coffee with milk and a muffin."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Coffee (1 cup) — 5 cal\n✓ Milk (2 tbsp) — 20 cal\n✓ Muffin (1 muffin) — 330 cal"
+      }
+    ],
+    "logSummary": "Coffee (1 cup, breakfast)\nMilk (2 tbsp, breakfast)\nMuffin (1 muffin, breakfast)",
+    "message": "Actually the milk in the coffee was 1/4 cup.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Milk",
+      "editRequest": {
+        "currentEntryName": "Milk",
+        "currentPortionDescription": "2 tbsp",
+        "hasExplicitPortion": true,
+        "servings": 0.25,
+        "portionDescription": "1/4 cup",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_peanut_butter_not_toast",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Peanut Butter -> 2 tablespoons.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had toast with peanut butter."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Toast (1 slice) — 80 cal\n✓ Peanut Butter (1 tbsp) — 95 cal"
+      }
+    ],
+    "logSummary": "Toast (1 slice, breakfast)\nPeanut Butter (1 tbsp, breakfast)",
+    "message": "The peanut butter was two tablespoons, not the toast.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Peanut Butter",
+      "editRequest": {
+        "currentEntryName": "Peanut Butter",
+        "currentPortionDescription": "1 tbsp",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 tablespoons",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_juice_after_delete",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Orange Juice -> 8 oz.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast: eggs, toast, and orange juice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal\n✓ Orange Juice (1 cup) — 110 cal"
+      },
+      {
+        "role": "user",
+        "content": "Remove the toast."
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Toast."
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nOrange Juice (1 cup, breakfast)",
+    "message": "Make the juice 8 oz.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Orange Juice",
+      "editRequest": {
+        "currentEntryName": "Orange Juice",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "portionDescription": "8 oz",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_third_item_apple",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Apple -> 2 apples.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was almonds, cheese, and an apple."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Almonds (1 oz) — 165 cal\n✓ Cheese (1 oz) — 110 cal\n✓ Apple (1 medium) — 95 cal"
+      }
+    ],
+    "logSummary": "Almonds (1 oz, snack)\nCheese (1 oz, snack)\nApple (1 medium, snack)",
+    "message": "Actually the third item was two apples.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Apple",
+      "editRequest": {
+        "currentEntryName": "Apple",
+        "currentPortionDescription": "1 medium",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 apples",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_after_identity_correction",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Tofu Curry -> half bowl.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken curry with rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Curry (1 bowl) — 430 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "Actually not chicken curry, tofu curry."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Chicken Curry to Tofu Curry."
+      }
+    ],
+    "logSummary": "Tofu Curry (1 bowl, dinner)\nRice (1 cup, dinner)",
+    "message": "And make that half a bowl.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Tofu Curry",
+      "editRequest": {
+        "currentEntryName": "Tofu Curry",
+        "currentPortionDescription": "1 bowl",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half bowl",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_popcorn_regular",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Multi-turn edit: Popcorn -> regular.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Movie snack was large popcorn and diet soda."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Popcorn (large) — 500 cal\n✓ Diet Soda (1 cup) — 0 cal"
+      }
+    ],
+    "logSummary": "Popcorn (large, snack)\nDiet Soda (1 cup, snack)",
+    "message": "Actually regular popcorn.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Popcorn",
+      "editRequest": {
+        "currentEntryName": "Popcorn",
+        "currentPortionDescription": "large",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "regular",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_nuggets_written_word",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Multi-turn edit: Chicken Nuggets -> 4 nuggets.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was chicken nuggets and apple slices."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Nuggets (6 nuggets) — 280 cal\n✓ Apple Slices (1 pack) — 35 cal"
+      }
+    ],
+    "logSummary": "Chicken Nuggets (6 nuggets, lunch)\nApple Slices (1 pack, lunch)",
+    "message": "Actually four nuggets.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chicken Nuggets",
+      "editRequest": {
+        "currentEntryName": "Chicken Nuggets",
+        "currentPortionDescription": "6 nuggets",
+        "hasExplicitPortion": true,
+        "servings": 4,
+        "portionDescription": "4 nuggets",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_taco_after_query",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Fish Taco -> 2 tacos.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was fish taco and rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Fish Taco (1 taco) — 230 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "How many calories today?"
+      },
+      {
+        "role": "assistant",
+        "content": "You are at about 1,600 calories."
+      }
+    ],
+    "logSummary": "Fish Taco (1 taco, dinner)\nRice (1 cup, dinner)",
+    "message": "Make the fish taco two tacos.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Fish Taco",
+      "editRequest": {
+        "currentEntryName": "Fish Taco",
+        "currentPortionDescription": "1 taco",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 tacos",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_pasta_small_bowl",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Multi-turn edit: Pasta -> small bowl.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was pasta and garlic bread."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pasta (1 bowl) — 420 cal\n✓ Garlic Bread (1 slice) — 170 cal"
+      }
+    ],
+    "logSummary": "Pasta (1 bowl, dinner)\nGarlic Bread (1 slice, dinner)",
+    "message": "Pasta was a small bowl.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Pasta",
+      "editRequest": {
+        "currentEntryName": "Pasta",
+        "currentPortionDescription": "1 bowl",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "small bowl",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_chickfila_nuggets_five",
+    "difficulty": "hard",
+    "category": "food_update",
+    "description": "Multi-turn edit: Chick-fil-A Nuggets -> 5 pieces.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had Chick-fil-A nuggets and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chick-fil-A Nuggets (8 nuggets) — 250 cal\n✓ Waffle Fries (medium) — 420 cal"
+      }
+    ],
+    "logSummary": "Chick-fil-A Nuggets (8 nuggets, lunch)\nWaffle Fries (medium, lunch)",
+    "message": "Actually the nuggets were 5 pieces.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chick-fil-A Nuggets",
+      "editRequest": {
+        "currentEntryName": "Chick-fil-A Nuggets",
+        "currentPortionDescription": "8 nuggets",
+        "hasExplicitPortion": true,
+        "servings": 5,
+        "portionDescription": "5 pieces",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "edit_second_coffee_drink",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Latte -> 12 oz.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Morning drinks were black coffee and a latte."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black Coffee (1 cup) — 5 cal\n✓ Latte (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Black Coffee (1 cup, breakfast)\nLatte (1 cup, breakfast)",
+    "message": "Make the second coffee drink 12 oz.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Latte",
+      "editRequest": {
+        "currentEntryName": "Latte",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "portionDescription": "12 oz",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "identity_turkey_not_ham",
+    "difficulty": "medium",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Ham Sandwich -> turkey sandwich.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a ham sandwich and carrots."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Ham Sandwich (1 sandwich) — 350 cal\n✓ Carrots (1 cup) — 50 cal"
+      }
+    ],
+    "logSummary": "Ham Sandwich (1 sandwich, lunch)\nCarrots (1 cup, lunch)",
+    "message": "Actually it was turkey, not ham.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Ham Sandwich",
+      "editRequest": {
+        "currentEntryName": "Ham Sandwich",
+        "currentPortionDescription": "1 sandwich",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 sandwich",
+        "replacementSearchQuery": "turkey sandwich"
+      }
+    }
+  },
+  {
+    "id": "identity_salmon_not_tuna",
+    "difficulty": "hard",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Tuna Salad -> salmon salad.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had tuna salad and crackers."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Tuna Salad (1 bowl) — 300 cal\n✓ Crackers (6 crackers) — 120 cal"
+      }
+    ],
+    "logSummary": "Tuna Salad (1 bowl, lunch)\nCrackers (6 crackers, lunch)",
+    "message": "Not tuna salad, salmon salad.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Tuna Salad",
+      "editRequest": {
+        "currentEntryName": "Tuna Salad",
+        "currentPortionDescription": "1 bowl",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "salmon salad"
+      }
+    }
+  },
+  {
+    "id": "identity_beef_not_chicken_burrito",
+    "difficulty": "hard",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Chicken Burrito -> beef burrito.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was a chicken burrito and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Burrito (1 burrito) — 650 cal\n✓ Chips (1 bag) — 160 cal"
+      }
+    ],
+    "logSummary": "Chicken Burrito (1 burrito, dinner)\nChips (1 bag, dinner)",
+    "message": "Actually beef burrito, same size.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Chicken Burrito",
+      "editRequest": {
+        "currentEntryName": "Chicken Burrito",
+        "currentPortionDescription": "1 burrito",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 burrito",
+        "replacementSearchQuery": "beef burrito"
+      }
+    }
+  },
+  {
+    "id": "identity_almond_milk",
+    "difficulty": "ridiculous",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Milk -> almond milk.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Cereal with milk for breakfast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Cereal (1 bowl) — 180 cal\n✓ Milk (1 cup) — 120 cal"
+      }
+    ],
+    "logSummary": "Cereal (1 bowl, breakfast)\nMilk (1 cup, breakfast)",
+    "message": "The milk was almond milk.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Milk",
+      "editRequest": {
+        "currentEntryName": "Milk",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 cup",
+        "replacementSearchQuery": "almond milk"
+      }
+    }
+  },
+  {
+    "id": "identity_veggie_burger",
+    "difficulty": "hard",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Burger -> veggie burger.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)",
+    "message": "Actually veggie burger, not regular burger.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Burger",
+      "editRequest": {
+        "currentEntryName": "Burger",
+        "currentPortionDescription": "1 burger",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 burger",
+        "replacementSearchQuery": "veggie burger"
+      }
+    }
+  },
+  {
+    "id": "identity_cauliflower_rice",
+    "difficulty": "ridiculous",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Rice -> cauliflower rice.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken, rice, and broccoli."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken (6 oz) — 280 cal\n✓ Rice (1 cup) — 205 cal\n✓ Broccoli (1 cup) — 55 cal"
+      }
+    ],
+    "logSummary": "Chicken (6 oz, dinner)\nRice (1 cup, dinner)\nBroccoli (1 cup, dinner)",
+    "message": "The rice was cauliflower rice, same amount.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Rice",
+      "editRequest": {
+        "currentEntryName": "Rice",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 cup",
+        "replacementSearchQuery": "cauliflower rice"
+      }
+    }
+  },
+  {
+    "id": "identity_greek_yogurt",
+    "difficulty": "hard",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Yogurt -> greek yogurt.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was yogurt with berries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Yogurt (1 cup) — 150 cal\n✓ Berries (1 cup) — 70 cal"
+      }
+    ],
+    "logSummary": "Yogurt (1 cup, snack)\nBerries (1 cup, snack)",
+    "message": "Actually Greek yogurt.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Yogurt",
+      "editRequest": {
+        "currentEntryName": "Yogurt",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "portionDescription": "1 cup",
+        "replacementSearchQuery": "greek yogurt"
+      }
+    }
+  },
+  {
+    "id": "identity_chicken_sausage",
+    "difficulty": "ridiculous",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Sausage -> chicken sausage.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs and sausage."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Sausage (2 links) — 180 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nSausage (2 links, breakfast)",
+    "message": "Not pork sausage, chicken sausage.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Sausage",
+      "editRequest": {
+        "currentEntryName": "Sausage",
+        "currentPortionDescription": "2 links",
+        "hasExplicitPortion": true,
+        "portionDescription": "2 links",
+        "replacementSearchQuery": "chicken sausage"
+      }
+    }
+  },
+  {
+    "id": "identity_sweet_potato_fries",
+    "difficulty": "hard",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Fries -> sweet potato fries.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had a turkey burger and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Turkey Burger (1 burger) — 420 cal\n✓ Fries (medium) — 360 cal"
+      }
+    ],
+    "logSummary": "Turkey Burger (1 burger, dinner)\nFries (medium, dinner)",
+    "message": "Those were sweet potato fries.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Fries",
+      "editRequest": {
+        "currentEntryName": "Fries",
+        "currentPortionDescription": "medium",
+        "hasExplicitPortion": true,
+        "portionDescription": "medium",
+        "replacementSearchQuery": "sweet potato fries"
+      }
+    }
+  },
+  {
+    "id": "identity_decaf_latte",
+    "difficulty": "medium",
+    "category": "food_update_identity",
+    "description": "Multi-turn identity correction: Latte -> decaf latte.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had a 12 oz latte."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Latte (12 oz) — 150 cal"
+      }
+    ],
+    "logSummary": "Latte (12 oz, breakfast)",
+    "message": "Make that decaf latte, same 12 oz.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Latte",
+      "editRequest": {
+        "currentEntryName": "Latte",
+        "currentPortionDescription": "12 oz",
+        "hasExplicitPortion": true,
+        "portionDescription": "12 oz",
+        "replacementSearchQuery": "decaf latte"
+      }
+    }
+  },
+  {
+    "id": "delete_last_after_multiple_adds",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Protein Bar.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had soup and crackers."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Soup (1 bowl) — 180 cal\n✓ Crackers (6 crackers) — 120 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also a protein bar."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Protein Bar (1 bar) — 220 cal"
+      }
+    ],
+    "logSummary": "Soup (1 bowl, lunch)\nCrackers (6 crackers, lunch)\nProtein Bar (1 bar, snack)",
+    "message": "Remove the last thing.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Protein Bar"
+      ]
+    }
+  },
+  {
+    "id": "delete_first_breakfast",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Oatmeal.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal, banana, and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Banana (1 medium) — 105 cal\n✓ Coffee (1 cup) — 5 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBanana (1 medium, breakfast)\nCoffee (1 cup, breakfast)",
+    "message": "Delete the first thing I logged for breakfast.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Oatmeal"
+      ]
+    }
+  },
+  {
+    "id": "delete_second_lunch_after_query",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Chips.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was turkey sandwich, chips, and apple."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Turkey Sandwich (1 sandwich) — 330 cal\n✓ Chips (1 bag) — 160 cal\n✓ Apple (1 medium) — 95 cal"
+      },
+      {
+        "role": "user",
+        "content": "How am I doing on protein?"
+      },
+      {
+        "role": "assistant",
+        "content": "You are a little low on protein."
+      }
+    ],
+    "logSummary": "Turkey Sandwich (1 sandwich, lunch)\nChips (1 bag, lunch)\nApple (1 medium, lunch)",
+    "message": "Remove the second one from lunch.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Chips"
+      ]
+    }
+  },
+  {
+    "id": "delete_all_dinner",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Steak, Potatoes, Asparagus.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was steak, potatoes, and asparagus."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Steak (6 oz) — 430 cal\n✓ Potatoes (1 cup) — 160 cal\n✓ Asparagus (1 cup) — 40 cal"
+      }
+    ],
+    "logSummary": "Steak (6 oz, dinner)\nPotatoes (1 cup, dinner)\nAsparagus (1 cup, dinner)\nYogurt (1 cup, snack)",
+    "message": "Clear dinner.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Steak",
+        "Potatoes",
+        "Asparagus"
+      ]
+    }
+  },
+  {
+    "id": "delete_food_keep_drink",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Muffin.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had a muffin and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Muffin (1 muffin) — 330 cal\n✓ Coffee (1 cup) — 5 cal"
+      }
+    ],
+    "logSummary": "Muffin (1 muffin, breakfast)\nCoffee (1 cup, breakfast)",
+    "message": "Remove the food but keep the drink.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Muffin"
+      ]
+    }
+  },
+  {
+    "id": "delete_drink_not_food",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Orange Juice.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs, toast, and orange juice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal\n✓ Orange Juice (1 cup) — 110 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nToast (1 slice, breakfast)\nOrange Juice (1 cup, breakfast)",
+    "message": "Delete the drink.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Orange Juice"
+      ]
+    }
+  },
+  {
+    "id": "delete_after_correction_pronoun",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Fries.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a burger and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (large) — 480 cal"
+      },
+      {
+        "role": "user",
+        "content": "Fries were medium."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Fries to medium."
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)",
+    "message": "Actually remove that now.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Fries"
+      ]
+    }
+  },
+  {
+    "id": "delete_named_duplicate_chicken",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Chicken Salad.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was chicken salad and chicken soup."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Salad (1 bowl) — 300 cal\n✓ Chicken Soup (1 bowl) — 180 cal"
+      }
+    ],
+    "logSummary": "Chicken Salad (1 bowl, lunch)\nChicken Soup (1 bowl, lunch)",
+    "message": "Remove chicken salad, not chicken soup.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Chicken Salad"
+      ]
+    }
+  },
+  {
+    "id": "delete_side_only",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Coleslaw.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was ribs with coleslaw."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Ribs (1 serving) — 520 cal\n✓ Coleslaw (1 cup) — 170 cal"
+      }
+    ],
+    "logSummary": "Ribs (1 serving, dinner)\nColeslaw (1 cup, dinner)",
+    "message": "Remove the side.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Coleslaw"
+      ]
+    }
+  },
+  {
+    "id": "delete_food_after_water_turn",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Apple.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was an apple."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Apple (1 medium) — 95 cal"
+      },
+      {
+        "role": "user",
+        "content": "I also drank 12 oz water."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Logged 12 oz water."
+      }
+    ],
+    "logSummary": "Apple (1 medium, snack)",
+    "message": "Remove that snack.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Apple"
+      ]
+    }
+  },
+  {
+    "id": "delete_breakfast_after_lunch",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Eggs, Toast.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs and toast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal"
+      },
+      {
+        "role": "user",
+        "content": "Lunch was salad."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Salad (1 bowl) — 220 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nToast (1 slice, breakfast)\nSalad (1 bowl, lunch)",
+    "message": "Delete breakfast only.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Eggs",
+        "Toast"
+      ]
+    }
+  },
+  {
+    "id": "delete_third_item",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Cookie.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was grapes, cheese, cookie, and tea."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Grapes (1 cup) — 100 cal\n✓ Cheese (1 oz) — 110 cal\n✓ Cookie (1 cookie) — 150 cal\n✓ Tea (1 cup) — 0 cal"
+      }
+    ],
+    "logSummary": "Grapes (1 cup, snack)\nCheese (1 oz, snack)\nCookie (1 cookie, snack)\nTea (1 cup, snack)",
+    "message": "Remove the third item.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Cookie"
+      ]
+    }
+  },
+  {
+    "id": "delete_two_named_items",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Fries, Soda.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger, fries, soda, and apple slices."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal\n✓ Soda (1 cup) — 150 cal\n✓ Apple Slices (1 pack) — 35 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)\nSoda (1 cup, lunch)\nApple Slices (1 pack, lunch)",
+    "message": "Remove the fries and soda.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Fries",
+        "Soda"
+      ]
+    }
+  },
+  {
+    "id": "delete_small_fries_only",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Small Fries.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had small fries earlier and large fries at dinner."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Small Fries (1 serving) — 220 cal\n✓ Large Fries (1 serving) — 480 cal"
+      }
+    ],
+    "logSummary": "Small Fries (1 serving, lunch)\nLarge Fries (1 serving, dinner)",
+    "message": "Delete the small fries, keep the large fries.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Small Fries"
+      ]
+    }
+  },
+  {
+    "id": "delete_all_snacks",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Almonds, Protein Shake.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snacks were almonds and a protein shake."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Almonds (1 oz) — 165 cal\n✓ Protein Shake (1 shake) — 200 cal"
+      }
+    ],
+    "logSummary": "Almonds (1 oz, snack)\nProtein Shake (1 shake, snack)\nChicken (6 oz, dinner)",
+    "message": "Clear snacks.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Almonds",
+        "Protein Shake"
+      ]
+    }
+  },
+  {
+    "id": "delete_after_rice_update",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Rice.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was curry and rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Curry (1 bowl) — 400 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "Make the rice half cup."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Rice to 1/2 cup."
+      }
+    ],
+    "logSummary": "Curry (1 bowl, dinner)\nRice (1/2 cup, dinner)",
+    "message": "Remove it.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Rice"
+      ]
+    }
+  },
+  {
+    "id": "delete_wrongly_logged_chips",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Chips.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was sandwich and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Sandwich (1 sandwich) — 350 cal\n✓ Chips (1 bag) — 160 cal"
+      }
+    ],
+    "logSummary": "Sandwich (1 sandwich, lunch)\nChips (1 bag, lunch)",
+    "message": "I did not have the chips.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Chips"
+      ]
+    }
+  },
+  {
+    "id": "delete_breakfast_except_coffee",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Oatmeal, Blueberries.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal, blueberries, and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Blueberries (1 cup) — 85 cal\n✓ Coffee (1 cup) — 5 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBlueberries (1 cup, breakfast)\nCoffee (1 cup, breakfast)",
+    "message": "Remove everything from breakfast except the coffee.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Oatmeal",
+        "Blueberries"
+      ]
+    }
+  },
+  {
+    "id": "delete_prior_not_latest",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Banana.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was banana."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Banana (1 medium) — 105 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also yogurt."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Yogurt (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Banana (1 medium, snack)\nYogurt (1 cup, snack)",
+    "message": "Remove the banana from before, not the yogurt.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Banana"
+      ]
+    }
+  },
+  {
+    "id": "delete_lunch_after_dinner_correction",
+    "difficulty": "hard",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Turkey Wrap, Chips.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was turkey wrap and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Turkey Wrap (1 wrap) — 390 cal\n✓ Chips (1 bag) — 160 cal"
+      },
+      {
+        "role": "user",
+        "content": "Dinner was pasta."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pasta (1 bowl) — 420 cal"
+      },
+      {
+        "role": "user",
+        "content": "Pasta was small."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Pasta to small bowl."
+      }
+    ],
+    "logSummary": "Turkey Wrap (1 wrap, lunch)\nChips (1 bag, lunch)\nPasta (small bowl, dinner)",
+    "message": "Now delete lunch.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Turkey Wrap",
+        "Chips"
+      ]
+    }
+  },
+  {
+    "id": "clarify_that_was_wrong_many",
+    "difficulty": "hard",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger, fries, and soda."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal\n✓ Soda (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)\nSoda (1 cup, lunch)",
+    "message": "That was wrong.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_change_it_many",
+    "difficulty": "hard",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs and toast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal"
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nToast (1 slice, breakfast)",
+    "message": "Change it.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_actually_less",
+    "difficulty": "medium",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was almonds and cheese."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Almonds (1 oz) — 165 cal\n✓ Cheese (1 oz) — 110 cal"
+      }
+    ],
+    "logSummary": "Almonds (1 oz, snack)\nCheese (1 oz, snack)",
+    "message": "Actually less.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_second_after_two_lists",
+    "difficulty": "ridiculous",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal and banana."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Banana (1 medium) — 105 cal"
+      },
+      {
+        "role": "user",
+        "content": "Lunch was soup and salad."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Soup (1 bowl) — 180 cal\n✓ Salad (1 bowl) — 220 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBanana (1 medium, breakfast)\nSoup (1 bowl, lunch)\nSalad (1 bowl, lunch)",
+    "message": "Make the second one bigger.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_something_else",
+    "difficulty": "ridiculous",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken and rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken (6 oz) — 280 cal\n✓ Rice (1 cup) — 205 cal"
+      }
+    ],
+    "logSummary": "Chicken (6 oz, dinner)\nRice (1 cup, dinner)",
+    "message": "Actually it was something else.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_too_much",
+    "difficulty": "hard",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had pasta, bread, and wine."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pasta (1 bowl) — 420 cal\n✓ Bread (1 slice) — 100 cal\n✓ Wine (1 glass) — 125 cal"
+      }
+    ],
+    "logSummary": "Pasta (1 bowl, dinner)\nBread (1 slice, dinner)\nWine (1 glass, dinner)",
+    "message": "Too much.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_fix_lunch",
+    "difficulty": "hard",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was wrap, chips, and apple."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Wrap (1 wrap) — 390 cal\n✓ Chips (1 bag) — 160 cal\n✓ Apple (1 medium) — 95 cal"
+      }
+    ],
+    "logSummary": "Wrap (1 wrap, lunch)\nChips (1 bag, lunch)\nApple (1 medium, lunch)",
+    "message": "Fix lunch.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_wrong_after_query",
+    "difficulty": "ridiculous",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was cereal and milk."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Cereal (1 bowl) — 180 cal\n✓ Milk (1 cup) — 120 cal"
+      },
+      {
+        "role": "user",
+        "content": "How much protein today?"
+      },
+      {
+        "role": "assistant",
+        "content": "About 20g so far."
+      }
+    ],
+    "logSummary": "Cereal (1 bowl, breakfast)\nMilk (1 cup, breakfast)",
+    "message": "No, that is wrong.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_make_healthier",
+    "difficulty": "medium",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was pizza and soda."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pizza (2 slices) — 560 cal\n✓ Soda (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Pizza (2 slices, lunch)\nSoda (1 cup, lunch)",
+    "message": "Make it healthier.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "clarify_undo_that",
+    "difficulty": "hard",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was salmon and rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Salmon (6 oz) — 350 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also broccoli."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Broccoli (1 cup) — 55 cal"
+      }
+    ],
+    "logSummary": "Salmon (6 oz, dinner)\nRice (1 cup, dinner)\nBroccoli (1 cup, dinner)",
+    "message": "Undo that.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "create_log_more_food_after_context",
+    "difficulty": "easy",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was sandwich."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Sandwich (1 sandwich) — 350 cal"
+      }
+    ],
+    "logSummary": "Sandwich (1 sandwich, lunch)",
+    "message": "Also had an apple.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "create_same_meal_food",
+    "difficulty": "easy",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was pasta."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Pasta (1 bowl) — 420 cal"
+      }
+    ],
+    "logSummary": "Pasta (1 bowl, dinner)",
+    "message": "Add a side salad too.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "read_calories_after_edits",
+    "difficulty": "easy",
+    "category": "food_read",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was eggs and toast."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Eggs (2 eggs) — 140 cal\n✓ Toast (1 slice) — 80 cal"
+      },
+      {
+        "role": "user",
+        "content": "Make toast two slices."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Toast to 2 slices."
+      }
+    ],
+    "logSummary": "Eggs (2 eggs, breakfast)\nToast (2 slices, breakfast)",
+    "message": "How many calories am I at now?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "read_protein_specific_meal",
+    "difficulty": "easy",
+    "category": "food_read",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken and broccoli."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken (6 oz) — 280 cal\n✓ Broccoli (1 cup) — 55 cal"
+      }
+    ],
+    "logSummary": "Chicken (6 oz, dinner)\nBroccoli (1 cup, dinner)",
+    "message": "How much protein was dinner?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "create_actually_also_cookie",
+    "difficulty": "medium",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was yogurt."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Yogurt (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Yogurt (1 cup, snack)",
+    "message": "Actually also a cookie.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "query_not_delete",
+    "difficulty": "medium",
+    "category": "food_read",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was soup and bread."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Soup (1 bowl) — 180 cal\n✓ Bread (1 slice) — 100 cal"
+      },
+      {
+        "role": "user",
+        "content": "Remove bread."
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Bread."
+      }
+    ],
+    "logSummary": "Soup (1 bowl, lunch)",
+    "message": "What did I delete earlier?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "reply_thanks_after_log",
+    "difficulty": "easy",
+    "category": "reply",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was salmon."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Salmon (6 oz) — 350 cal"
+      }
+    ],
+    "logSummary": "Salmon (6 oz, dinner)",
+    "message": "Thanks!",
+    "expect": {
+      "intent": "reply"
+    }
+  },
+  {
+    "id": "create_food_after_water",
+    "difficulty": "medium",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I drank 16 oz water."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Logged 16 oz water."
+      }
+    ],
+    "logSummary": "",
+    "message": "And a granola bar.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "query_after_vague_fix",
+    "difficulty": "hard",
+    "category": "food_read",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal"
+      },
+      {
+        "role": "user",
+        "content": "Fix it."
+      },
+      {
+        "role": "assistant",
+        "content": "What should I change?"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)",
+    "message": "Which items are logged for lunch?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "create_new_meal_not_edit",
+    "difficulty": "hard",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was tacos."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Tacos (2 tacos) — 420 cal"
+      }
+    ],
+    "logSummary": "Tacos (2 tacos, lunch)",
+    "message": "For dinner I had tacos.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "delete_polite_soda",
+    "difficulty": "medium",
+    "category": "food_delete",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger, fries, and soda."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal\n✓ Soda (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)\nSoda (1 cup, lunch)",
+    "message": "Could you please remove the soda from lunch?",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Soda"
+      ]
+    }
+  },
+  {
+    "id": "edit_polite_fries_small",
+    "difficulty": "medium",
+    "category": "food_update",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger and medium fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)",
+    "message": "Could you change the fries to small?",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Fries",
+      "editRequest": {
+        "currentEntryName": "Fries",
+        "currentPortionDescription": "medium",
+        "hasExplicitPortion": true,
+        "portionDescription": "small"
+      }
+    }
+  },
+  {
+    "id": "create_cottage_cheese",
+    "difficulty": "hard",
+    "category": "food_create",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)",
+    "message": "Also add half a cup of cottage cheese.",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "read_water_after_food",
+    "difficulty": "medium",
+    "category": "food_read",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "I had lunch and 20 oz water."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Lunch (1 serving) — 500 cal\n✓ Logged 20 oz water."
+      }
+    ],
+    "logSummary": "Lunch (1 serving, lunch)",
+    "message": "How much water after that?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "reply_smalltalk_not_crud",
+    "difficulty": "easy",
+    "category": "reply",
+    "description": "Contextual intent classification case.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was apple."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Apple (1 medium) — 95 cal"
+      }
+    ],
+    "logSummary": "Apple (1 medium, snack)",
+    "message": "You are the best.",
+    "expect": {
+      "intent": "reply"
+    }
+  },
+  {
+    "id": "ridiculous_former_last",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Yogurt -> half.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was apple and yogurt."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Apple (1 medium) — 95 cal\n✓ Yogurt (1 cup) — 150 cal"
+      },
+      {
+        "role": "user",
+        "content": "Also tea."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Tea (1 cup) — 0 cal"
+      }
+    ],
+    "logSummary": "Apple (1 medium, snack)\nYogurt (1 cup, snack)\nTea (1 cup, snack)",
+    "message": "Make the former last thing half.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Yogurt",
+      "editRequest": {
+        "currentEntryName": "Yogurt",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "ridiculous_parenthetical_reference",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Blueberries -> 2 cups.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Breakfast was oatmeal (with blueberries) and coffee."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Oatmeal (1 bowl) — 160 cal\n✓ Blueberries (1 cup) — 85 cal\n✓ Coffee (1 cup) — 5 cal"
+      }
+    ],
+    "logSummary": "Oatmeal (1 bowl, breakfast)\nBlueberries (1 cup, breakfast)\nCoffee (1 cup, breakfast)",
+    "message": "Change the thing in parentheses to 2 cups.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Blueberries",
+      "editRequest": {
+        "currentEntryName": "Blueberries",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 2,
+        "portionDescription": "2 cups",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "ridiculous_keep_main_remove_modifier",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Cheese.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger with cheese and fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Cheese (1 slice) — 110 cal\n✓ Fries (medium) — 360 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nCheese (1 slice, lunch)\nFries (medium, lunch)",
+    "message": "Remove the add-on but keep the burger.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Cheese"
+      ]
+    }
+  },
+  {
+    "id": "ridiculous_double_negative_delete",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Soda.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger, fries, and soda."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (medium) — 360 cal\n✓ Soda (1 cup) — 150 cal"
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)\nSoda (1 cup, lunch)",
+    "message": "I did not not have the fries. Remove the soda instead.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Soda"
+      ]
+    }
+  },
+  {
+    "id": "ridiculous_anaphora_same_amount",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Hummus -> 1 cup.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was carrots and hummus."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Carrots (1 cup) — 50 cal\n✓ Hummus (2 tbsp) — 70 cal"
+      }
+    ],
+    "logSummary": "Carrots (1 cup, snack)\nHummus (2 tbsp, snack)",
+    "message": "Make it the same amount as the one before it.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Hummus",
+      "editRequest": {
+        "currentEntryName": "Hummus",
+        "currentPortionDescription": "2 tbsp",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "ridiculous_delete_between",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Crackers.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was soup, crackers, and tea."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Soup (1 bowl) — 180 cal\n✓ Crackers (6 crackers) — 120 cal\n✓ Tea (1 cup) — 0 cal"
+      }
+    ],
+    "logSummary": "Soup (1 bowl, snack)\nCrackers (6 crackers, snack)\nTea (1 cup, snack)",
+    "message": "Drop the thing I said between soup and tea.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Crackers"
+      ]
+    }
+  },
+  {
+    "id": "ridiculous_breakfast_burrito_at_lunch",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Breakfast Burrito -> half.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was a breakfast burrito and chips."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Breakfast Burrito (1 burrito) — 600 cal\n✓ Chips (1 bag) — 160 cal"
+      }
+    ],
+    "logSummary": "Breakfast Burrito (1 burrito, lunch)\nChips (1 bag, lunch)",
+    "message": "Make the breakfast burrito half.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Breakfast Burrito",
+      "editRequest": {
+        "currentEntryName": "Breakfast Burrito",
+        "currentPortionDescription": "1 burrito",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "ridiculous_delete_old_identity",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Chicken Curry.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken curry with rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken Curry (1 bowl) — 430 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "Actually tofu curry, not chicken curry."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Chicken Curry to Tofu Curry."
+      }
+    ],
+    "logSummary": "Chicken Curry (1 bowl, dinner)\nTofu Curry (1 bowl, dinner)\nRice (1 cup, dinner)",
+    "message": "Remove that, but I mean the old one.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Chicken Curry"
+      ]
+    }
+  },
+  {
+    "id": "ridiculous_same_name_clarify",
+    "difficulty": "ridiculous",
+    "category": "clarification",
+    "description": "Ambiguous contextual edit should ask a clarification question instead of guessing.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch had side salad and chicken salad."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Side Salad (1 bowl) — 120 cal\n✓ Chicken Salad (1 bowl) — 300 cal"
+      }
+    ],
+    "logSummary": "Side Salad (1 bowl, lunch)\nChicken Salad (1 bowl, lunch)",
+    "message": "Make the salad smaller.",
+    "expect": {
+      "intent": "edit_food",
+      "clarification": true
+    }
+  },
+  {
+    "id": "ridiculous_other_that_rice",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Rice -> half.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Dinner was chicken and rice."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Chicken (6 oz) — 280 cal\n✓ Rice (1 cup) — 205 cal"
+      },
+      {
+        "role": "user",
+        "content": "Remove that."
+      },
+      {
+        "role": "assistant",
+        "content": "Do you mean Chicken or Rice?"
+      }
+    ],
+    "logSummary": "Chicken (6 oz, dinner)\nRice (1 cup, dinner)",
+    "message": "Not that that, the other that: make rice half.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Rice",
+      "editRequest": {
+        "currentEntryName": "Rice",
+        "currentPortionDescription": "1 cup",
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "half",
+        "tolerance": 0.35
+      }
+    }
+  },
+  {
+    "id": "ridiculous_delete_item_before_last",
+    "difficulty": "ridiculous",
+    "category": "food_delete",
+    "description": "Multi-turn delete: Cheese.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Snack was grapes, cheese, and tea."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Grapes (1 cup) — 100 cal\n✓ Cheese (1 oz) — 110 cal\n✓ Tea (1 cup) — 0 cal"
+      }
+    ],
+    "logSummary": "Grapes (1 cup, snack)\nCheese (1 oz, snack)\nTea (1 cup, snack)",
+    "message": "Remove the item before the last one.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": [
+        "Cheese"
+      ]
+    }
+  },
+  {
+    "id": "ridiculous_nested_reference_previous_correction",
+    "difficulty": "ridiculous",
+    "category": "food_update",
+    "description": "Multi-turn edit: Fries -> large.",
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Lunch was burger and large fries."
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Burger (1 burger) — 540 cal\n✓ Fries (large) — 480 cal"
+      },
+      {
+        "role": "user",
+        "content": "Actually fries were medium."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated Fries to medium."
+      }
+    ],
+    "logSummary": "Burger (1 burger, lunch)\nFries (medium, lunch)",
+    "message": "Make that the size I first said, actually.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": "Fries",
+      "editRequest": {
+        "currentEntryName": "Fries",
+        "currentPortionDescription": "medium",
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "large",
+        "tolerance": 0.35
+      }
+    }
+  }
+]

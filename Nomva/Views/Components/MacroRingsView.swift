@@ -4,6 +4,7 @@ struct MacroRingsView: View {
     let consumed: NutritionTotals
     let goal: DailyGoal
     var isCompact: Bool = false
+    var showsDetailCue: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -52,6 +53,12 @@ struct MacroRingsView: View {
             }
 
             Spacer()
+
+            if showsDetailCue {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
     }
@@ -79,6 +86,13 @@ struct MacroRingsView: View {
                     text: calorieStatus,
                     tint: remainingCalories > 0 ? NomvaTheme.accent : .green
                 )
+
+                if showsDetailCue {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 2)
+                }
             }
 
             HStack(spacing: 20) {

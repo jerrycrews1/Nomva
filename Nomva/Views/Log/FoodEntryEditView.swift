@@ -21,6 +21,14 @@ struct FoodEntryEditView: View {
         (portionGrams / max(servings, 0.01))
     }
 
+    private var amountNumberFormatter: NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }
+
     var scaledNutrition: NutritionValues {
         let factor = portionGrams / 100
         return NutritionValues(
@@ -29,8 +37,22 @@ struct FoodEntryEditView: View {
             carbs:    entry.carbsPer100g    * factor,
             fat:      entry.fatPer100g      * factor,
             fiber:    entry.fiberPer100g    * factor,
-            sugar:    entry.sugarG, // simplified
-            sodium:   entry.sodiumMg
+            sugar:    entry.sugarPer100g    * factor,
+            sodium:   entry.sodiumPer100g   * factor,
+            saturatedFat: entry.saturatedFatPer100g.map { $0 * factor },
+            transFat: entry.transFatPer100g.map { $0 * factor },
+            cholesterol: entry.cholesterolPer100g.map { $0 * factor },
+            addedSugar: entry.addedSugarPer100g.map { $0 * factor },
+            vitaminD: entry.vitaminDPer100g.map { $0 * factor },
+            calcium: entry.calciumPer100g.map { $0 * factor },
+            iron: entry.ironPer100g.map { $0 * factor },
+            potassium: entry.potassiumPer100g.map { $0 * factor },
+            vitaminA: entry.vitaminAPer100g.map { $0 * factor },
+            vitaminC: entry.vitaminCPer100g.map { $0 * factor },
+            vitaminB12: entry.vitaminB12Per100g.map { $0 * factor },
+            folate: entry.folatePer100g.map { $0 * factor },
+            magnesium: entry.magnesiumPer100g.map { $0 * factor },
+            zinc: entry.zincPer100g.map { $0 * factor }
         )
     }
 
@@ -48,7 +70,7 @@ struct FoodEntryEditView: View {
 
                 Section("Portion") {
                     HStack {
-                        Text("Servings")
+                        Text("Amount")
                         Spacer()
                         TextField("Amount", value: $servings, format: .number)
                             .keyboardType(.decimalPad)
@@ -58,7 +80,7 @@ struct FoodEntryEditView: View {
                                 portionGrams = newValue * (entry.portionGrams / max(entry.servings, 0.1))
                             }
                         
-                        Text(entry.servingUnit)
+                        Text(displayUnit(for: servings, unit: entry.servingUnit))
                             .foregroundStyle(.secondary)
                     }
 
@@ -136,13 +158,81 @@ struct FoodEntryEditView: View {
         let nutrition = scaledNutrition
         entry.portionGrams = portionGrams
         entry.servings = servings
-        entry.portionDescription = "\(String(format: "%.1g", servings)) \(entry.servingUnit)"
+        entry.portionDescription = formattedPortionDescription(amount: servings, unit: entry.servingUnit)
         entry.meal = mealSelection
         entry.calories = nutrition.calories
         entry.proteinG = nutrition.protein
         entry.carbsG = nutrition.carbs
         entry.fatG = nutrition.fat
         entry.fiberG = nutrition.fiber
+        entry.sugarG = nutrition.sugar
+        entry.sodiumMg = nutrition.sodium
+        entry.saturatedFatG = nutrition.saturatedFat
+        entry.transFatG = nutrition.transFat
+        entry.cholesterolMg = nutrition.cholesterol
+        entry.addedSugarG = nutrition.addedSugar
+        entry.vitaminDMcg = nutrition.vitaminD
+        entry.calciumMg = nutrition.calcium
+        entry.ironMg = nutrition.iron
+        entry.potassiumMg = nutrition.potassium
+        entry.vitaminAMcgRAE = nutrition.vitaminA
+        entry.vitaminCMg = nutrition.vitaminC
+        entry.vitaminB12Mcg = nutrition.vitaminB12
+        entry.folateMcgDFE = nutrition.folate
+        entry.magnesiumMg = nutrition.magnesium
+        entry.zincMg = nutrition.zinc
         dismiss()
+    }
+
+    private func formattedPortionDescription(amount: Double, unit: String) -> String {
+        let amountText = amountNumberFormatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
+        return "\(amountText) \(displayUnit(for: amount, unit: unit))"
+    }
+
+    private func displayUnit(for amount: Double, unit: String) -> String {
+        let singular = canonicalUnit(from: unit)
+        if abs(amount - 1) < 0.0001 {
+            return singular
+        }
+        return pluralizedUnit(from: singular)
+    }
+
+    private func canonicalUnit(from unit: String) -> String {
+        let trimmed = unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return "serving" }
+
+        if trimmed.hasSuffix("ies"), trimmed.count > 3 {
+            return String(trimmed.dropLast(3)) + "y"
+        }
+
+        if trimmed.hasSuffix("s"), trimmed.count > 1, !trimmed.hasSuffix("ss") {
+            return String(trimmed.dropLast())
+        }
+
+        return trimmed
+    }
+
+    private func pluralizedUnit(from singularUnit: String) -> String {
+        guard !singularUnit.isEmpty else { return "servings" }
+
+        if singularUnit.hasSuffix("y"),
+           singularUnit.count > 1,
+           !"aeiou".contains(lastCharacterBeforeFinalCharacter(in: singularUnit)) {
+            return String(singularUnit.dropLast()) + "ies"
+        }
+
+        if singularUnit.hasSuffix("s")
+            || singularUnit.hasSuffix("x")
+            || singularUnit.hasSuffix("z")
+            || singularUnit.hasSuffix("ch")
+            || singularUnit.hasSuffix("sh") {
+            return singularUnit + "es"
+        }
+
+        return singularUnit + "s"
+    }
+
+    private func lastCharacterBeforeFinalCharacter(in text: String) -> Character {
+        text[text.index(before: text.index(before: text.endIndex))]
     }
 }

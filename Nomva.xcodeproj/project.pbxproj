@@ -46,6 +46,7 @@
 		AA99999999999999999999AA /* ManualFoodDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA99999999999999999999AA /* ManualFoodDetailView.swift */; };
 		AAB1111111111111111111AA /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA1111111111111111111AA /* ExportService.swift */; };
 		AAB2222222222222222222AA /* ExportSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2222222222222222222AA /* ExportSettingsView.swift */; };
+		AAC4444444444444444444AA /* SyncMigrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC3333333333333333333AA /* SyncMigrationService.swift */; };
 		AD34321363B7B188F14E3D54 /* OnboardingCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18CB006E310910AB3A20260 /* OnboardingCompleteView.swift */; };
 		B0BC6194C0E7ABB0F548728B /* GoalInputRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE8465F5DC72559C292233D /* GoalInputRow.swift */; };
 		B0BD87042D2A6276564491F4 /* CustomFoodCreateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6684D3B11094742B16CC0AC0 /* CustomFoodCreateView.swift */; };
@@ -61,7 +62,47 @@
 		F08DB8A62F94B17F00C431A3 /* WeightAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08DB8A52F94B17F00C431A3 /* WeightAnalytics.swift */; };
 		F08DB8A82F94B1BD00C431A3 /* WeightInsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08DB8A72F94B1BD00C431A3 /* WeightInsightsView.swift */; };
 		F0C4703F2F95A04A00AC8FDB /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA3333333333333333333AA /* NetworkMonitor.swift */; };
+		F0C470422F95B59900AC8FDB /* PhotoFoodReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C470412F95B59900AC8FDB /* PhotoFoodReviewView.swift */; };
+		F0C470432F95B59900AC8FDB /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C470402F95B59900AC8FDB /* ImagePicker.swift */; };
+		F0C470452F95BF4900AC8FDB /* HydrationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C470442F95BF4900AC8FDB /* HydrationSheetView.swift */; };
+		F1A100000000000000000001 /* NomvaWidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000001 /* NomvaWidgetShared.swift */; };
+		F1A100000000000000000002 /* NomvaWidgetSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000002 /* NomvaWidgetSnapshotStore.swift */; };
+		F1A100000000000000000003 /* NomvaWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000003 /* NomvaWidgetIntents.swift */; };
+		F1A100000000000000000004 /* NomvaRouteCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000004 /* NomvaRouteCenter.swift */; };
+		F1A100000000000000000005 /* NomvaWidgetSyncBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000005 /* NomvaWidgetSyncBridge.swift */; };
+		F1A100000000000000000006 /* NomvaAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000006 /* NomvaAppShortcuts.swift */; };
+		F1A100000000000000000007 /* NomvaWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000008 /* NomvaWidgetsBundle.swift */; };
+		F1A100000000000000000008 /* NomvaWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000009 /* NomvaWidgets.swift */; };
+		F1A100000000000000000009 /* NomvaWidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000001 /* NomvaWidgetShared.swift */; };
+		F1A10000000000000000000A /* NomvaWidgetSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000002 /* NomvaWidgetSnapshotStore.swift */; };
+		F1A10000000000000000000B /* NomvaWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000003 /* NomvaWidgetIntents.swift */; };
+		F1A10000000000000000000C /* NomvaWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F1B10000000000000000000C /* NomvaWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F3A100000000000000000001 /* NutritionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3B100000000000000000001 /* NutritionDetailView.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F1E100000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1B3BB0B0294D533481006424 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F1E100000000000000000001;
+			remoteInfo = NomvaWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F1C100000000000000000002 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				F1A10000000000000000000C /* NomvaWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0153052C61D6303447B320A6 /* foods.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = foods.sqlite; sourceTree = "<group>"; };
@@ -95,6 +136,7 @@
 		AAA1111111111111111111AA /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		AAA2222222222222222222AA /* ExportSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSettingsView.swift; sourceTree = "<group>"; };
 		AAA3333333333333333333AA /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		AAC3333333333333333333AA /* SyncMigrationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMigrationService.swift; sourceTree = "<group>"; };
 		AEE8465F5DC72559C292233D /* GoalInputRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalInputRow.swift; sourceTree = "<group>"; };
 		C089C04E0C30A59076D29D5C /* InfoPopoverLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoPopoverLabel.swift; sourceTree = "<group>"; };
 		C495D1D6C3E00F6FC2850687 /* WaterTrackerSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterTrackerSection.swift; sourceTree = "<group>"; };
@@ -112,6 +154,21 @@
 		F04A50642F931C92004C3C56 /* NomvaProducts.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; name = NomvaProducts.storekit; path = Nomva/NomvaProducts.storekit; sourceTree = "<group>"; };
 		F08DB8A52F94B17F00C431A3 /* WeightAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightAnalytics.swift; sourceTree = "<group>"; };
 		F08DB8A72F94B1BD00C431A3 /* WeightInsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightInsightsView.swift; sourceTree = "<group>"; };
+		F0C470402F95B59900AC8FDB /* ImagePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePicker.swift; sourceTree = "<group>"; };
+		F0C470412F95B59900AC8FDB /* PhotoFoodReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodReviewView.swift; sourceTree = "<group>"; };
+		F0C470442F95BF4900AC8FDB /* HydrationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HydrationSheetView.swift; sourceTree = "<group>"; };
+		F1B100000000000000000001 /* NomvaWidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgetShared.swift; sourceTree = "<group>"; };
+		F1B100000000000000000002 /* NomvaWidgetSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgetSnapshotStore.swift; sourceTree = "<group>"; };
+		F1B100000000000000000003 /* NomvaWidgetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgetIntents.swift; sourceTree = "<group>"; };
+		F1B100000000000000000004 /* NomvaRouteCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaRouteCenter.swift; sourceTree = "<group>"; };
+		F1B100000000000000000005 /* NomvaWidgetSyncBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgetSyncBridge.swift; sourceTree = "<group>"; };
+		F1B100000000000000000006 /* NomvaAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaAppShortcuts.swift; sourceTree = "<group>"; };
+		F1B100000000000000000008 /* NomvaWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgetsBundle.swift; sourceTree = "<group>"; };
+		F1B100000000000000000009 /* NomvaWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaWidgets.swift; sourceTree = "<group>"; };
+		F1B10000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F1B10000000000000000000B /* NomvaWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NomvaWidgets.entitlements; sourceTree = "<group>"; };
+		F1B10000000000000000000C /* NomvaWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NomvaWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F3B100000000000000000001 /* NutritionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionDetailView.swift; sourceTree = "<group>"; };
 		F74B6706705849459BCDB8C6 /* NomvaUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaUI.swift; sourceTree = "<group>"; };
 		F966C75C27458886DE760BB0 /* FoodItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodItem.swift; sourceTree = "<group>"; };
 		FA22222222222222222222AA /* FoundationModelsProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsProvider.swift; sourceTree = "<group>"; };
@@ -130,6 +187,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				235D4A1D84B14D79A4A6F0C1 /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1C100000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -157,6 +221,7 @@
 			isa = PBXGroup;
 			children = (
 				C943E69338201385964FDBE6 /* Nomva.app */,
+				F1B10000000000000000000C /* NomvaWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -176,12 +241,15 @@
 				F04A50602F9306CA004C3C56 /* Preview Content */,
 				F048159C2F8B5FAD002835DB /* Nomva.entitlements */,
 				749A4925807BB5D8ED1432EE /* NomvaApp.swift */,
+				F1B100000000000000000006 /* NomvaAppShortcuts.swift */,
 				5CAD2D89E86F5A1758AC0660 /* ContentView.swift */,
 				04C165BFC61BB770D0529EA7 /* Info.plist */,
+				F1D100000000000000000001 /* Shared */,
 				0749BD0925201667F85E2DC3 /* Models */,
 				520672F3BDA8AE927088FE6E /* Services */,
 				7BE093033F347DE5329F1DE1 /* Views */,
 				0E78734285A4B1B97B50D75A /* Scanner */,
+				F1D100000000000000000002 /* NomvaWidgets */,
 				45B877375D6D6297BAAF2860 /* Resources */,
 			);
 			path = Nomva;
@@ -199,12 +267,15 @@
 			isa = PBXGroup;
 			children = (
 				F08DB8A52F94B17F00C431A3 /* WeightAnalytics.swift */,
+				F1B100000000000000000004 /* NomvaRouteCenter.swift */,
+				F1B100000000000000000005 /* NomvaWidgetSyncBridge.swift */,
 				F04A505C2F9305D0004C3C56 /* LLMProvider.swift */,
 				F04A50592F92FCC6004C3C56 /* RemoteAPIProvider.swift */,
 				E411FE9B6F9437F1C5FFE318 /* DatabaseManager.swift */,
 				2288888888888888888888AA /* AppleHealthService.swift */,
 				E7F7AF4C201F624A50A39D97 /* FoodLoggingService.swift */,
 				AAA1111111111111111111AA /* ExportService.swift */,
+				AAC3333333333333333333AA /* SyncMigrationService.swift */,
 				AAA3333333333333333333AA /* NetworkMonitor.swift */,
 				3D65D9E758F86DAD24CEABD4 /* GoalService.swift */,
 				9BD1642B4F4044AD7A2C6E7A /* SyncManager.swift */,
@@ -219,8 +290,10 @@
 		5B3EC07C7B17D4DD83692277 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				F0C470442F95BF4900AC8FDB /* HydrationSheetView.swift */,
 				F74B6706705849459BCDB8C6 /* NomvaUI.swift */,
 				D4EF11FBE272BAE4068BFCBE /* MacroRingsView.swift */,
+				F3B100000000000000000001 /* NutritionDetailView.swift */,
 				45D4924379E6A503F1527889 /* NutritionRow.swift */,
 				AEE8465F5DC72559C292233D /* GoalInputRow.swift */,
 				A4716C3CDB32896C357BAB5F /* ActivityLevelPicker.swift */,
@@ -270,6 +343,8 @@
 		A764E300AD85F8229CE722AD /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				F0C470402F95B59900AC8FDB /* ImagePicker.swift */,
+				F0C470412F95B59900AC8FDB /* PhotoFoodReviewView.swift */,
 				4F09D9048042E3F2105536D7 /* ChatView.swift */,
 			);
 			path = Chat;
@@ -328,6 +403,27 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
+		F1D100000000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				F1B100000000000000000001 /* NomvaWidgetShared.swift */,
+				F1B100000000000000000002 /* NomvaWidgetSnapshotStore.swift */,
+				F1B100000000000000000003 /* NomvaWidgetIntents.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		F1D100000000000000000002 /* NomvaWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				F1B10000000000000000000B /* NomvaWidgets.entitlements */,
+				F1B100000000000000000008 /* NomvaWidgetsBundle.swift */,
+				F1B100000000000000000009 /* NomvaWidgets.swift */,
+				F1B10000000000000000000A /* Info.plist */,
+			);
+			path = NomvaWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -338,10 +434,12 @@
 				65FA6119905E087A5E53253D /* Sources */,
 				A6E8E7DF88D31078DBF4E18B /* Frameworks */,
 				7997A58CB6F97DD5FFDE7900 /* Resources */,
+				F1C100000000000000000002 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				F1E100000000000000000003 /* PBXTargetDependency */,
 			);
 			name = Nomva;
 			packageProductDependencies = (
@@ -349,6 +447,25 @@
 			productName = Nomva;
 			productReference = C943E69338201385964FDBE6 /* Nomva.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F1E100000000000000000001 /* NomvaWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2B100000000000000000001 /* Build configuration list for PBXNativeTarget "NomvaWidgets" */;
+			buildPhases = (
+				F1F100000000000000000002 /* Sources */,
+				F1C100000000000000000001 /* Frameworks */,
+				F1F100000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NomvaWidgets;
+			packageProductDependencies = (
+			);
+			productName = NomvaWidgets;
+			productReference = F1B10000000000000000000C /* NomvaWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -361,6 +478,9 @@
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					2A69640CF8BD8ED3FC6DC901 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					F1E100000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -381,6 +501,7 @@
 			projectRoot = "";
 			targets = (
 				2A69640CF8BD8ED3FC6DC901 /* Nomva */,
+				F1E100000000000000000001 /* NomvaWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -392,6 +513,13 @@
 			files = (
 				F04A50632F930AF3004C3C56 /* Assets.xcassets in Resources */,
 				2349DFFF2C4D893DC9322C09 /* foods.sqlite in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1F100000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +539,7 @@
 				5CB14C9A1443F2C63ACA1D02 /* FoodLoggingService.swift in Sources */,
 				114FCEC33E8606EFE21BEE00 /* GoalService.swift in Sources */,
 				E329AFBD95A4CA54B24904CA /* SyncManager.swift in Sources */,
+				F0C470452F95BF4900AC8FDB /* HydrationSheetView.swift in Sources */,
 				F04A50612F9306CA004C3C56 /* SeedData.swift in Sources */,
 				667A293377F3484989A9855F /* OnboardingUI.swift in Sources */,
 				8EC2BDE42AF950E9738B7886 /* OnboardingCoordinatorView.swift in Sources */,
@@ -426,6 +555,8 @@
 				7BF7CD7A0299C5E5650D8309 /* WeightLogEntryView.swift in Sources */,
 				B0EF9C43C52CD589C80B6C63 /* SettingsView.swift in Sources */,
 				3846F3EFF47B573F924AED0B /* GoalsSettingsView.swift in Sources */,
+				F0C470422F95B59900AC8FDB /* PhotoFoodReviewView.swift in Sources */,
+				F0C470432F95B59900AC8FDB /* ImagePicker.swift in Sources */,
 				AA66666666666666666666AA /* SubscriptionManager.swift in Sources */,
 				F0C4703F2F95A04A00AC8FDB /* NetworkMonitor.swift in Sources */,
 				AA77777777777777777777AA /* PaywallView.swift in Sources */,
@@ -433,6 +564,12 @@
 				AA99999999999999999999AA /* ManualFoodDetailView.swift in Sources */,
 				48E01AFBC559B9C4ED3BCE19 /* iCloudSyncSettingsView.swift in Sources */,
 				B0BD87042D2A6276564491F4 /* CustomFoodCreateView.swift in Sources */,
+				F1A100000000000000000001 /* NomvaWidgetShared.swift in Sources */,
+				F1A100000000000000000002 /* NomvaWidgetSnapshotStore.swift in Sources */,
+				F1A100000000000000000003 /* NomvaWidgetIntents.swift in Sources */,
+				F1A100000000000000000004 /* NomvaRouteCenter.swift in Sources */,
+				F1A100000000000000000005 /* NomvaWidgetSyncBridge.swift in Sources */,
+				F1A100000000000000000006 /* NomvaAppShortcuts.swift in Sources */,
 				08D4A9E3860044A4B91A07D9 /* NomvaUI.swift in Sources */,
 				71CD108895C92B1CF0665701 /* MacroRingsView.swift in Sources */,
 				F04A505D2F9305D0004C3C56 /* LLMProvider.swift in Sources */,
@@ -444,9 +581,11 @@
 				E3CD1A2CFBBE37BDB26DF0F6 /* RecentFoodsView.swift in Sources */,
 				F08DB8A82F94B1BD00C431A3 /* WeightInsightsView.swift in Sources */,
 				AAB1111111111111111111AA /* ExportService.swift in Sources */,
+				AAC4444444444444444444AA /* SyncMigrationService.swift in Sources */,
 				8E8C6B28D25D1EFE202ECB00 /* UnpersonalizedGoalsBanner.swift in Sources */,
 				A6CBD4A8A666197662DC620B /* WaterTrackerSection.swift in Sources */,
 				F04A505A2F92FCC6004C3C56 /* RemoteAPIProvider.swift in Sources */,
+				F3A100000000000000000001 /* NutritionDetailView.swift in Sources */,
 				F08DB8A62F94B17F00C431A3 /* WeightAnalytics.swift in Sources */,
 				62D67053FAC148FB0FF079EC /* BarcodeScannerView.swift in Sources */,
 				AA22222222222222222222AA /* FoundationModelsProvider.swift in Sources */,
@@ -456,7 +595,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F1F100000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1A100000000000000000007 /* NomvaWidgetsBundle.swift in Sources */,
+				F1A100000000000000000008 /* NomvaWidgets.swift in Sources */,
+				F1A100000000000000000009 /* NomvaWidgetShared.swift in Sources */,
+				F1A10000000000000000000A /* NomvaWidgetSnapshotStore.swift in Sources */,
+				F1A10000000000000000000B /* NomvaWidgetIntents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F1E100000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F1E100000000000000000001 /* NomvaWidgets */;
+			targetProxy = F1E100000000000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7BF9B188E350BF914680EA5A /* Debug */ = {
@@ -536,14 +695,18 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LE_SWIFT_VERSION = 6.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_INTEROP_MODE = objcxx;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -563,14 +726,18 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LE_SWIFT_VERSION = 6.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_INTEROP_MODE = objcxx;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -628,6 +795,66 @@
 			};
 			name = Release;
 		};
+		F2A100000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nomva/NomvaWidgets/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F2A100000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nomva/NomvaWidgets/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -636,6 +863,15 @@
 			buildConfigurations = (
 				7BF9B188E350BF914680EA5A /* Debug */,
 				DB9D50511D0363A30239E2B2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F2B100000000000000000001 /* Build configuration list for PBXNativeTarget "NomvaWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F2A100000000000000000001 /* Debug */,
+				F2A100000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

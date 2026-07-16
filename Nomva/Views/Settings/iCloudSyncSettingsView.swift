@@ -1,79 +1,91 @@
 import SwiftUI
-import SwiftData
 
 struct iCloudSyncSettingsView: View {
     @EnvironmentObject private var syncManager: SyncManager
-    @Environment(\.modelContext) private var modelContext
-    @State private var showRestartAlert = false
-    @State private var checking = false
 
     var body: some View {
         Form {
             Section {
                 HStack(spacing: 16) {
-                    Image(systemName: syncManager.iCloudEnabled ? "icloud.fill" : "icloud.slash")
+                    Image(systemName: syncManager.iCloudEnabled ? "icloud.fill" : "iphone")
                         .foregroundColor(syncManager.iCloudEnabled ? .blue : .secondary)
                         .font(.title2)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("iCloud Sync")
+                        Text(syncManager.iCloudEnabled ? "iCloud Sync Is On" : "Stored on This Device")
                             .font(.headline)
                         Text(syncManager.iCloudEnabled
-                             ? "Your data syncs across your devices"
-                             : "Data is stored only on this device")
+                             ? "Your history stays in sync on your Apple devices."
+                             : "Your history stays on this device.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(.vertical, 4)
+            }
 
+            Section {
                 Toggle("Sync with iCloud", isOn: Binding(
                     get: { syncManager.iCloudEnabled },
                     set: { newValue in
                         Task {
-                            if newValue {
-                                checking = true
-                                await syncManager.enableiCloud(modelContainer: modelContext.container)
-                                checking = false
-                            } else {
-                                syncManager.disableiCloud()
-                            }
-                            if !syncManager.syncStatus.isIdle && !syncManager.iCloudEnabled {
-                                // Don't show restart if it failed
-                            } else {
-                                showRestartAlert = true
-                            }
+                            await syncManager.setSyncEnabled(newValue)
                         }
                     }
                 ))
                 .tint(.blue)
-                .disabled(!syncManager.isAccountAvailable && !syncManager.iCloudEnabled)
+                .disabled(syncManager.isBusy || (!syncManager.isAccountAvailable && !syncManager.iCloudEnabled))
 
-                if !syncManager.isAccountAvailable && !syncManager.iCloudEnabled {
-                    Label("iCloud is not signed in. Please sign in via iOS Settings to enable sync.", systemImage: "person.crop.circle.badge.exclamationmark")
+                if syncManager.isBusy, let message = syncManager.syncStatus.message {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if case .success(let message) = syncManager.syncStatus {
+                    Label(message, systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                } else if case .error(let message) = syncManager.syncStatus {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundColor(.orange)
-                } else if case .error(let msg) = syncManager.syncStatus {
-                    Label(msg, systemImage: "exclamationmark.triangle")
+                } else if !syncManager.isAccountAvailable && !syncManager.iCloudEnabled {
+                    Label("Sign in to iCloud on this device to turn sync on. Nomva will keep your data here for now.", systemImage: "person.crop.circle.badge.exclamationmark")
                         .font(.caption)
                         .foregroundColor(.orange)
                 }
-
-                if syncManager.iCloudEnabled, let date = syncManager.lastSyncDate {
-                    Text("Last synced: \(date.formatted(.relative(presentation: .named)))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
             } footer: {
-                Text("When on, your food logs and goals sync privately across your Apple devices using your iCloud account. No account is created. No one can see your data.")
+                Text("Turn sync on to merge this device into iCloud. Turn it off to keep a copy here without deleting the iCloud copy.")
+            }
+
+            Section {
+                syncItemRow("Food logs & water entries", systemImage: "fork.knife")
+                syncItemRow("Weight history", systemImage: "scalemass")
+                syncItemRow("Goals & custom foods", systemImage: "target")
+                syncItemRow("Chat history", systemImage: "bubble.left.and.bubble.right")
+            } header: {
+                Text("What Syncs")
+            } footer: {
+                Text("Nomva creates a backup before switching sync modes.")
             }
         }
         .navigationTitle("iCloud Sync")
-        .alert("Restart Required", isPresented: $showRestartAlert) {
-            Button("OK") { }
-        } message: {
-            Text("Close and reopen the app to apply your sync changes.")
+        .task {
+            await syncManager.updateAccountStatus()
+        }
+    }
+
+    @ViewBuilder
+    private func syncItemRow(_ text: String, systemImage: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            Text(text)
         }
     }
 }

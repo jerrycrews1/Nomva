@@ -4,97 +4,292 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Support — Nomva</title>
+  <meta name="description" content="Nomva Support — get help, find answers, and contact us.">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #fcf7f1;
+      --paper: rgba(255, 255, 255, 0.82);
+      --paper-solid: #fffdf9;
+      --text: #1d160f;
+      --muted: #6d6257;
+      --line: rgba(64, 45, 24, 0.1);
+      --accent: #ef8e38;
+      --accent-deep: #d96f12;
+      --accent-soft: rgba(239, 142, 56, 0.14);
+      --shadow: 0 20px 60px rgba(65, 41, 16, 0.08);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #fafafa; color: #1a1a1a; line-height: 1.7;
+      font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(239, 142, 56, 0.18), transparent 32%),
+        radial-gradient(circle at 85% 18%, rgba(255, 209, 168, 0.7), transparent 26%),
+        linear-gradient(180deg, #fff9f2 0%, var(--bg) 45%, #f7f2eb 100%);
+      min-height: 100vh;
+      line-height: 1.7;
     }
-    header {
-      background: #fff; border-bottom: 1px solid #e5e5e5;
-      padding: 20px 0; text-align: center;
+
+    a { color: inherit; }
+
+    .shell {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
     }
-    header img { width: 56px; height: 56px; border-radius: 14px; }
-    header h1 { font-size: 20px; font-weight: 700; margin-top: 8px; }
-    main {
-      max-width: 680px; margin: 40px auto; padding: 0 24px 80px;
+
+    /* ── Nav ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 10px 30px rgba(65, 41, 16, 0.04);
     }
-    h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; }
-    p { margin-bottom: 16px; font-size: 15px; color: #333; }
-    .hero { text-align: center; margin-bottom: 40px; }
-    .hero p { font-size: 16px; color: #666; }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand img {
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(239, 142, 56, 0.24);
+    }
+
+    .nav-links {
+      display: inline-flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .nav-links a:hover { color: var(--accent-deep); }
+
+    /* ── Content panel ── */
+    .content-panel {
+      margin-top: 28px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 251, 246, 0.94));
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+      padding: 40px;
+      max-width: 780px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .content-panel .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .content-panel h1 {
+      margin: 18px 0 6px;
+      font-size: clamp(28px, 5vw, 40px);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .content-panel h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 28px 0 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .content-panel p {
+      margin-bottom: 14px;
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .content-panel a {
+      color: var(--accent-deep);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .content-panel a:hover { text-decoration: underline; }
+
+    /* ── Contact card ── */
     .contact-card {
-      background: #fff; border: 1px solid #e5e5e5; border-radius: 16px;
-      padding: 28px; margin-bottom: 24px;
+      background: var(--accent-soft);
+      border: 1px solid rgba(239, 142, 56, 0.18);
+      border-radius: var(--radius-lg);
+      padding: 24px 28px;
+      margin-bottom: 28px;
     }
-    .contact-card a {
-      color: #e8833a; text-decoration: none; font-weight: 600;
+
+    .contact-card h2 {
+      margin-top: 0;
+      color: var(--accent-deep);
     }
-    .contact-card a:hover { text-decoration: underline; }
-    .faq-item { margin-bottom: 24px; }
-    .faq-item strong { display: block; margin-bottom: 4px; font-size: 15px; }
-    .faq-item p { margin-bottom: 0; }
-    footer {
-      text-align: center; padding: 24px; font-size: 13px; color: #999;
-      border-top: 1px solid #e5e5e5;
+
+    /* ── FAQ ── */
+    .faq-item {
+      margin-bottom: 22px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .faq-item:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+
+    .faq-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .faq-item p {
+      margin-bottom: 0;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 32px;
+      padding: 18px 8px 0;
+      text-align: center;
+      font-size: 13px;
+      color: #86796c;
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100vw - 20px, 1120px);
+        padding-top: 14px;
+      }
+
+      .nav {
+        border-radius: 24px;
+        padding: 16px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links { gap: 14px; }
+
+      .content-panel { padding: 24px; }
+
+      .contact-card { padding: 20px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <img src="/logo.png" alt="Nomva">
-    <h1>Nomva Support</h1>
-  </header>
-  <main>
-    <div class="hero">
-      <p>Need help with Nomva? We're here for you.</p>
-    </div>
-
-    <div class="contact-card">
-      <h2>Contact Us</h2>
-      <p>For questions, bug reports, or feature requests, email us at:<br>
+  <div class="shell">
+    <nav class="nav">
+      <a class="brand" href="/">
+        <img src="/logo.png" alt="Nomva">
+        <span>Nomva</span>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/support.html">Support</a>
         <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>
-      </p>
-      <p>We typically respond within 24 hours.</p>
-    </div>
+      </div>
+    </nav>
 
-    <h2>Frequently Asked Questions</h2>
+    <main class="content-panel">
+      <div class="eyebrow">We're Here to Help</div>
+      <h1>Support</h1>
+      <p class="subtitle">Need help with Nomva? Find answers below or reach out directly.</p>
 
-    <div class="faq-item">
-      <strong>How do I log a meal?</strong>
-      <p>Type what you ate into the chat bar — for example, "2 eggs and toast with butter." Nomva's AI will parse the foods, match them to our database, and log the nutrition automatically.</p>
-    </div>
+      <div class="contact-card">
+        <h2>Contact Us</h2>
+        <p>For questions, bug reports, or feature requests, email us at:<br>
+          <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>
+        </p>
+        <p>We typically respond within 24 hours.</p>
+      </div>
 
-    <div class="faq-item">
-      <strong>Can I scan barcodes?</strong>
-      <p>Yes. Tap the barcode icon next to the chat input to open the scanner. Nomva checks its built-in database of 800,000+ foods first, then falls back to Open Food Facts if needed.</p>
-    </div>
+      <h2>Frequently Asked Questions</h2>
 
-    <div class="faq-item">
-      <strong>How do I change my calorie and macro goals?</strong>
-      <p>Go to Settings &gt; Goals. You can set custom targets or let Nomva suggest values based on your profile and activity level.</p>
-    </div>
+      <div class="faq-item">
+        <strong>How do I log a meal?</strong>
+        <p>Type what you ate into the chat bar — for example, "2 eggs and toast with butter." Nomva's AI will parse the foods, match them to our database, and log the nutrition automatically.</p>
+      </div>
 
-    <div class="faq-item">
-      <strong>Does Nomva work with Garmin?</strong>
-      <p>Yes. Connect your Garmin account in Settings to have your active calories automatically adjust your daily calorie target.</p>
-    </div>
+      <div class="faq-item">
+        <strong>Can I scan barcodes?</strong>
+        <p>Yes. Tap the barcode icon next to the chat input to open the scanner. Nomva checks its built-in local food database directly on your device.</p>
+      </div>
 
-    <div class="faq-item">
-      <strong>Is my data private?</strong>
-      <p>Your food logs stay on your device (and your private iCloud if sync is enabled). Apple Health reads stay on-device as well. Garmin activity syncs through Nomva Cloud so the app can receive daily summaries, and AI chat and meal parsing also pass through Nomva's server and then to our AI provider so those features can work. See our <a href="/privacy.html">Privacy Policy</a> for details.</p>
-    </div>
+      <div class="faq-item">
+        <strong>How do I change my calorie and macro goals?</strong>
+        <p>Go to Settings &gt; Goals. You can set custom targets or let Nomva suggest values based on your profile and activity level.</p>
+      </div>
 
-    <div class="faq-item">
-      <strong>How do I restore my purchase?</strong>
-      <p>Go to Settings &gt; Membership and tap "Restore Purchases." This will re-activate any previous Nomva Pro subscription tied to your Apple ID.</p>
-    </div>
+      <div class="faq-item">
+        <strong>Does Nomva work with Garmin?</strong>
+        <p>Yes. Connect your Garmin account in Settings to have your active calories automatically adjust your daily calorie target.</p>
+      </div>
 
-    <div class="faq-item">
-      <strong>How do I export my data?</strong>
-      <p>Go to Settings &gt; Backup &amp; Export. You can export a CSV report for your coach or a full JSON backup of all your data.</p>
-    </div>
-  </main>
-  <footer>&copy; 2026 Nomva. All rights reserved.</footer>
+      <div class="faq-item">
+        <strong>Is my data private?</strong>
+        <p>Your food logs stay on your device (and your private iCloud if sync is enabled). Apple Health reads stay on-device as well. Garmin activity syncs through Nomva Cloud so the app can receive daily summaries, and AI chat and meal parsing also pass through Nomva's server and then to our AI provider so those features can work. See our <a href="/privacy.html">Privacy Policy</a> for details.</p>
+      </div>
+
+      <div class="faq-item">
+        <strong>How do I restore my purchase?</strong>
+        <p>Go to Settings &gt; Membership and tap "Restore Purchases." This will re-activate any previous Nomva Pro subscription tied to your Apple ID.</p>
+      </div>
+
+      <div class="faq-item">
+        <strong>How do I export my data?</strong>
+        <p>Go to Settings &gt; Backup &amp; Export. You can export a CSV report for your coach or a full JSON backup of all your data.</p>
+      </div>
+    </main>
+
+    <footer class="footer">
+      &copy; 2026 Nomva. Built and supported by Nerdquad.
+    </footer>
+  </div>
 </body>
 </html>

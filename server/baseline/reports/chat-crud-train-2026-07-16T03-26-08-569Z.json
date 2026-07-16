@@ -1,0 +1,6109 @@
+{
+  "runId": "chat-crud-train-2026-07-16T03-26-08-569Z",
+  "split": "train",
+  "model": "gpt-5.4-nano",
+  "startedAt": "2026-07-16T03:26:08.569Z",
+  "finishedAt": "2026-07-16T03:26:26.461Z",
+  "summary": {
+    "cases": 200,
+    "passedCases": 200,
+    "totalChecks": 330,
+    "passedChecks": 330,
+    "score": 100,
+    "byCategory": {
+      "intent": {
+        "cases": 19,
+        "totalChecks": 19,
+        "passedChecks": 19,
+        "score": 100
+      },
+      "food_log": {
+        "cases": 37,
+        "totalChecks": 37,
+        "passedChecks": 37,
+        "score": 100
+      },
+      "water_crud": {
+        "cases": 18,
+        "totalChecks": 36,
+        "passedChecks": 36,
+        "score": 100
+      },
+      "weight_crud": {
+        "cases": 18,
+        "totalChecks": 54,
+        "passedChecks": 54,
+        "score": 100
+      },
+      "goal_crud": {
+        "cases": 18,
+        "totalChecks": 28,
+        "passedChecks": 28,
+        "score": 100
+      },
+      "food_delete": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "food_edit": {
+        "cases": 36,
+        "totalChecks": 66,
+        "passedChecks": 66,
+        "score": 100
+      },
+      "food_search": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "portion": {
+        "cases": 18,
+        "totalChecks": 54,
+        "passedChecks": 54,
+        "score": 100
+      }
+    },
+    "byTask": {
+      "classify_intent": {
+        "cases": 19,
+        "totalChecks": 19,
+        "passedChecks": 19,
+        "score": 100
+      },
+      "split_foods": {
+        "cases": 19,
+        "totalChecks": 19,
+        "passedChecks": 19,
+        "score": 100
+      },
+      "extract_meal": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "extract_water_mutation": {
+        "cases": 18,
+        "totalChecks": 36,
+        "passedChecks": 36,
+        "score": 100
+      },
+      "extract_weight_mutation": {
+        "cases": 18,
+        "totalChecks": 54,
+        "passedChecks": 54,
+        "score": 100
+      },
+      "extract_goal": {
+        "cases": 18,
+        "totalChecks": 28,
+        "passedChecks": 28,
+        "score": 100
+      },
+      "pick_delete_targets": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "pick_edit_target": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "resolve_edit_request": {
+        "cases": 18,
+        "totalChecks": 48,
+        "passedChecks": 48,
+        "score": 100
+      },
+      "build_food_search_query": {
+        "cases": 18,
+        "totalChecks": 18,
+        "passedChecks": 18,
+        "score": 100
+      },
+      "extract_servings": {
+        "cases": 18,
+        "totalChecks": 54,
+        "passedChecks": 54,
+        "score": 100
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "train-0001",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "set protein to 140g and calories to 1900",
+      "output": {
+        "intent": "set_goal"
+      },
+      "raw": "{\"intent\":\"set_goal\"}",
+      "durationMs": 897,
+      "totalTokens": 926,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "set_goal",
+          "actual": "set_goal"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0002",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I ate eggs and toast",
+      "output": {
+        "foods": [
+          "eggs",
+          "toast"
+        ]
+      },
+      "raw": "{\"foods\":[\"eggs\",\"toast\"]}",
+      "durationMs": 807,
+      "totalTokens": 150,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "eggs",
+            "toast"
+          ],
+          "actual": [
+            "eggs",
+            "toast"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0003",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For dinner I had scrambled eggs",
+      "output": {
+        "meal": "dinner"
+      },
+      "raw": "{\"meal\":\"dinner\"}",
+      "durationMs": 865,
+      "totalTokens": 169,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "dinner",
+          "actual": "dinner"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0004",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 785,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0005",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "clear all my weights",
+      "output": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"weightLbs\":null,\"dateHint\":null}",
+      "durationMs": 934,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0006",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 250 and fat to 80",
+      "output": {
+        "carbs": 250,
+        "fat": 80
+      },
+      "raw": "{\"carbs\":250,\"fat\":80}",
+      "durationMs": 832,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 250,
+          "actual": 250
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 80,
+          "actual": 80
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0007",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete coffee but keep the mocha",
+      "output": {
+        "foodNames": [
+          "Black coffee"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Black coffee\"]}",
+      "durationMs": 429,
+      "totalTokens": 548,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Black coffee"
+          ],
+          "actual": [
+            "Black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0008",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "fix the coffee",
+      "output": {
+        "foodName": null,
+        "clarificationQuestion": "Which coffee entry should I change?"
+      },
+      "raw": "{\"foodName\":null,\"clarificationQuestion\":\"Which coffee entry should I change?\"}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "clarification",
+          "pass": true,
+          "expected": "clarification without target",
+          "actual": {
+            "foodName": null,
+            "clarificationQuestion": "Which coffee entry should I change?"
+          }
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0009",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "make it half a cup",
+      "output": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":0.5,\"portionDescription\":\"1/2 cup\",\"servingUnit\":\"cup\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":null}",
+      "durationMs": 3074,
+      "totalTokens": 1036,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_servings",
+          "pass": true,
+          "expected": 0.5,
+          "actual": 0.5
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1/2 cup",
+          "actual": "1/2 cup"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0010",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had about 5 Chick-fil-A fries",
+      "output": {
+        "query": "waffle fries"
+      },
+      "raw": "{\"query\":\"waffle fries\"}",
+      "durationMs": 436,
+      "totalTokens": 375,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "waffle fries",
+          "actual": "waffle fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0011",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 533,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0012",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "how much water did I drink today?",
+      "output": {
+        "intent": "query_data"
+      },
+      "raw": "{\"intent\":\"query_data\"}",
+      "durationMs": 380,
+      "totalTokens": 922,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "query_data",
+          "actual": "query_data"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0013",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a bacon egg and cheese sandwich",
+      "output": {
+        "foods": [
+          "bacon egg and cheese sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"bacon egg and cheese sandwich\"]}",
+      "durationMs": 1322,
+      "totalTokens": 155,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "bacon egg and cheese sandwich"
+          ],
+          "actual": [
+            "bacon egg and cheese sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0014",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a lunchable as a snack",
+      "output": {
+        "meal": "snack"
+      },
+      "raw": "{\"meal\":\"snack\"}",
+      "durationMs": 356,
+      "totalTokens": 171,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "snack",
+          "actual": "snack"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0015",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 693,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0016",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "clear all my weights",
+      "output": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"weightLbs\":null,\"dateHint\":null}",
+      "durationMs": 458,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0017",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set my calorie goal to 1800",
+      "output": {
+        "calories": 1800
+      },
+      "raw": "{\"calories\":1800}",
+      "durationMs": 542,
+      "totalTokens": 246,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 1800,
+          "actual": 1800
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0018",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete coffee but keep the mocha",
+      "output": {
+        "foodNames": [
+          "Black coffee"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Black coffee\"]}",
+      "durationMs": 596,
+      "totalTokens": 548,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Black coffee"
+          ],
+          "actual": [
+            "Black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0019",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "that yogurt was 2 servings",
+      "output": {
+        "foodName": "Greek Yogurt",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Greek Yogurt\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Greek Yogurt",
+          "actual": "Greek Yogurt"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0020",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 747,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0021",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "query": "fresh spinach"
+      },
+      "raw": "{\"query\":\"fresh spinach\"}",
+      "durationMs": 436,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "fresh spinach",
+          "actual": "fresh spinach"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0022",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 553,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "3 nuggets",
+          "actual": "3 nuggets"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "nugget",
+          "actual": "nugget"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0023",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "set protein to 160g and calories to 2400",
+      "output": {
+        "intent": "set_goal"
+      },
+      "raw": "{\"intent\":\"set_goal\"}",
+      "durationMs": 387,
+      "totalTokens": 926,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "set_goal",
+          "actual": "set_goal"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0024",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had mac and cheese and a protein shake",
+      "output": {
+        "foods": [
+          "mac and cheese",
+          "protein shake"
+        ]
+      },
+      "raw": "{\"foods\":[\"mac and cheese\",\"protein shake\"]}",
+      "durationMs": 445,
+      "totalTokens": 158,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "mac and cheese",
+            "protein shake"
+          ],
+          "actual": [
+            "mac and cheese",
+            "protein shake"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0025",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had Greek yogurt",
+      "output": {
+        "meal": "lunch"
+      },
+      "raw": "{\"meal\":\"lunch\"}",
+      "durationMs": 408,
+      "totalTokens": 169,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "lunch",
+          "actual": "lunch"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0026",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "set my water total to 64 oz",
+      "output": {
+        "action": "update_total",
+        "amountOz": 64
+      },
+      "raw": "{\"action\":\"update_total\",\"amountOz\":64}",
+      "durationMs": 477,
+      "totalTokens": 300,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "update_total",
+          "actual": "update_total"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 64,
+          "actual": 64
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0027",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "change today's weight to 180",
+      "output": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"update\",\"weightLbs\":180,\"dateHint\":\"today\"}",
+      "durationMs": 554,
+      "totalTokens": 338,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "update",
+          "actual": "update"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 180,
+          "actual": 180
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0028",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set my calorie goal to 2400",
+      "output": {
+        "calories": 2400
+      },
+      "raw": "{\"calories\":2400}",
+      "durationMs": 377,
+      "totalTokens": 246,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 2400,
+          "actual": 2400
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0029",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "remove the fries",
+      "output": {
+        "foodNames": [
+          "Waffle Fries"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Waffle Fries\"]}",
+      "durationMs": 516,
+      "totalTokens": 546,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Waffle Fries"
+          ],
+          "actual": [
+            "Waffle Fries"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0030",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0031",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "that's not right",
+      "output": {
+        "servings": 0,
+        "portionDescription": "",
+        "servingUnit": "serving",
+        "confident": false,
+        "hasExplicitPortion": false,
+        "clarificationQuestion": "What amount should I change the chicken nuggets to (e.g., 2, 5, or half a serving)?",
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":0,\"portionDescription\":\"\",\"servingUnit\":\"serving\",\"confident\":false,\"hasExplicitPortion\":false,\"clarificationQuestion\":\"What amount should I change the chicken nuggets to (e.g., 2, 5, or half a serving)?\",\"replacementSearchQuery\":null}",
+      "durationMs": 931,
+      "totalTokens": 1050,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0032",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "query": "fresh spinach"
+      },
+      "raw": "{\"query\":\"fresh spinach\"}",
+      "durationMs": 517,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "fresh spinach",
+          "actual": "fresh spinach"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0033",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "confident": false,
+        "hasExplicitPortion": false
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 cup\",\"servingUnit\":\"cup\",\"confident\":false,\"hasExplicitPortion\":false}",
+      "durationMs": 562,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1 cup",
+          "actual": "1 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0034",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "set protein to 180g and calories to 1900",
+      "output": {
+        "intent": "set_goal"
+      },
+      "raw": "{\"intent\":\"set_goal\"}",
+      "durationMs": 376,
+      "totalTokens": 926,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "set_goal",
+          "actual": "set_goal"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0035",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had mac and cheese and a protein shake",
+      "output": {
+        "foods": [
+          "mac and cheese",
+          "protein shake"
+        ]
+      },
+      "raw": "{\"foods\":[\"mac and cheese\",\"protein shake\"]}",
+      "durationMs": 469,
+      "totalTokens": 158,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "mac and cheese",
+            "protein shake"
+          ],
+          "actual": [
+            "mac and cheese",
+            "protein shake"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0036",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a breakfast burrito for dinner",
+      "output": {
+        "meal": "dinner"
+      },
+      "raw": "{\"meal\":\"dinner\"}",
+      "durationMs": 517,
+      "totalTokens": 171,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "dinner",
+          "actual": "dinner"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0037",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "had a bottle of water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.9
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.9}",
+      "durationMs": 435,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.9
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0038",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "delete yesterday's weight",
+      "output": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      },
+      "raw": "{\"action\":\"delete\",\"weightLbs\":null,\"dateHint\":\"yesterday\"}",
+      "durationMs": 469,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete",
+          "actual": "delete"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "yesterday",
+          "actual": "yesterday"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0039",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set my calorie goal to 2400",
+      "output": {
+        "calories": 2400
+      },
+      "raw": "{\"calories\":2400}",
+      "durationMs": 411,
+      "totalTokens": 246,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 2400,
+          "actual": 2400
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0040",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete all foods from today",
+      "output": {
+        "foodNames": [
+          "Greek Yogurt",
+          "Blueberries, raw",
+          "Black coffee",
+          "Breakfast Burrito",
+          "Chicken Nuggets",
+          "Waffle Fries",
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Greek Yogurt\",\"Blueberries, raw\",\"Black coffee\",\"Breakfast Burrito\",\"Chicken Nuggets\",\"Waffle Fries\",\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee",
+            "Breakfast Burrito",
+            "Chicken Nuggets",
+            "Waffle Fries",
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee",
+            "Breakfast Burrito",
+            "Chicken Nuggets",
+            "Waffle Fries",
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0041",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "that yogurt was 2 servings",
+      "output": {
+        "foodName": "Greek Yogurt",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Greek Yogurt\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Greek Yogurt",
+          "actual": "Greek Yogurt"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0042",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 624,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0043",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "Log breakfast: Gree Yogurt",
+      "output": {
+        "query": "Greek yogurt"
+      },
+      "raw": "{\"query\":\"Greek yogurt\"}",
+      "durationMs": 503,
+      "totalTokens": 368,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Greek yogurt",
+          "actual": "Greek yogurt"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0044",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "confident": false,
+        "hasExplicitPortion": false
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 cup\",\"servingUnit\":\"cup\",\"confident\":false,\"hasExplicitPortion\":false}",
+      "durationMs": 664,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1 cup",
+          "actual": "1 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0045",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "I had fish and chips and turkey sandwich",
+      "output": {
+        "intent": "log_food"
+      },
+      "raw": "{\"intent\":\"log_food\"}",
+      "durationMs": 484,
+      "totalTokens": 922,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "log_food",
+          "actual": "log_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0046",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had peanut butter and jelly sandwich",
+      "output": {
+        "foods": [
+          "peanut butter and jelly sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"peanut butter and jelly sandwich\"]}",
+      "durationMs": 702,
+      "totalTokens": 154,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "peanut butter and jelly sandwich"
+          ],
+          "actual": [
+            "peanut butter and jelly sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0047",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For snack I had scrambled eggs",
+      "output": {
+        "meal": "snack"
+      },
+      "raw": "{\"meal\":\"snack\"}",
+      "durationMs": 489,
+      "totalTokens": 169,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "snack",
+          "actual": "snack"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0048",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "set my water total to 64 oz",
+      "output": {
+        "action": "update_total",
+        "amountOz": 64
+      },
+      "raw": "{\"action\":\"update_total\",\"amountOz\":64}",
+      "durationMs": 577,
+      "totalTokens": 300,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "update_total",
+          "actual": "update_total"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 64,
+          "actual": 64
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0049",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "delete yesterday's weight",
+      "output": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      },
+      "raw": "{\"action\":\"delete\",\"weightLbs\":null,\"dateHint\":\"yesterday\"}",
+      "durationMs": 552,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete",
+          "actual": "delete"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "yesterday",
+          "actual": "yesterday"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0050",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set fiber to 35g",
+      "output": {
+        "fiber": 35
+      },
+      "raw": "{\"fiber\":35}",
+      "durationMs": 433,
+      "totalTokens": 242,
+      "checks": [
+        {
+          "name": "goal_fiber",
+          "pass": true,
+          "expected": 35,
+          "actual": 35
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0051",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "remove the fries",
+      "output": {
+        "foodNames": [
+          "Waffle Fries"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Waffle Fries\"]}",
+      "durationMs": 407,
+      "totalTokens": 546,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Waffle Fries"
+          ],
+          "actual": [
+            "Waffle Fries"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0052",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "fix the coffee",
+      "output": {
+        "foodName": null,
+        "clarificationQuestion": "Which coffee entry should I change?"
+      },
+      "raw": "{\"foodName\":null,\"clarificationQuestion\":\"Which coffee entry should I change?\"}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "clarification",
+          "pass": true,
+          "expected": "clarification without target",
+          "actual": {
+            "foodName": null,
+            "clarificationQuestion": "Which coffee entry should I change?"
+          }
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0053",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "that's not right",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": false,
+        "hasExplicitPortion": false,
+        "clarificationQuestion": "What amount should I change the chicken nuggets to (e.g., 2 nuggets, half a serving, etc.)?",
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":false,\"hasExplicitPortion\":false,\"clarificationQuestion\":\"What amount should I change the chicken nuggets to (e.g., 2 nuggets, half a serving, etc.)?\",\"replacementSearchQuery\":null}",
+      "durationMs": 977,
+      "totalTokens": 1054,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0054",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "query": "chicken nuggets"
+      },
+      "raw": "{\"query\":\"chicken nuggets\"}",
+      "durationMs": 479,
+      "totalTokens": 370,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "chicken nuggets",
+          "actual": "chicken nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0055",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 551,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "3 nuggets",
+          "actual": "3 nuggets"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "nugget",
+          "actual": "nugget"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0056",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "how many calories do I have left today?",
+      "output": {
+        "intent": "query_data"
+      },
+      "raw": "{\"intent\":\"query_data\"}",
+      "durationMs": 839,
+      "totalTokens": 923,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "query_data",
+          "actual": "query_data"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0057",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had peanut butter and jelly sandwich",
+      "output": {
+        "foods": [
+          "peanut butter and jelly sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"peanut butter and jelly sandwich\"]}",
+      "durationMs": 462,
+      "totalTokens": 154,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "peanut butter and jelly sandwich"
+          ],
+          "actual": [
+            "peanut butter and jelly sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0058",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had white rice",
+      "output": {
+        "meal": "lunch"
+      },
+      "raw": "{\"meal\":\"lunch\"}",
+      "durationMs": 525,
+      "totalTokens": 169,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "lunch",
+          "actual": "lunch"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0059",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "clear today's water",
+      "output": {
+        "action": "delete_all",
+        "amountOz": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"amountOz\":null}",
+      "durationMs": 641,
+      "totalTokens": 295,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0060",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "change today's weight to 180",
+      "output": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"update\",\"weightLbs\":180,\"dateHint\":\"today\"}",
+      "durationMs": 1657,
+      "totalTokens": 338,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "update",
+          "actual": "update"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 180,
+          "actual": 180
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0061",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set fiber to 35g",
+      "output": {
+        "fiber": 35
+      },
+      "raw": "{\"fiber\":35}",
+      "durationMs": 478,
+      "totalTokens": 242,
+      "checks": [
+        {
+          "name": "goal_fiber",
+          "pass": true,
+          "expected": 35,
+          "actual": 35
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0062",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete breakfast",
+      "output": {
+        "foodNames": [
+          "Greek Yogurt",
+          "Blueberries, raw",
+          "Black coffee"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Greek Yogurt\",\"Blueberries, raw\",\"Black coffee\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee"
+          ],
+          "actual": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0063",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "actually the fries were medium",
+      "output": {
+        "foodName": "Waffle Fries",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Waffle Fries\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Waffle Fries",
+          "actual": "Waffle Fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0064",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "actually only about 5 fries",
+      "output": {
+        "servings": 5,
+        "portionDescription": "5 fries",
+        "servingUnit": "fry",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "waffle fries"
+      },
+      "raw": "{\"servings\":5,\"portionDescription\":\"5 fries\",\"servingUnit\":\"fry\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"waffle fries\"}",
+      "durationMs": 700,
+      "totalTokens": 1053,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_servings",
+          "pass": true,
+          "expected": 5,
+          "actual": 5
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "5 fries",
+          "actual": "5 fries"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "waffle fries",
+          "actual": "waffle fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0065",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had a large Chick-fil-A waffle fries",
+      "output": {
+        "query": "Chick-Fil-A waffle potato fries large"
+      },
+      "raw": "{\"query\":\"Chick-Fil-A waffle potato fries large\"}",
+      "durationMs": 499,
+      "totalTokens": 379,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Chick-Fil-A waffle potato fries large",
+          "actual": "Chick-Fil-A waffle potato fries large"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0066",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 614,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0067",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "I drank 16 oz of water",
+      "output": {
+        "intent": "log_water"
+      },
+      "raw": "{\"intent\":\"log_water\"}",
+      "durationMs": 354,
+      "totalTokens": 921,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "log_water",
+          "actual": "log_water"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0068",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had peanut butter and jelly sandwich",
+      "output": {
+        "foods": [
+          "peanut butter and jelly sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"peanut butter and jelly sandwich\"]}",
+      "durationMs": 507,
+      "totalTokens": 154,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "peanut butter and jelly sandwich"
+          ],
+          "actual": [
+            "peanut butter and jelly sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0069",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a lunchable as a snack",
+      "output": {
+        "meal": "snack"
+      },
+      "raw": "{\"meal\":\"snack\"}",
+      "durationMs": 389,
+      "totalTokens": 171,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "snack",
+          "actual": "snack"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0070",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 510,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0071",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "I weigh 181.4 lbs today",
+      "output": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"add\",\"weightLbs\":181.4,\"dateHint\":\"today\"}",
+      "durationMs": 497,
+      "totalTokens": 342,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 181.4,
+          "actual": 181.4
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0072",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 250 and fat to 55",
+      "output": {
+        "carbs": 250,
+        "fat": 55
+      },
+      "raw": "{\"carbs\":250,\"fat\":55}",
+      "durationMs": 417,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 250,
+          "actual": 250
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 55,
+          "actual": 55
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0073",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete breakfast",
+      "output": {
+        "foodNames": [
+          "Greek Yogurt",
+          "Blueberries, raw",
+          "Black coffee"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Greek Yogurt\",\"Blueberries, raw\",\"Black coffee\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee"
+          ],
+          "actual": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0074",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0075",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 637,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0076",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had a large Chick-fil-A waffle fries",
+      "output": {
+        "query": "Chick-Fil-A waffle potato fries large"
+      },
+      "raw": "{\"query\":\"Chick-Fil-A waffle potato fries large\"}",
+      "durationMs": 413,
+      "totalTokens": 379,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Chick-Fil-A waffle potato fries large",
+          "actual": "Chick-Fil-A waffle potato fries large"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0077",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 1055,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "3 nuggets",
+          "actual": "3 nuggets"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "nugget",
+          "actual": "nugget"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0078",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "clear all foods from today",
+      "output": {
+        "intent": "delete_food"
+      },
+      "raw": "{\"intent\":\"delete_food\"}",
+      "durationMs": 357,
+      "totalTokens": 919,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "delete_food",
+          "actual": "delete_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0079",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had peanut butter and jelly sandwich",
+      "output": {
+        "foods": [
+          "peanut butter and jelly sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"peanut butter and jelly sandwich\"]}",
+      "durationMs": 412,
+      "totalTokens": 154,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "peanut butter and jelly sandwich"
+          ],
+          "actual": [
+            "peanut butter and jelly sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0080",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a breakfast burrito",
+      "output": {
+        "meal": "none"
+      },
+      "raw": "{\"meal\":\"none\"}",
+      "durationMs": 504,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0081",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "set my water total to 64 oz",
+      "output": {
+        "action": "update_total",
+        "amountOz": 64
+      },
+      "raw": "{\"action\":\"update_total\",\"amountOz\":64}",
+      "durationMs": 492,
+      "totalTokens": 300,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "update_total",
+          "actual": "update_total"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 64,
+          "actual": 64
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0082",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "change today's weight to 180",
+      "output": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"update\",\"weightLbs\":180,\"dateHint\":\"today\"}",
+      "durationMs": 436,
+      "totalTokens": 338,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "update",
+          "actual": "update"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 180,
+          "actual": 180
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0083",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set fiber to 35g",
+      "output": {
+        "fiber": 35
+      },
+      "raw": "{\"fiber\":35}",
+      "durationMs": 396,
+      "totalTokens": 242,
+      "checks": [
+        {
+          "name": "goal_fiber",
+          "pass": true,
+          "expected": 35,
+          "actual": 35
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0084",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete breakfast burrito",
+      "output": {
+        "foodNames": [
+          "Breakfast Burrito"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Breakfast Burrito\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Breakfast Burrito"
+          ],
+          "actual": [
+            "Breakfast Burrito"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0085",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "make the nuggets 6",
+      "output": {
+        "foodName": "Chicken Nuggets",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Chicken Nuggets\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Chicken Nuggets",
+          "actual": "Chicken Nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0086",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 631,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0087",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "Log breakfast: Gree Yogurt",
+      "output": {
+        "query": "Greek yogurt"
+      },
+      "raw": "{\"query\":\"Greek yogurt\"}",
+      "durationMs": 403,
+      "totalTokens": 368,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Greek yogurt",
+          "actual": "Greek yogurt"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0088",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "confident": false,
+        "hasExplicitPortion": false
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 cup\",\"servingUnit\":\"cup\",\"confident\":false,\"hasExplicitPortion\":false}",
+      "durationMs": 534,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1 cup",
+          "actual": "1 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0089",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "how many calories do I have left today?",
+      "output": {
+        "intent": "query_data"
+      },
+      "raw": "{\"intent\":\"query_data\"}",
+      "durationMs": 425,
+      "totalTokens": 923,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "query_data",
+          "actual": "query_data"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0090",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I ate eggs and toast",
+      "output": {
+        "foods": [
+          "eggs",
+          "toast"
+        ]
+      },
+      "raw": "{\"foods\":[\"eggs\",\"toast\"]}",
+      "durationMs": 449,
+      "totalTokens": 150,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "eggs",
+            "toast"
+          ],
+          "actual": [
+            "eggs",
+            "toast"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0091",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Log lunch: blueberries",
+      "output": {
+        "meal": "lunch"
+      },
+      "raw": "{\"meal\":\"lunch\"}",
+      "durationMs": 400,
+      "totalTokens": 167,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "lunch",
+          "actual": "lunch"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0092",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 458,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0093",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "clear all my weights",
+      "output": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"weightLbs\":null,\"dateHint\":null}",
+      "durationMs": 460,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0094",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set protein to 180g",
+      "output": {
+        "protein": 180
+      },
+      "raw": "{\"protein\":180}",
+      "durationMs": 619,
+      "totalTokens": 242,
+      "checks": [
+        {
+          "name": "goal_protein",
+          "pass": true,
+          "expected": 180,
+          "actual": 180
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0095",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "remove the fries",
+      "output": {
+        "foodNames": [
+          "Waffle Fries"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Waffle Fries\"]}",
+      "durationMs": 484,
+      "totalTokens": 546,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Waffle Fries"
+          ],
+          "actual": [
+            "Waffle Fries"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0096",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0097",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "that's not right",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": false,
+        "hasExplicitPortion": false,
+        "clarificationQuestion": "What amount of nuggets should I use (e.g., 2 nuggets, 5 nuggets)?",
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":false,\"hasExplicitPortion\":false,\"clarificationQuestion\":\"What amount of nuggets should I use (e.g., 2 nuggets, 5 nuggets)?\",\"replacementSearchQuery\":null}",
+      "durationMs": 824,
+      "totalTokens": 1049,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0098",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "Log breakfast: Gree Yogurt",
+      "output": {
+        "query": "Greek yogurt"
+      },
+      "raw": "{\"query\":\"Greek yogurt\"}",
+      "durationMs": 480,
+      "totalTokens": 368,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Greek yogurt",
+          "actual": "Greek yogurt"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0099",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 519,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0100",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "delete peanut butter and jelly sandwich from today",
+      "output": {
+        "intent": "delete_food"
+      },
+      "raw": "{\"intent\":\"delete_food\"}",
+      "durationMs": 417,
+      "totalTokens": 922,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "delete_food",
+          "actual": "delete_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0101",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I ate eggs and toast",
+      "output": {
+        "foods": [
+          "eggs",
+          "toast"
+        ]
+      },
+      "raw": "{\"foods\":[\"eggs\",\"toast\"]}",
+      "durationMs": 450,
+      "totalTokens": 150,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "eggs",
+            "toast"
+          ],
+          "actual": [
+            "eggs",
+            "toast"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0102",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "delete breakfast burrito",
+      "output": {
+        "meal": "none"
+      },
+      "raw": "{\"meal\":\"none\"}",
+      "durationMs": 364,
+      "totalTokens": 166,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0103",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "clear today's water",
+      "output": {
+        "action": "delete_all",
+        "amountOz": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"amountOz\":null}",
+      "durationMs": 526,
+      "totalTokens": 295,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0104",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "delete yesterday's weight",
+      "output": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      },
+      "raw": "{\"action\":\"delete\",\"weightLbs\":null,\"dateHint\":\"yesterday\"}",
+      "durationMs": 547,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete",
+          "actual": "delete"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "yesterday",
+          "actual": "yesterday"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0105",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 150 and fat to 70",
+      "output": {
+        "carbs": 150,
+        "fat": 70
+      },
+      "raw": "{\"carbs\":150,\"fat\":70}",
+      "durationMs": 393,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 150,
+          "actual": 150
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 70,
+          "actual": 70
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0106",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete that",
+      "output": {
+        "foodNames": [
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 442,
+      "totalTokens": 550,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0107",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0108",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "It was black coffee",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 serving",
+        "servingUnit": "serving",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "black coffee"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 serving\",\"servingUnit\":\"serving\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"black coffee\"}",
+      "durationMs": 819,
+      "totalTokens": 1031,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 serving",
+          "actual": "1 serving"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "black coffee",
+          "actual": "black coffee"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0109",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "query": "chicken nuggets"
+      },
+      "raw": "{\"query\":\"chicken nuggets\"}",
+      "durationMs": 577,
+      "totalTokens": 370,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "chicken nuggets",
+          "actual": "chicken nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0110",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "That was only 2 slices",
+      "output": {
+        "servings": 2,
+        "portionDescription": "2 slices",
+        "servingUnit": "slice",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":2,\"portionDescription\":\"2 slices\",\"servingUnit\":\"slice\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 581,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 2,
+          "actual": 2
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "2 slices",
+          "actual": "2 slices"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "slice",
+          "actual": "slice"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0111",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "what can you do?",
+      "output": {
+        "intent": "reply"
+      },
+      "raw": "{\"intent\":\"reply\"}",
+      "durationMs": 433,
+      "totalTokens": 918,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "reply",
+          "actual": "reply"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0112",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Dinner was fish and chips, salad, and iced tea",
+      "output": {
+        "foods": [
+          "fish and chips",
+          "salad",
+          "iced tea"
+        ]
+      },
+      "raw": "{\"foods\":[\"fish and chips\",\"salad\",\"iced tea\"]}",
+      "durationMs": 476,
+      "totalTokens": 161,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ],
+          "actual": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0113",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For breakfast I had bacon egg and cheese sandwich",
+      "output": {
+        "meal": "breakfast"
+      },
+      "raw": "{\"meal\":\"breakfast\"}",
+      "durationMs": 424,
+      "totalTokens": 172,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "breakfast",
+          "actual": "breakfast"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0114",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "I drank 16 oz of water",
+      "output": {
+        "action": "add",
+        "amountOz": 16
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16}",
+      "durationMs": 417,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16,
+          "actual": 16
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0115",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "change today's weight to 180",
+      "output": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"update\",\"weightLbs\":180,\"dateHint\":\"today\"}",
+      "durationMs": 454,
+      "totalTokens": 338,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "update",
+          "actual": "update"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 180,
+          "actual": 180
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0116",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set fiber to 35g",
+      "output": {
+        "fiber": 35
+      },
+      "raw": "{\"fiber\":35}",
+      "durationMs": 367,
+      "totalTokens": 242,
+      "checks": [
+        {
+          "name": "goal_fiber",
+          "pass": true,
+          "expected": 35,
+          "actual": 35
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0117",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete that",
+      "output": {
+        "foodNames": [
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 1781,
+      "totalTokens": 550,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0118",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0119",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "make it half a cup",
+      "output": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":0.5,\"portionDescription\":\"1/2 cup\",\"servingUnit\":\"cup\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":null}",
+      "durationMs": 751,
+      "totalTokens": 1036,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_servings",
+          "pass": true,
+          "expected": 0.5,
+          "actual": 0.5
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1/2 cup",
+          "actual": "1/2 cup"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0120",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had a large Chick-fil-A waffle fries",
+      "output": {
+        "query": "Chick-Fil-A waffle potato fries large"
+      },
+      "raw": "{\"query\":\"Chick-Fil-A waffle potato fries large\"}",
+      "durationMs": 865,
+      "totalTokens": 379,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Chick-Fil-A waffle potato fries large",
+          "actual": "Chick-Fil-A waffle potato fries large"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0121",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 590,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0122",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "I had bacon egg and cheese sandwich and fish and chips",
+      "output": {
+        "intent": "log_food"
+      },
+      "raw": "{\"intent\":\"log_food\"}",
+      "durationMs": 423,
+      "totalTokens": 925,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "log_food",
+          "actual": "log_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0123",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had mac and cheese and a protein shake",
+      "output": {
+        "foods": [
+          "mac and cheese",
+          "protein shake"
+        ]
+      },
+      "raw": "{\"foods\":[\"mac and cheese\",\"protein shake\"]}",
+      "durationMs": 559,
+      "totalTokens": 158,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "mac and cheese",
+            "protein shake"
+          ],
+          "actual": [
+            "mac and cheese",
+            "protein shake"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0124",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Log dinner: Greek yogurt",
+      "output": {
+        "meal": "dinner"
+      },
+      "raw": "{\"meal\":\"dinner\"}",
+      "durationMs": 353,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "dinner",
+          "actual": "dinner"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0125",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 452,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0126",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "clear all my weights",
+      "output": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"weightLbs\":null,\"dateHint\":null}",
+      "durationMs": 491,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0127",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 250 and fat to 55",
+      "output": {
+        "carbs": 250,
+        "fat": 55
+      },
+      "raw": "{\"carbs\":250,\"fat\":55}",
+      "durationMs": 436,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 250,
+          "actual": 250
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 55,
+          "actual": 55
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0128",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete that",
+      "output": {
+        "foodNames": [
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 468,
+      "totalTokens": 550,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0129",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "actually the fries were medium",
+      "output": {
+        "foodName": "Waffle Fries",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Waffle Fries\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Waffle Fries",
+          "actual": "Waffle Fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0130",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 656,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0131",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had a large Chick-fil-A waffle fries",
+      "output": {
+        "query": "Chick-Fil-A waffle potato fries large"
+      },
+      "raw": "{\"query\":\"Chick-Fil-A waffle potato fries large\"}",
+      "durationMs": 578,
+      "totalTokens": 379,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Chick-Fil-A waffle potato fries large",
+          "actual": "Chick-Fil-A waffle potato fries large"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0132",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had half a cup of rice",
+      "output": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":0.5,\"portionDescription\":\"1/2 cup\",\"servingUnit\":\"cup\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 580,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 0.5,
+          "actual": 0.5
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1/2 cup",
+          "actual": "1/2 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0133",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "white rice",
+      "output": {
+        "intent": "log_food"
+      },
+      "raw": "{\"intent\":\"log_food\"}",
+      "durationMs": 479,
+      "totalTokens": 916,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "log_food",
+          "actual": "log_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0134",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Dinner was fish and chips, salad, and iced tea",
+      "output": {
+        "foods": [
+          "fish and chips",
+          "salad",
+          "iced tea"
+        ]
+      },
+      "raw": "{\"foods\":[\"fish and chips\",\"salad\",\"iced tea\"]}",
+      "durationMs": 453,
+      "totalTokens": 161,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ],
+          "actual": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0135",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a breakfast burrito for dinner",
+      "output": {
+        "meal": "dinner"
+      },
+      "raw": "{\"meal\":\"dinner\"}",
+      "durationMs": 427,
+      "totalTokens": 171,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "dinner",
+          "actual": "dinner"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0136",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "log 2 cups water",
+      "output": {
+        "action": "add",
+        "amountOz": 16
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16}",
+      "durationMs": 627,
+      "totalTokens": 296,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16,
+          "actual": 16
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0137",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "I weigh 181.4 lbs today",
+      "output": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"add\",\"weightLbs\":181.4,\"dateHint\":\"today\"}",
+      "durationMs": 873,
+      "totalTokens": 342,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 181.4,
+          "actual": 181.4
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0138",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 200 and fat to 80",
+      "output": {
+        "carbs": 200,
+        "fat": 80
+      },
+      "raw": "{\"carbs\":200,\"fat\":80}",
+      "durationMs": 540,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 200,
+          "actual": 200
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 80,
+          "actual": 80
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0139",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete that",
+      "output": {
+        "foodNames": [
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 468,
+      "totalTokens": 550,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0140",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "make the nuggets 6",
+      "output": {
+        "foodName": "Chicken Nuggets",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Chicken Nuggets\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Chicken Nuggets",
+          "actual": "Chicken Nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0141",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "make it half a cup",
+      "output": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":0.5,\"portionDescription\":\"1/2 cup\",\"servingUnit\":\"cup\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":null}",
+      "durationMs": 920,
+      "totalTokens": 1036,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_servings",
+          "pass": true,
+          "expected": 0.5,
+          "actual": 0.5
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1/2 cup",
+          "actual": "1/2 cup"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0142",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "query": "fresh spinach"
+      },
+      "raw": "{\"query\":\"fresh spinach\"}",
+      "durationMs": 509,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "fresh spinach",
+          "actual": "fresh spinach"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0143",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "confident": false,
+        "hasExplicitPortion": false
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 cup\",\"servingUnit\":\"cup\",\"confident\":false,\"hasExplicitPortion\":false}",
+      "durationMs": 556,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1 cup",
+          "actual": "1 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0144",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "how many calories do I have left today?",
+      "output": {
+        "intent": "query_data"
+      },
+      "raw": "{\"intent\":\"query_data\"}",
+      "durationMs": 420,
+      "totalTokens": 923,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "query_data",
+          "actual": "query_data"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0145",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Dinner was fish and chips, salad, and iced tea",
+      "output": {
+        "foods": [
+          "fish and chips",
+          "salad",
+          "iced tea"
+        ]
+      },
+      "raw": "{\"foods\":[\"fish and chips\",\"salad\",\"iced tea\"]}",
+      "durationMs": 576,
+      "totalTokens": 161,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ],
+          "actual": [
+            "fish and chips",
+            "salad",
+            "iced tea"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0146",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a breakfast burrito",
+      "output": {
+        "meal": "none"
+      },
+      "raw": "{\"meal\":\"none\"}",
+      "durationMs": 491,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0147",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "I drank 16 oz of water",
+      "output": {
+        "action": "add",
+        "amountOz": 16
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16}",
+      "durationMs": 500,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16,
+          "actual": 16
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0148",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "I weigh 181.4 lbs today",
+      "output": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"add\",\"weightLbs\":181.4,\"dateHint\":\"today\"}",
+      "durationMs": 838,
+      "totalTokens": 342,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 181.4,
+          "actual": 181.4
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0149",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "I want 2400 calories, 140g protein, 250g carbs, 80g fat",
+      "output": {
+        "calories": 2400,
+        "protein": 140,
+        "carbs": 250,
+        "fat": 80
+      },
+      "raw": "{\"calories\":2400,\"protein\":140,\"carbs\":250,\"fat\":80}",
+      "durationMs": 543,
+      "totalTokens": 272,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 2400,
+          "actual": 2400
+        },
+        {
+          "name": "goal_protein",
+          "pass": true,
+          "expected": 140,
+          "actual": 140
+        },
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 250,
+          "actual": 250
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 80,
+          "actual": 80
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0150",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "remove the fries",
+      "output": {
+        "foodNames": [
+          "Waffle Fries"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Waffle Fries\"]}",
+      "durationMs": 604,
+      "totalTokens": 546,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Waffle Fries"
+          ],
+          "actual": [
+            "Waffle Fries"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0151",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "make the nuggets 6",
+      "output": {
+        "foodName": "Chicken Nuggets",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Chicken Nuggets\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Chicken Nuggets",
+          "actual": "Chicken Nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0152",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "that's not right",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": false,
+        "hasExplicitPortion": false,
+        "clarificationQuestion": "What amount should I change it to (e.g., 2 nuggets, half an order, or a specific count)?",
+        "replacementSearchQuery": null
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":false,\"hasExplicitPortion\":false,\"clarificationQuestion\":\"What amount should I change it to (e.g., 2 nuggets, half an order, or a specific count)?\",\"replacementSearchQuery\":null}",
+      "durationMs": 934,
+      "totalTokens": 1054,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": false,
+          "actual": false
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0153",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "query": "fresh spinach"
+      },
+      "raw": "{\"query\":\"fresh spinach\"}",
+      "durationMs": 369,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "fresh spinach",
+          "actual": "fresh spinach"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0154",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had half a cup of rice",
+      "output": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":0.5,\"portionDescription\":\"1/2 cup\",\"servingUnit\":\"cup\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 747,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 0.5,
+          "actual": 0.5
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "1/2 cup",
+          "actual": "1/2 cup"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "cup",
+          "actual": "cup"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0155",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "clear all foods from today",
+      "output": {
+        "intent": "delete_food"
+      },
+      "raw": "{\"intent\":\"delete_food\"}",
+      "durationMs": 378,
+      "totalTokens": 919,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "delete_food",
+          "actual": "delete_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0156",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I ate eggs and toast",
+      "output": {
+        "foods": [
+          "eggs",
+          "toast"
+        ]
+      },
+      "raw": "{\"foods\":[\"eggs\",\"toast\"]}",
+      "durationMs": 1430,
+      "totalTokens": 150,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "eggs",
+            "toast"
+          ],
+          "actual": [
+            "eggs",
+            "toast"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0157",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "my breakfast was chicken nuggets",
+      "output": {
+        "meal": "breakfast"
+      },
+      "raw": "{\"meal\":\"breakfast\"}",
+      "durationMs": 466,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "breakfast",
+          "actual": "breakfast"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0158",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "log 2 cups water",
+      "output": {
+        "action": "add",
+        "amountOz": 16
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16}",
+      "durationMs": 527,
+      "totalTokens": 296,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16,
+          "actual": 16
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0159",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "clear all my weights",
+      "output": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"weightLbs\":null,\"dateHint\":null}",
+      "durationMs": 554,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0160",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 150 and fat to 80",
+      "output": {
+        "carbs": 150,
+        "fat": 80
+      },
+      "raw": "{\"carbs\":150,\"fat\":80}",
+      "durationMs": 439,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 150,
+          "actual": 150
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 80,
+          "actual": 80
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0161",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete that",
+      "output": {
+        "foodNames": [
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 526,
+      "totalTokens": 550,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0162",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "no delete that",
+      "output": {
+        "foodName": "Caff Mocha Chilled Espresso Beverage",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Caff Mocha Chilled Espresso Beverage\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Caff Mocha Chilled Espresso Beverage",
+          "actual": "Caff Mocha Chilled Espresso Beverage"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0163",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "actually only about 5 fries",
+      "output": {
+        "servings": 5,
+        "portionDescription": "5 fries",
+        "servingUnit": "fry",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "waffle fries"
+      },
+      "raw": "{\"servings\":5,\"portionDescription\":\"5 fries\",\"servingUnit\":\"fry\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"waffle fries\"}",
+      "durationMs": 648,
+      "totalTokens": 1053,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_servings",
+          "pass": true,
+          "expected": 5,
+          "actual": 5
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "5 fries",
+          "actual": "5 fries"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "waffle fries",
+          "actual": "waffle fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0164",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I ate some spinach",
+      "output": {
+        "query": "fresh spinach"
+      },
+      "raw": "{\"query\":\"fresh spinach\"}",
+      "durationMs": 388,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "fresh spinach",
+          "actual": "fresh spinach"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0165",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 632,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0166",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "bacon egg and cheese sandwich",
+      "output": {
+        "intent": "log_food"
+      },
+      "raw": "{\"intent\":\"log_food\"}",
+      "durationMs": 449,
+      "totalTokens": 919,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "log_food",
+          "actual": "log_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0167",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a bacon egg and cheese sandwich",
+      "output": {
+        "foods": [
+          "bacon egg and cheese sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"bacon egg and cheese sandwich\"]}",
+      "durationMs": 444,
+      "totalTokens": 155,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "bacon egg and cheese sandwich"
+          ],
+          "actual": [
+            "bacon egg and cheese sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0168",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a lunchable as a snack",
+      "output": {
+        "meal": "snack"
+      },
+      "raw": "{\"meal\":\"snack\"}",
+      "durationMs": 404,
+      "totalTokens": 171,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "snack",
+          "actual": "snack"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0169",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "had a bottle of water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.9
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.9}",
+      "durationMs": 435,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.9
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0170",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "I weigh 181.4 lbs today",
+      "output": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"add\",\"weightLbs\":181.4,\"dateHint\":\"today\"}",
+      "durationMs": 1461,
+      "totalTokens": 342,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 181.4,
+          "actual": 181.4
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0171",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set my calorie goal to 1800",
+      "output": {
+        "calories": 1800
+      },
+      "raw": "{\"calories\":1800}",
+      "durationMs": 361,
+      "totalTokens": 246,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 1800,
+          "actual": 1800
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0172",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete coffee but keep the mocha",
+      "output": {
+        "foodNames": [
+          "Black coffee"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Black coffee\"]}",
+      "durationMs": 1460,
+      "totalTokens": 548,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Black coffee"
+          ],
+          "actual": [
+            "Black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0173",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "actually the fries were medium",
+      "output": {
+        "foodName": "Waffle Fries",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Waffle Fries\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Waffle Fries",
+          "actual": "Waffle Fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0174",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "It was black coffee",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 serving",
+        "servingUnit": "serving",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "black coffee"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 serving\",\"servingUnit\":\"serving\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"black coffee\"}",
+      "durationMs": 624,
+      "totalTokens": 1031,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 serving",
+          "actual": "1 serving"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "black coffee",
+          "actual": "black coffee"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0175",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had one egg",
+      "output": {
+        "query": "whole egg"
+      },
+      "raw": "{\"query\":\"whole egg\"}",
+      "durationMs": 448,
+      "totalTokens": 363,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "whole egg",
+          "actual": "whole egg"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0176",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had three Chick-fil-A nuggets",
+      "output": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":3,\"portionDescription\":\"3 nuggets\",\"servingUnit\":\"nugget\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 652,
+      "totalTokens": 768,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 3,
+          "actual": 3
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "3 nuggets",
+          "actual": "3 nuggets"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "nugget",
+          "actual": "nugget"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0177",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "clear all foods from today",
+      "output": {
+        "intent": "delete_food"
+      },
+      "raw": "{\"intent\":\"delete_food\"}",
+      "durationMs": 457,
+      "totalTokens": 919,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "delete_food",
+          "actual": "delete_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0178",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had peanut butter and jelly sandwich",
+      "output": {
+        "foods": [
+          "peanut butter and jelly sandwich"
+        ]
+      },
+      "raw": "{\"foods\":[\"peanut butter and jelly sandwich\"]}",
+      "durationMs": 461,
+      "totalTokens": 154,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "peanut butter and jelly sandwich"
+          ],
+          "actual": [
+            "peanut butter and jelly sandwich"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0179",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "I had a breakfast burrito",
+      "output": {
+        "meal": "none"
+      },
+      "raw": "{\"meal\":\"none\"}",
+      "durationMs": 453,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0180",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "clear today's water",
+      "output": {
+        "action": "delete_all",
+        "amountOz": null
+      },
+      "raw": "{\"action\":\"delete_all\",\"amountOz\":null}",
+      "durationMs": 819,
+      "totalTokens": 295,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "delete_all",
+          "actual": "delete_all"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0181",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "I weigh 181.4 lbs today",
+      "output": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      },
+      "raw": "{\"action\":\"add\",\"weightLbs\":181.4,\"dateHint\":\"today\"}",
+      "durationMs": 475,
+      "totalTokens": 342,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": 181.4,
+          "actual": 181.4
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "today",
+          "actual": "today"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0182",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "change carbs to 150 and fat to 55",
+      "output": {
+        "carbs": 150,
+        "fat": 55
+      },
+      "raw": "{\"carbs\":150,\"fat\":55}",
+      "durationMs": 1620,
+      "totalTokens": 251,
+      "checks": [
+        {
+          "name": "goal_carbs",
+          "pass": true,
+          "expected": 150,
+          "actual": 150
+        },
+        {
+          "name": "goal_fat",
+          "pass": true,
+          "expected": 55,
+          "actual": 55
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0183",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete all foods from today",
+      "output": {
+        "foodNames": [
+          "Greek Yogurt",
+          "Blueberries, raw",
+          "Black coffee",
+          "Breakfast Burrito",
+          "Chicken Nuggets",
+          "Waffle Fries",
+          "Caff Mocha Chilled Espresso Beverage"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Greek Yogurt\",\"Blueberries, raw\",\"Black coffee\",\"Breakfast Burrito\",\"Chicken Nuggets\",\"Waffle Fries\",\"Caff Mocha Chilled Espresso Beverage\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee",
+            "Breakfast Burrito",
+            "Chicken Nuggets",
+            "Waffle Fries",
+            "Caff Mocha Chilled Espresso Beverage"
+          ],
+          "actual": [
+            "Greek Yogurt",
+            "Blueberries, raw",
+            "Black coffee",
+            "Breakfast Burrito",
+            "Chicken Nuggets",
+            "Waffle Fries",
+            "Caff Mocha Chilled Espresso Beverage"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0184",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "make the nuggets 6",
+      "output": {
+        "foodName": "Chicken Nuggets",
+        "clarificationQuestion": null
+      },
+      "raw": "{\"foodName\":\"Chicken Nuggets\",\"clarificationQuestion\":null}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "edit_target",
+          "pass": true,
+          "expected": "Chicken Nuggets",
+          "actual": "Chicken Nuggets"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0185",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "not chicken curry, it was tofu curry",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 bowl",
+        "servingUnit": "bowl",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "tofu curry"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 bowl\",\"servingUnit\":\"bowl\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"tofu curry\"}",
+      "durationMs": 1560,
+      "totalTokens": 1037,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 bowl",
+          "actual": "1 bowl"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "tofu curry",
+          "actual": "tofu curry"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0186",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had about 5 Chick-fil-A fries",
+      "output": {
+        "query": "waffle fries"
+      },
+      "raw": "{\"query\":\"waffle fries\"}",
+      "durationMs": 446,
+      "totalTokens": 375,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "waffle fries",
+          "actual": "waffle fries"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0187",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "I had a small handful of almonds",
+      "output": {
+        "servings": 1,
+        "portionDescription": "small handful",
+        "servingUnit": "handful",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"small handful\",\"servingUnit\":\"handful\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 639,
+      "totalTokens": 763,
+      "checks": [
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0188",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "actually that was 2 cups",
+      "output": {
+        "intent": "edit_food"
+      },
+      "raw": "{\"intent\":\"edit_food\"}",
+      "durationMs": 934,
+      "totalTokens": 920,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "edit_food",
+          "actual": "edit_food"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0189",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Log breakfast: Greek yogurt, blueberries, and black coffee",
+      "output": {
+        "foods": [
+          "Greek yogurt",
+          "blueberries",
+          "black coffee"
+        ]
+      },
+      "raw": "{\"foods\":[\"Greek yogurt\",\"blueberries\",\"black coffee\"]}",
+      "durationMs": 433,
+      "totalTokens": 160,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "Greek yogurt",
+            "blueberries",
+            "black coffee"
+          ],
+          "actual": [
+            "Greek yogurt",
+            "blueberries",
+            "black coffee"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0190",
+      "task": "extract_meal",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "Log snack: scrambled eggs",
+      "output": {
+        "meal": "snack"
+      },
+      "raw": "{\"meal\":\"snack\"}",
+      "durationMs": 1519,
+      "totalTokens": 168,
+      "checks": [
+        {
+          "name": "meal",
+          "pass": true,
+          "expected": "snack",
+          "actual": "snack"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0191",
+      "task": "extract_water_mutation",
+      "category": "water_crud",
+      "difficulty": "medium",
+      "message": "add 500 ml water",
+      "output": {
+        "action": "add",
+        "amountOz": 16.907
+      },
+      "raw": "{\"action\":\"add\",\"amountOz\":16.907}",
+      "durationMs": 437,
+      "totalTokens": 298,
+      "checks": [
+        {
+          "name": "water_action",
+          "pass": true,
+          "expected": "add",
+          "actual": "add"
+        },
+        {
+          "name": "water_amount",
+          "pass": true,
+          "expected": 16.9,
+          "actual": 16.907
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0192",
+      "task": "extract_weight_mutation",
+      "category": "weight_crud",
+      "difficulty": "medium",
+      "message": "delete yesterday's weight",
+      "output": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      },
+      "raw": "{\"action\":\"delete\",\"weightLbs\":null,\"dateHint\":\"yesterday\"}",
+      "durationMs": 467,
+      "totalTokens": 337,
+      "checks": [
+        {
+          "name": "weight_action",
+          "pass": true,
+          "expected": "delete",
+          "actual": "delete"
+        },
+        {
+          "name": "weight_lbs",
+          "pass": true,
+          "expected": null,
+          "actual": null
+        },
+        {
+          "name": "weight_date_hint",
+          "pass": true,
+          "expected": "yesterday",
+          "actual": "yesterday"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0193",
+      "task": "extract_goal",
+      "category": "goal_crud",
+      "difficulty": "medium",
+      "message": "set my calorie goal to 2200",
+      "output": {
+        "calories": 2200
+      },
+      "raw": "{\"calories\":2200}",
+      "durationMs": 424,
+      "totalTokens": 246,
+      "checks": [
+        {
+          "name": "goal_calories",
+          "pass": true,
+          "expected": 2200,
+          "actual": 2200
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0194",
+      "task": "pick_delete_targets",
+      "category": "food_delete",
+      "difficulty": "hard",
+      "message": "delete breakfast burrito",
+      "output": {
+        "foodNames": [
+          "Breakfast Burrito"
+        ]
+      },
+      "raw": "{\"foodNames\":[\"Breakfast Burrito\"]}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "delete_targets",
+          "pass": true,
+          "expected": [
+            "Breakfast Burrito"
+          ],
+          "actual": [
+            "Breakfast Burrito"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0195",
+      "task": "pick_edit_target",
+      "category": "food_edit",
+      "difficulty": "hard",
+      "message": "fix the coffee",
+      "output": {
+        "foodName": null,
+        "clarificationQuestion": "Which coffee entry should I change?"
+      },
+      "raw": "{\"foodName\":null,\"clarificationQuestion\":\"Which coffee entry should I change?\"}",
+      "durationMs": 0,
+      "totalTokens": 0,
+      "checks": [
+        {
+          "name": "clarification",
+          "pass": true,
+          "expected": "clarification without target",
+          "actual": {
+            "foodName": null,
+            "clarificationQuestion": "Which coffee entry should I change?"
+          }
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0196",
+      "task": "resolve_edit_request",
+      "category": "food_edit",
+      "difficulty": "ridiculous",
+      "message": "It was black coffee",
+      "output": {
+        "servings": 1,
+        "portionDescription": "1 serving",
+        "servingUnit": "serving",
+        "confident": true,
+        "hasExplicitPortion": true,
+        "clarificationQuestion": null,
+        "replacementSearchQuery": "black coffee"
+      },
+      "raw": "{\"servings\":1,\"portionDescription\":\"1 serving\",\"servingUnit\":\"serving\",\"confident\":true,\"hasExplicitPortion\":true,\"clarificationQuestion\":null,\"replacementSearchQuery\":\"black coffee\"}",
+      "durationMs": 724,
+      "totalTokens": 1031,
+      "checks": [
+        {
+          "name": "edit_has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        },
+        {
+          "name": "edit_portion",
+          "pass": true,
+          "expected": "1 serving",
+          "actual": "1 serving"
+        },
+        {
+          "name": "edit_replacement_query",
+          "pass": true,
+          "expected": "black coffee",
+          "actual": "black coffee"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0197",
+      "task": "build_food_search_query",
+      "category": "food_search",
+      "difficulty": "hard",
+      "message": "I had a large Chick-fil-A waffle fries",
+      "output": {
+        "query": "Chick-Fil-A waffle potato fries large"
+      },
+      "raw": "{\"query\":\"Chick-Fil-A waffle potato fries large\"}",
+      "durationMs": 475,
+      "totalTokens": 379,
+      "checks": [
+        {
+          "name": "search_query",
+          "pass": true,
+          "expected": "Chick-Fil-A waffle potato fries large",
+          "actual": "Chick-Fil-A waffle potato fries large"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0198",
+      "task": "extract_servings",
+      "category": "portion",
+      "difficulty": "hard",
+      "message": "That was only 2 slices",
+      "output": {
+        "servings": 2,
+        "portionDescription": "2 slices",
+        "servingUnit": "slice",
+        "confident": true,
+        "hasExplicitPortion": true
+      },
+      "raw": "{\"servings\":2,\"portionDescription\":\"2 slices\",\"servingUnit\":\"slice\",\"confident\":true,\"hasExplicitPortion\":true}",
+      "durationMs": 550,
+      "totalTokens": 759,
+      "checks": [
+        {
+          "name": "servings",
+          "pass": true,
+          "expected": 2,
+          "actual": 2
+        },
+        {
+          "name": "portion",
+          "pass": true,
+          "expected": "2 slices",
+          "actual": "2 slices"
+        },
+        {
+          "name": "serving_unit",
+          "pass": true,
+          "expected": "slice",
+          "actual": "slice"
+        },
+        {
+          "name": "has_explicit_portion",
+          "pass": true,
+          "expected": true,
+          "actual": true
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0199",
+      "task": "classify_intent",
+      "category": "intent",
+      "difficulty": "medium",
+      "message": "thanks",
+      "output": {
+        "intent": "reply"
+      },
+      "raw": "{\"intent\":\"reply\"}",
+      "durationMs": 481,
+      "totalTokens": 914,
+      "checks": [
+        {
+          "name": "intent",
+          "pass": true,
+          "expected": "reply",
+          "actual": "reply"
+        }
+      ],
+      "score": 100,
+      "pass": true
+    },
+    {
+      "id": "train-0200",
+      "task": "split_foods",
+      "category": "food_log",
+      "difficulty": "hard",
+      "message": "For lunch I had mac and cheese and a protein shake",
+      "output": {
+        "foods": [
+          "mac and cheese",
+          "protein shake"
+        ]
+      },
+      "raw": "{\"foods\":[\"mac and cheese\",\"protein shake\"]}",
+      "durationMs": 476,
+      "totalTokens": 158,
+      "checks": [
+        {
+          "name": "foods",
+          "pass": true,
+          "expected": [
+            "mac and cheese",
+            "protein shake"
+          ],
+          "actual": [
+            "mac and cheese",
+            "protein shake"
+          ]
+        }
+      ],
+      "score": 100,
+      "pass": true
+    }
+  ]
+}

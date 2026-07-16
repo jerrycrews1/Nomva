@@ -38,6 +38,31 @@ final class LlamaCppProvider: LLMProvider, @unchecked Sendable {
         throw ProviderError.disabled
     }
 
+    func buildFoodSearchQuery(
+        userMessage: String,
+        foodMention: String
+    ) async throws -> String {
+        throw ProviderError.disabled
+    }
+
+    func chooseFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        candidates: [FoodChoiceOption]
+    ) async throws -> Int? {
+        throw ProviderError.disabled
+    }
+
+    func validateFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        searchQuery: String,
+        candidate: FoodChoiceOption,
+        servingsInfo: ServingsInfo
+    ) async throws -> FoodCandidateValidation {
+        throw ProviderError.disabled
+    }
+
     func confirmFoodMatch(
         userMessage: String,
         foodMention: String,
@@ -62,14 +87,34 @@ final class LlamaCppProvider: LLMProvider, @unchecked Sendable {
 
     func pickDeleteTargets(
         userMessage: String,
-        logSummary: String
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
     ) async throws -> [String] {
+        throw ProviderError.disabled
+    }
+
+    func pickEditTarget(
+        userMessage: String,
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
+    ) async throws -> EditTargetSelection {
+        throw ProviderError.disabled
+    }
+
+    func resolveEditRequest(
+        userMessage: String,
+        currentEntryName: String,
+        currentEntryBrand: String?,
+        currentPortionDescription: String
+    ) async throws -> EditResolution {
         throw ProviderError.disabled
     }
 
     func estimateGrams(
         foodName: String,
-        portionDescription: String
+        portionDescription: String,
+        referenceServingDescription: String?,
+        referenceServingGrams: Double?
     ) async throws -> Double {
         throw ProviderError.disabled
     }

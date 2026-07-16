@@ -8,20 +8,36 @@ struct ChatView: View {
     @Query(sort: \CustomFood.createdAt, order: .reverse) private var customFoods: [CustomFood]
     @Query(sort: \MealTemplate.createdAt, order: .reverse) private var mealTemplates: [MealTemplate]
     @Query(sort: \LoggingSession.updatedAt, order: .reverse) private var loggingSessions: [LoggingSession]
+    @Query(sort: \WaterEntry.date)        private var allWaterEntries: [WaterEntry]
     @Query                                private var goals: [DailyGoal]
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.undoManager)  private var undoManager
+    @EnvironmentObject private var routeCenter: NomvaRouteCenter
 
     @State private var selectedDate      = Date.now
     @State private var inputText         = ""
     @State private var isProcessing      = false
     @State private var showBarcodeScanner = false
     @State private var showClearConfirm  = false
+    @State private var showNutritionDetail = false
     @State private var scannedFood: FoodItem? = nil
     @State private var scannerError: String? = nil
+
+    // Photo food logging
+    @State private var showPhotoSourcePicker = false
+    @State private var showCamera            = false
+    @State private var showPhotoLibrary      = false
+    @State private var selectedImage: UIImage? = nil
+    @State private var isAnalyzingPhoto      = false
+    @State private var photoAnalysisResult: [RemoteAPIProvider.PhotoFoodItem]? = nil
+    @State private var photoError: String?   = nil
+    @State private var showPremiumAlert      = false
+
     @FocusState private var isInputFocused: Bool
 
     private let contentInset: CGFloat = NomvaTheme.contentInset
+    private let chatBottomID = "chat-bottom"
     private var cal: Calendar { Calendar.current }
     private var isToday: Bool { cal.isDateInToday(selectedDate) }
 
@@ -66,14 +82,21 @@ struct ChatView: View {
                 NomvaScreenBackground()
 
                 VStack(spacing: NomvaTheme.sectionGap) {
-                    MacroRingsView(
-                        consumed: selectedDayTotals,
-                        goal: currentGoal,
-                        isCompact: isInputFocused || !messages.isEmpty
-                    )
+                    Button {
+                        showNutritionDetail = true
+                    } label: {
+                        MacroRingsView(
+                            consumed: selectedDayTotals,
+                            goal: currentGoal,
+                            isCompact: isInputFocused || !messages.isEmpty,
+                            showsDetailCue: true
+                        )
+                    }
+                    .buttonStyle(.plain)
                     .padding(.horizontal, contentInset)
                     .padding(.top, NomvaTheme.topCardGap)
                     .animation(.spring(), value: isInputFocused || !messages.isEmpty)
+                    .accessibilityHint("Shows detailed nutrition, Daily Value context, and trends")
 
                     messageList
 
@@ -100,11 +123,7 @@ struct ChatView: View {
                     }
                 }
             }
-            .confirmationDialog(
-                "Clear \(dateLabel) chat?",
-                isPresented: $showClearConfirm,
-                titleVisibility: .visible
-            ) {
+            .alert("Clear \(dateLabel) chat?", isPresented: $showClearConfirm) {
                 Button("Clear Chat", role: .destructive) {
                     for msg in messages { modelContext.delete(msg) }
                     for session in loggingSessions where session.dayDate >= dayStart && session.dayDate < dayEnd {
@@ -120,6 +139,14 @@ struct ChatView: View {
                     handleBarcode(barcode)
                 }
             }
+            .sheet(isPresented: $showNutritionDetail) {
+                NutritionDetailView(
+                    selectedDate: selectedDate,
+                    entries: selectedDayEntries,
+                    allEntries: allEntries,
+                    goal: currentGoal
+                )
+            }
             .sheet(item: $scannedFood) { food in
                 NavigationStack {
                     ManualFoodDetailView(
@@ -128,19 +155,84 @@ struct ChatView: View {
                     )
                 }
             }
-            .alert("Scan Failed", isPresented: Binding(
-                get: { scannerError != nil },
-                set: { if !$0 { scannerError = nil } }
-            )) {
-                Button("OK") { scannerError = nil }
-            } message: {
-                Text(scannerError ?? "")
+        } // End of NavigationStack
+        .alert("Scan Failed", isPresented: Binding(
+            get: { scannerError != nil },
+            set: { if !$0 { scannerError = nil } }
+        )) {
+            Button("OK") { scannerError = nil }
+        } message: {
+            Text(scannerError ?? "")
+        }
+        .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker, titleVisibility: .visible) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo") { showCamera = true }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
-                if isToday { selectedDate = .now }
+            Button("Choose from Library") { showPhotoLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            ImagePicker(sourceType: .camera, onImagePicked: { image in
+                handlePickedImage(image)
+            }, onCancel: {
+                showCamera = false
+            })
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showPhotoLibrary) {
+            ImagePicker(sourceType: .photoLibrary, onImagePicked: { image in
+                showPhotoLibrary = false
+                handlePickedImage(image)
+            }, onCancel: {
+                showPhotoLibrary = false
+            })
+        }
+        .sheet(isPresented: Binding(
+            get: { photoAnalysisResult != nil && selectedImage != nil },
+            set: { if !$0 { photoAnalysisResult = nil; selectedImage = nil } }
+        )) {
+            if let image = selectedImage, let foods = photoAnalysisResult {
+                PhotoFoodReviewView(
+                    image: image,
+                    foods: foods,
+                    meal: currentMeal(at: timestampForSelectedDay())
+                ) { loggedFoods in
+                    postPhotoSummary(loggedFoods)
+                    photoAnalysisResult = nil
+                    selectedImage = nil
+                }
             }
+        }
+        .alert("Photo Scan Failed", isPresented: Binding(
+            get: { photoError != nil },
+            set: { if !$0 { photoError = nil } }
+        )) {
+            Button("OK") { photoError = nil }
+        } message: {
+            Text(photoError ?? "")
+        }
+        .alert("Premium Feature", isPresented: $showPremiumAlert) {
+            Button("OK") {}
+        } message: {
+            Text("Photo food scanning is a premium feature. Upgrade to scan meals with your camera.")
+        }
+        .onAppear { modelContext.undoManager = undoManager }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            if isToday { selectedDate = .now }
+        }
+        .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
+            switch route {
+            case .chat:
+                isInputFocused = true
+                routeCenter.clear(route)
+            case .barcode:
+                showBarcodeScanner = true
+                routeCenter.clear(route)
+            default:
+                break
             }
-            }
+        }
+    }
 
 
     // MARK: - Date Navigator
@@ -188,29 +280,55 @@ struct ChatView: View {
                             .padding(.horizontal)
                             .id("typing")
                     }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(chatBottomID)
                 }
                 .padding(.horizontal, contentInset)
                 .padding(.top, messages.isEmpty ? 6 : 0)
                 .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: messages.count) {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    if messages.count <= 4, let first = messages.first {
-                        // Few messages — pin the first message to the top of
-                        // the scroll area so it sits right below the macro
-                        // rings instead of flying up behind them.
-                        proxy.scrollTo(first.id, anchor: .top)
-                    } else if let last = messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
+            .onAppear {
+                scrollToLatestMessage(using: proxy, animated: false)
+            }
+            .onChange(of: messages.map(\.id)) {
+                scrollToLatestMessage(using: proxy)
             }
             .onChange(of: isProcessing) {
-                guard messages.count > 4 else { return }
-                if isProcessing {
-                    withAnimation { proxy.scrollTo("typing", anchor: .bottom) }
-                }
+                scrollToLatestMessage(using: proxy)
+            }
+            .onChange(of: selectedDate) {
+                scrollToLatestMessage(using: proxy, animated: false)
+            }
+        }
+    }
+
+    private func scrollToLatestMessage(using proxy: ScrollViewProxy, animated: Bool = true) {
+        let scroll = {
+            proxy.scrollTo(chatBottomID, anchor: .bottom)
+        }
+
+        if animated {
+            withAnimation(.easeOut(duration: 0.25), scroll)
+        } else {
+            scroll()
+        }
+
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.25), scroll)
+            } else {
+                scroll()
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if animated {
+                withAnimation(.easeOut(duration: 0.25), scroll)
+            } else {
+                scroll()
             }
         }
     }
@@ -220,19 +338,14 @@ struct ChatView: View {
     private var emptyChatPrompt: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(isToday ? "Log food in one sentence." : "Log food for \(dateLabel).")
+                Text(isToday ? "Log food in one message." : "Log food for \(dateLabel).")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
 
-                Text("Use chat for meals, quick corrections, and calorie questions.")
+                Text("Log a meal, fix an entry, or check what's left.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Try one of these")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.4)
-
                     ForEach(Array(examplePrompts.prefix(2)), id: \.self) { prompt in
                         suggestionChip(prompt)
                     }
@@ -276,6 +389,25 @@ struct ChatView: View {
             }
 
             HStack(spacing: 10) {
+                // Camera / photo button
+                Button {
+                    if SubscriptionManager.shared.isPremium {
+                        showPhotoSourcePicker = true
+                    } else {
+                        showPremiumAlert = true
+                    }
+                } label: {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: NomvaTheme.iconControlSize, height: NomvaTheme.iconControlSize)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .clipShape(Circle())
+                }
+                .padding(2)
+                .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
+
+                // Barcode scanner button
                 Button {
                     showBarcodeScanner = true
                 } label: {
@@ -364,6 +496,7 @@ struct ChatView: View {
         let thirtyDaysAgo  = Calendar.current.date(byAdding: .day, value: -30, to: .now)!
         let recentSnapshot = allEntries.filter { $0.date >= thirtyDaysAgo }
         let weightSnapshot = allWeightEntries
+        let waterSnapshot  = allWaterEntries
         let goalSnapshot   = currentGoal
         let sessionSnapshot = activeLoggingSession?.decodedState
 
@@ -377,6 +510,7 @@ struct ChatView: View {
                 recentEntries: recentSnapshot,
                 customFoods: customFoods,
                 weightEntries: weightSnapshot,
+                waterEntries: waterSnapshot,
                 mealTemplates: mealTemplates,
                 sessionState: sessionSnapshot
             )
@@ -460,6 +594,21 @@ struct ChatView: View {
             let removed = removedName.map { "Removed \($0).\n" } ?? ""
             return removed + lines.joined(separator: "\n")
 
+        case .replaceEntryById(let deleteId, let newEntries):
+            var removedName: String? = nil
+            if let match = targetEntries.first(where: { $0.id == deleteId }) {
+                removedName = match.name
+                modelContext.delete(match)
+            }
+            for (index, entry) in newEntries.enumerated() {
+                entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
+                modelContext.insert(entry)
+            }
+            persistEvidence(result.evidenceDrafts, for: newEntries, dayStart: targetDayStart)
+            let lines = newEntries.map { "✓ \($0.name) (\($0.portionDescription)) — \(Int($0.calories)) cal" }
+            let removed = removedName.map { "Removed \($0).\n" } ?? ""
+            return removed + lines.joined(separator: "\n")
+
         case .log_weight(let entry):
             entry.date = timestamp(for: targetDayStart)
             modelContext.insert(entry)
@@ -482,36 +631,71 @@ struct ChatView: View {
             for entry in allWeightEntries { modelContext.delete(entry) }
             return result.reply
 
-        case .editEntry(let name, let newGrams, let newDesc):
+        case .deleteEntries(let ids):
+            let targetIds = Set(ids)
+            let toDelete = targetEntries.filter { targetIds.contains($0.id) }
+            guard !toDelete.isEmpty else { return "Nothing found to remove." }
+
+            for entry in toDelete { modelContext.delete(entry) }
+            return "Removed: \(displayNames(for: toDelete))."
+
+        case .editEntry(let name, let newGrams, let newDesc, let newServings, let newServingUnit):
             // Find the best matching entry in the selected day's log
             if let match = findEntry(named: name, in: targetEntries) {
                 let factor = newGrams / 100
                 match.portionGrams       = newGrams
                 match.portionDescription = newDesc
+                match.servings = newServings
+                match.servingUnit = newServingUnit
                 match.calories  = match.caloriesPer100g * factor
                 match.proteinG  = match.proteinPer100g  * factor
                 match.carbsG    = match.carbsPer100g    * factor
                 match.fatG      = match.fatPer100g      * factor
                 match.fiberG    = match.fiberPer100g    * factor
+                match.sugarG    = match.sugarPer100g    * factor
+                match.sodiumMg  = match.sodiumPer100g   * factor
+                match.saturatedFatG = match.saturatedFatPer100g.map { $0 * factor }
+                match.transFatG = match.transFatPer100g.map { $0 * factor }
+                match.cholesterolMg = match.cholesterolPer100g.map { $0 * factor }
+                match.addedSugarG = match.addedSugarPer100g.map { $0 * factor }
+                match.vitaminDMcg = match.vitaminDPer100g.map { $0 * factor }
+                match.calciumMg = match.calciumPer100g.map { $0 * factor }
+                match.ironMg = match.ironPer100g.map { $0 * factor }
+                match.potassiumMg = match.potassiumPer100g.map { $0 * factor }
+                match.vitaminAMcgRAE = match.vitaminAPer100g.map { $0 * factor }
+                match.vitaminCMg = match.vitaminCPer100g.map { $0 * factor }
+                match.vitaminB12Mcg = match.vitaminB12Per100g.map { $0 * factor }
+                match.folateMcgDFE = match.folatePer100g.map { $0 * factor }
+                match.magnesiumMg = match.magnesiumPer100g.map { $0 * factor }
+                match.zincMg = match.zincPer100g.map { $0 * factor }
                 return "Updated \(match.name) to \(newDesc) — \(Int(match.calories)) cal"
             } else {
                 return "Couldn't find \"\(name)\" in your \(targetDateLabel.lowercased()) log. Check the Log tab to see what's there."
             }
 
         case .deleteEntry(let names):
-            var removed: [String] = []
+            var removed: [FoodEntry] = []
             var notFound: [String] = []
             var remainingEntries = targetEntries
+            var seenTargets: Set<String> = []
+
             for name in names {
-                if let match = findEntry(named: name, in: remainingEntries) {
-                    removed.append(match.name)
-                    remainingEntries.removeAll { $0.id == match.id }
-                    modelContext.delete(match)
+                let normalizedName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalizedName.isEmpty, seenTargets.insert(normalizedName).inserted else { continue }
+
+                let matches = findEntries(named: name, in: remainingEntries)
+                if !matches.isEmpty {
+                    removed.append(contentsOf: matches)
+                    let matchIds = Set(matches.map(\.id))
+                    remainingEntries.removeAll { matchIds.contains($0.id) }
+                    for match in matches {
+                        modelContext.delete(match)
+                    }
                 } else {
                     notFound.append(name)
                 }
             }
-            var reply = removed.isEmpty ? "" : "Removed: \(removed.joined(separator: ", "))."
+            var reply = removed.isEmpty ? "" : "Removed: \(displayNames(for: removed))."
             if !notFound.isEmpty { reply += (reply.isEmpty ? "" : " ") + "Couldn't find: \(notFound.joined(separator: ", "))." }
             return reply.isEmpty ? "Nothing found to remove." : reply
 
@@ -536,6 +720,27 @@ struct ChatView: View {
             return mealLower == "all"
                 ? "✓ Cleared all \(count) items from \(targetDateLabel.lowercased())."
                 : "✓ Removed \(count) \(meal) item\(count == 1 ? "" : "s") from your \(targetDateLabel.lowercased()) log."
+
+        case .logWater(let oz):
+            let entry = WaterEntry(amountOz: oz)
+            entry.date = timestamp(for: targetDayStart)
+            modelContext.insert(entry)
+            return result.reply
+
+        case .deleteWater:
+            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < cal.date(byAdding: .day, value: 1, to: targetDayStart)! }
+            for entry in todayWater { modelContext.delete(entry) }
+            return result.reply
+
+        case .setWaterTotal(let oz):
+            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < cal.date(byAdding: .day, value: 1, to: targetDayStart)! }
+            for entry in todayWater { modelContext.delete(entry) }
+            if oz > 0 {
+                let entry = WaterEntry(amountOz: oz)
+                entry.date = timestamp(for: targetDayStart)
+                modelContext.insert(entry)
+            }
+            return result.reply
 
         case .setGoal(let calories, let protein, let carbs, let fat, let fiber):
             let goal = currentGoal
@@ -644,6 +849,38 @@ struct ChatView: View {
             .0
     }
 
+    private func findEntries(named target: String, in entries: [FoodEntry]) -> [FoodEntry] {
+        let t = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return [] }
+
+        func fullName(_ entry: FoodEntry) -> String {
+            let brand = entry.brand ?? ""
+            return brand.isEmpty ? entry.name.lowercased() : "\(brand) \(entry.name)".lowercased()
+        }
+
+        let exactMatches = entries.filter { $0.name.lowercased() == t || fullName($0) == t }
+        if !exactMatches.isEmpty { return exactMatches }
+
+        let brandMatches = entries.filter { $0.brand?.lowercased() == t }
+        if !brandMatches.isEmpty { return brandMatches }
+
+        let containsMatches = entries.filter {
+            fullName($0).contains(t) || t.contains($0.name.lowercased())
+        }
+        if !containsMatches.isEmpty { return containsMatches }
+
+        return findEntry(named: target, in: entries).map { [$0] } ?? []
+    }
+
+    private func displayNames(for entries: [FoodEntry]) -> String {
+        let counts = Dictionary(grouping: entries, by: \.name).mapValues { $0.count }
+        return counts.keys.sorted().map { name in
+            let count = counts[name] ?? 1
+            return count > 1 ? "\(name) x\(count)" : name
+        }
+        .joined(separator: ", ")
+    }
+
     // MARK: - Quick Add (from recent foods chips)
 
     private func quickAdd(entry: FoodEntry) {
@@ -659,12 +896,48 @@ struct ChatView: View {
             carbsG: entry.carbsG,
             fatG: entry.fatG,
             fiberG: entry.fiberG,
+            sugarG: entry.sugarG,
+            sodiumMg: entry.sodiumMg,
+            saturatedFatG: entry.saturatedFatG,
+            transFatG: entry.transFatG,
+            cholesterolMg: entry.cholesterolMg,
+            addedSugarG: entry.addedSugarG,
+            vitaminDMcg: entry.vitaminDMcg,
+            calciumMg: entry.calciumMg,
+            ironMg: entry.ironMg,
+            potassiumMg: entry.potassiumMg,
+            vitaminAMcgRAE: entry.vitaminAMcgRAE,
+            vitaminCMg: entry.vitaminCMg,
+            vitaminB12Mcg: entry.vitaminB12Mcg,
+            folateMcgDFE: entry.folateMcgDFE,
+            magnesiumMg: entry.magnesiumMg,
+            zincMg: entry.zincMg,
             caloriesPer100g: entry.caloriesPer100g,
             proteinPer100g: entry.proteinPer100g,
             carbsPer100g: entry.carbsPer100g,
             fatPer100g: entry.fatPer100g,
             fiberPer100g: entry.fiberPer100g,
-            rawUserInput: "Quick add: \(entry.name)"
+            sugarPer100g: entry.sugarPer100g,
+            sodiumPer100g: entry.sodiumPer100g,
+            saturatedFatPer100g: entry.saturatedFatPer100g,
+            transFatPer100g: entry.transFatPer100g,
+            cholesterolPer100g: entry.cholesterolPer100g,
+            addedSugarPer100g: entry.addedSugarPer100g,
+            vitaminDPer100g: entry.vitaminDPer100g,
+            calciumPer100g: entry.calciumPer100g,
+            ironPer100g: entry.ironPer100g,
+            potassiumPer100g: entry.potassiumPer100g,
+            vitaminAPer100g: entry.vitaminAPer100g,
+            vitaminCPer100g: entry.vitaminCPer100g,
+            vitaminB12Per100g: entry.vitaminB12Per100g,
+            folatePer100g: entry.folatePer100g,
+            magnesiumPer100g: entry.magnesiumPer100g,
+            zincPer100g: entry.zincPer100g,
+            rawUserInput: "Quick add: \(entry.name)",
+            fdcId: entry.fdcId,
+            foodDatabaseId: entry.foodDatabaseId,
+            source: entry.source,
+            barcode: entry.barcode
         )
         modelContext.insert(newEntry)
 
@@ -686,10 +959,90 @@ struct ChatView: View {
             case let .found(food, _):
                 scannedFood = food
             case .notFound:
-                scannerError = "Couldn’t find barcode \(barcode) in Nomva or Open Food Facts. Try typing the food name instead."
+                scannerError = "Couldn’t find barcode \(barcode) in Nomva’s local food database yet. Try typing the food name instead."
             case .unavailable:
-                scannerError = "Couldn’t look up barcode \(barcode) right now. Check your connection or type the food name instead."
+                scannerError = "Couldn’t look up barcode \(barcode) from the local food database right now. Try typing the food name instead."
             }
+        }
+    }
+
+    // MARK: - Photo Analysis
+
+    private func handlePickedImage(_ image: UIImage) {
+        showCamera = false
+        selectedImage = image
+        isAnalyzingPhoto = true
+        isProcessing = true
+
+        // Show a user message in chat for the photo
+        let userMsg = ChatMessage(
+            role: "user",
+            content: "📷 Scanning food photo…",
+            timestamp: timestamp(for: dayStart),
+            dayDate: dayStart
+        )
+        modelContext.insert(userMsg)
+
+        Task { @MainActor in
+            do {
+                // Compress to JPEG, max 1024px wide, ~0.7 quality
+                let resized = resizeImage(image, maxDimension: 1024)
+                guard let jpegData = resized.jpegData(compressionQuality: 0.7) else {
+                    throw NSError(domain: "Nomva", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not compress image"])
+                }
+                let base64 = jpegData.base64EncodedString()
+
+                let provider = RemoteAPIProvider(baseURL: NomvaAPI.baseURL)
+                let result = try await provider.analyzePhoto(imageBase64: base64)
+
+                if result.notFood == true || result.foods.isEmpty {
+                    let reply = ChatMessage(
+                        role: "assistant",
+                        content: "I couldn't identify any food in that photo. Try taking a clearer picture of your meal.",
+                        timestamp: timestamp(for: dayStart, offsetBy: 1),
+                        dayDate: dayStart
+                    )
+                    modelContext.insert(reply)
+                    selectedImage = nil
+                } else {
+                    photoAnalysisResult = result.foods
+                }
+            } catch {
+                photoError = "Couldn't analyze the photo: \(error.localizedDescription)"
+                selectedImage = nil
+            }
+
+            isAnalyzingPhoto = false
+            isProcessing = false
+            SubscriptionManager.shared.recordAIMessage()
+        }
+    }
+
+    /// Posts a chat summary after the user finishes logging photo-scanned foods.
+    /// ManualFoodDetailView already inserted the FoodEntry objects.
+    private func postPhotoSummary(_ foods: [RemoteAPIProvider.PhotoFoodItem]) {
+        guard !foods.isEmpty else { return }
+        let targetDayStart = dayStart
+        let lines = foods.map { "✓ \($0.name.capitalized) (\($0.portion)) — \(Int($0.calories)) cal" }
+        let totalCal = foods.reduce(0) { $0 + Int($1.calories) }
+        let reply = lines.joined(separator: "\n") + "\n\nTotal: \(totalCal) cal"
+        let assistantMsg = ChatMessage(
+            role: "assistant",
+            content: reply,
+            timestamp: timestamp(for: targetDayStart, offsetBy: 1),
+            dayDate: targetDayStart
+        )
+        modelContext.insert(assistantMsg)
+    }
+
+    private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let size = image.size
+        guard max(size.width, size.height) > maxDimension else { return image }
+        let scale = maxDimension / max(size.width, size.height)
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 
@@ -858,4 +1211,5 @@ struct RoundedCornerShape: Shape {
 
 #Preview {
     ChatView()
+        .environmentObject(NomvaRouteCenter.shared)
 }

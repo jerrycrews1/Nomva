@@ -25,7 +25,7 @@ struct LLMProviderSettingsView: View {
             } header: {
                 Text("AI Provider")
             } footer: {
-                Text("All AI features are powered by Nomva Cloud. Requires an internet connection.")
+                Text("AI features use Nomva Cloud and need an internet connection.")
             }
 
             Section {
@@ -36,7 +36,7 @@ struct LLMProviderSettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Cloud Processing")
                             .font(.subheadline.bold())
-                        Text("Messages are sent to Nomva's server for processing. We don't store your food logs.")
+                        Text("Messages go through Nomva's server for processing. Food logs stay on your device.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

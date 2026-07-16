@@ -3,8 +3,65 @@ import SwiftData
 import Charts
 
 struct WeightLoggingView: View {
+    private enum ChartWindow: String, CaseIterable, Identifiable {
+        case days7
+        case days30
+        case days90
+        case year
+
+        var id: String { rawValue }
+
+        var shortLabel: String {
+            switch self {
+            case .days7:
+                return "7D"
+            case .days30:
+                return "30D"
+            case .days90:
+                return "90D"
+            case .year:
+                return "1Y"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .days7:
+                return "Last 7 Days"
+            case .days30:
+                return "Last 30 Days"
+            case .days90:
+                return "Last 90 Days"
+            case .year:
+                return "Last Year"
+            }
+        }
+
+        var daySpan: Int {
+            switch self {
+            case .days7:
+                return 7
+            case .days30:
+                return 30
+            case .days90:
+                return 90
+            case .year:
+                return 365
+            }
+        }
+    }
+
+    private struct WeightChartPoint: Identifiable {
+        let date: Date
+        let weightLbs: Double
+
+        var id: Date { date }
+    }
+
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.undoManager)  private var undoManager
+    @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @ObservedObject private var subManager = SubscriptionManager.shared
 
     @State private var showLogSheet = false
@@ -13,6 +70,7 @@ struct WeightLoggingView: View {
     @State private var deleteEntry: WeightEntry? = nil
     @State private var showDeleteConfirm = false
     @State private var showUnitPicker = false
+    @State private var selectedChartWindow: ChartWindow = .days30
 
     @AppStorage("weight_unit") private var unitRaw = WeightUnit.lbs.rawValue
     private var unit: WeightUnit { WeightUnit(rawValue: unitRaw) ?? .lbs }
@@ -27,7 +85,46 @@ struct WeightLoggingView: View {
         return recent.reduce(0, +) / Double(recent.count)
     }
 
-    private var chartData: [WeightEntry] { Array(entries.prefix(30).reversed()) }
+    private var chartDateRange: ClosedRange<Date>? {
+        guard let latestEntryDate = entries.first?.date else { return nil }
+        let calendar = Calendar.current
+        let end = calendar.startOfDay(for: latestEntryDate)
+        guard let start = calendar.date(byAdding: .day, value: -(selectedChartWindow.daySpan - 1), to: end) else { return nil }
+        return start ... end
+    }
+
+    private var chartData: [WeightChartPoint] {
+        guard let range = chartDateRange else { return [] }
+
+        let calendar = Calendar.current
+        var weightsByDay: [Date: [Double]] = [:]
+
+        for entry in entries {
+            let day = calendar.startOfDay(for: entry.date)
+            guard range.contains(day) else { continue }
+            weightsByDay[day, default: []].append(entry.weightLbs)
+        }
+
+        return weightsByDay.keys.sorted().map { day in
+            let weights = weightsByDay[day] ?? []
+            let average = weights.reduce(0, +) / Double(max(weights.count, 1))
+            return WeightChartPoint(date: day, weightLbs: average)
+        }
+    }
+
+    private var chartSummary: String {
+        let loggedDayCount = chartData.count
+        let loggedDayLabel = loggedDayCount == 1 ? "1 logged day" : "\(loggedDayCount) logged days"
+
+        guard let first = chartData.first, let last = chartData.last, chartData.count > 1 else {
+            return loggedDayLabel
+        }
+
+        let delta = displayedWeight(for: last.weightLbs - first.weightLbs)
+        let verb = delta == 0 ? "flat" : delta < 0 ? "down" : "up"
+        let magnitude = abs(delta).formatted(.number.precision(.fractionLength(0...1)))
+        return "\(loggedDayLabel) • \(verb) \(magnitude) \(unit.shortLabel.lowercased())"
+    }
 
     private var weightInsight: WeightInsight {
         analytics.analyze(entries: entries.map { (date: $0.date, weightLbs: $0.weightLbs) })
@@ -58,11 +155,11 @@ struct WeightLoggingView: View {
 
                     if !chartData.isEmpty {
                         Section {
-                            weightChart
+                            weightChartCard
                                 .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
                                 .listRowInsets(
                                     EdgeInsets(
-                                        top: 0,
+                                        top: NomvaTheme.sectionGap,
                                         leading: contentInset,
                                         bottom: NomvaTheme.sectionGap,
                                         trailing: contentInset
@@ -70,10 +167,40 @@ struct WeightLoggingView: View {
                                 )
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                        } header: {
-                            sectionHeader("Last 30 Days")
                         }
                     }
+
+                    Section {
+                        Group {
+                            if subManager.isPremium {
+                                if weightInsight.signal == .insufficient {
+                                    WeightInsightsInsufficientCard(
+                                        entryCount: entries.count,
+                                        minimumRequired: analytics.minimumEntries
+                                    )
+                                } else {
+                                    WeightInsightsSection(insight: weightInsight, unit: unit)
+                                }
+                            } else {
+                                WeightInsightsTeaser {
+                                    showPaywall = true
+                                }
+                            }
+                        }
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: contentInset,
+                                bottom: NomvaTheme.sectionGap,
+                                trailing: contentInset
+                            )
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    } header: {
+                        sectionHeader("Insights")
+                    }
+                    .listSectionSeparator(.hidden)
 
                     if !entries.isEmpty {
                         Section {
@@ -128,38 +255,6 @@ struct WeightLoggingView: View {
                         }
                         .listSectionSeparator(.hidden)
                     }
-
-                    Section {
-                        Group {
-                            if subManager.isPremium {
-                                if weightInsight.signal == .insufficient {
-                                    WeightInsightsInsufficientCard(
-                                        entryCount: entries.count,
-                                        minimumRequired: analytics.minimumEntries
-                                    )
-                                } else {
-                                    WeightInsightsSection(insight: weightInsight, unit: unit)
-                                }
-                            } else {
-                                WeightInsightsTeaser {
-                                    showPaywall = true
-                                }
-                            }
-                        }
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: contentInset,
-                                bottom: NomvaTheme.sectionGap,
-                                trailing: contentInset
-                            )
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    } header: {
-                        sectionHeader("Insights")
-                    }
-                    .listSectionSeparator(.hidden)
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -180,11 +275,7 @@ struct WeightLoggingView: View {
             .sheet(isPresented: $showPaywall) {
                 NavigationStack { PaywallView() }
             }
-            .confirmationDialog(
-                "Delete this entry?",
-                isPresented: $showDeleteConfirm,
-                titleVisibility: .visible
-            ) {
+            .alert("Delete this entry?", isPresented: $showDeleteConfirm) {
                 Button("Delete", role: .destructive) {
                     if let entry = deleteEntry { modelContext.delete(entry) }
                     deleteEntry = nil
@@ -192,11 +283,14 @@ struct WeightLoggingView: View {
                 Button("Cancel", role: .cancel) {
                     deleteEntry = nil
                 }
+            } message: {
+                if let entry = deleteEntry {
+                    Text("\(String(format: "%.1f", unit == .lbs ? entry.weightLbs : entry.weightLbs * 0.453592)) \(unit == .lbs ? "lbs" : "kg") on \(entry.date.formatted(date: .abbreviated, time: .omitted))")
+                }
             }
-            .confirmationDialog(
+            .alert(
                 "Weight Unit",
-                isPresented: $showUnitPicker,
-                titleVisibility: .visible
+                isPresented: $showUnitPicker
             ) {
                 Button(unit == .lbs ? "Pounds (lbs) ✓" : "Pounds (lbs)") {
                     unitRaw = WeightUnit.lbs.rawValue
@@ -216,6 +310,18 @@ struct WeightLoggingView: View {
                     .buttonStyle(NomvaPrimaryButtonStyle())
                 }
             }
+            .onAppear { modelContext.undoManager = undoManager }
+            .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
+                switch route {
+                case .weight:
+                    routeCenter.clear(route)
+                case .weightLog:
+                    showLogSheet = true
+                    routeCenter.clear(route)
+                default:
+                    break
+                }
+            }
         }
     }
 
@@ -232,48 +338,167 @@ struct WeightLoggingView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
     }
 
     @ViewBuilder
-    private var weightChart: some View {
-        let smoothedPoints: [WeightDataPoint] = subManager.isPremium
-            ? Array(weightInsight.dataPoints.suffix(30))
-            : []
-        let hasTrend = !smoothedPoints.isEmpty
-        let rawOpacity: Double = hasTrend ? 0.3 : 1.0
-
-        Chart {
-            ForEach(chartData) { entry in
-                LineMark(
-                    x: .value("Date", entry.date),
-                    y: .value("Weight", unit == .lbs ? entry.weightLbs : entry.weightKg)
-                )
-                .foregroundStyle(Color.orange.opacity(rawOpacity))
-                .interpolationMethod(.catmullRom)
-
-                PointMark(
-                    x: .value("Date", entry.date),
-                    y: .value("Weight", unit == .lbs ? entry.weightLbs : entry.weightKg)
-                )
-                .foregroundStyle(Color.orange.opacity(rawOpacity))
-                .symbolSize(20)
+    private var weightChartCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(selectedChartWindow.title)
+                    .font(.headline)
+                Text(chartSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            ForEach(smoothedPoints) { point in
-                LineMark(
+            chartWindowPicker
+
+            weightChart
+        }
+    }
+
+    @ViewBuilder
+    private var weightChart: some View {
+        Chart {
+            if chartData.count > 1 {
+                ForEach(chartData) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Weight", displayedWeight(for: point.weightLbs))
+                    )
+                    .foregroundStyle(NomvaTheme.accent)
+                    .interpolationMethod(.linear)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                }
+            }
+
+            ForEach(chartData) { point in
+                PointMark(
                     x: .value("Date", point.date),
-                    y: .value("Smoothed", unit == .lbs ? point.smoothed : point.smoothed * 0.453592)
+                    y: .value("Weight", displayedWeight(for: point.weightLbs))
                 )
-                .foregroundStyle(Color.green)
-                .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 2.5))
+                .foregroundStyle(NomvaTheme.accent)
+                .symbolSize(24)
             }
         }
         .frame(height: 180)
+        .frame(maxWidth: .infinity)
+        .chartXScale(domain: chartDateRange ?? Date() ... Date())
+        .chartXAxis {
+            switch selectedChartWindow {
+            case .days7:
+                AxisMarks(preset: .aligned, values: .stride(by: .day, count: 2)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                        .foregroundStyle(Color.white.opacity(0.08))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date.formatted(.dateTime.weekday(.narrow)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            case .days30:
+                AxisMarks(preset: .aligned, values: .stride(by: .day, count: 7)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                        .foregroundStyle(Color.white.opacity(0.08))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date.formatted(.dateTime.month(.abbreviated).day()))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            case .days90:
+                AxisMarks(preset: .aligned, values: .stride(by: .month, count: 1)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                        .foregroundStyle(Color.white.opacity(0.08))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date.formatted(.dateTime.month(.abbreviated).day()))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            case .year:
+                AxisMarks(preset: .aligned, values: .stride(by: .month, count: 2)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                        .foregroundStyle(Color.white.opacity(0.08))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date.formatted(.dateTime.month(.abbreviated)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(Color.white.opacity(0.08))
+                AxisValueLabel {
+                    if let weightValue = value.as(Double.self) {
+                        Text(chartAxisLabel(for: weightValue))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
         .chartYScale(domain: .automatic(includesZero: false))
         .padding(.vertical, 6)
         .padding(.horizontal, 2)
+        .animation(.easeInOut(duration: 0.2), value: selectedChartWindow)
+    }
+
+    private var chartWindowPicker: some View {
+        HStack(spacing: 6) {
+            ForEach(ChartWindow.allCases) { window in
+                Button(window.shortLabel) {
+                    selectedChartWindow = window
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(selectedChartWindow == window ? .white : .secondary)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background(
+                    Group {
+                        if selectedChartWindow == window {
+                            Capsule()
+                                .fill(NomvaTheme.accentGradient)
+                        } else {
+                            Capsule()
+                                .fill(Color(UIColor.secondarySystemBackground).opacity(0.64))
+                        }
+                    }
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(selectedChartWindow == window ? Color.clear : NomvaTheme.line, lineWidth: 1)
+                )
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(NomvaTheme.line, lineWidth: 1)
+        )
+    }
+
+    private func displayedWeight(for weightLbs: Double) -> Double {
+        unit == .lbs ? weightLbs : weightLbs * 0.453592
+    }
+
+    private func chartAxisLabel(for weight: Double) -> String {
+        weight.formatted(.number.precision(.fractionLength(0...1)))
     }
 
     private var emptyStateCard: some View {
@@ -282,10 +507,10 @@ struct WeightLoggingView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary.opacity(0.4))
 
-            Text("No weight entries yet")
+            Text("No weigh-ins yet")
                 .foregroundStyle(.secondary)
 
-            Text("Use Log Weight to add your first entry")
+            Text("Tap Log Weight to add your first entry.")
                 .font(.caption)
                 .foregroundStyle(.secondary.opacity(0.7))
         }
@@ -391,6 +616,7 @@ struct WeightEntryRow: View {
 
 #Preview {
     WeightLoggingView()
+        .environmentObject(NomvaRouteCenter.shared)
 }
 
 private extension WeightUnit {

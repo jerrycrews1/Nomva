@@ -74,7 +74,7 @@ struct GoalsSettingsView: View {
                     showRecalculateSheet = true
                 }
             } footer: {
-                Text("Recalculate uses your height, weight, and either a manual activity estimate, Apple Health activity, or Garmin Connect activity to suggest updated targets.")
+                Text("Recalculate uses your height, weight, and your selected activity source to suggest updated targets.")
             }
         }
         .navigationTitle("Goals")
@@ -275,15 +275,15 @@ struct RecalculateGoalsView: View {
             if let appleHealthSummary {
                 return "Using Apple Health average activity: \(Int(appleHealthSummary.averageActiveCalories.rounded())) active kcal/day."
             }
-            return "Connect Apple Health to replace the manual estimate with real activity data."
+            return "Connect Apple Health to use recent activity data."
         case .garmin:
             if let average = garminManager.averageActiveCalories {
                 return "Using Garmin average activity: \(Int(average.rounded())) active kcal/day."
             }
             if garminManager.isConnected {
-                return "Waiting for Garmin daily summaries to sync into Nomva Cloud."
+                return "Waiting for Garmin daily summaries to sync."
             }
-            return "Connect Garmin to replace the manual estimate with cloud-synced activity."
+            return "Connect Garmin to use synced activity data."
         }
     }
 
@@ -292,18 +292,18 @@ struct RecalculateGoalsView: View {
         case .checking, .loading:
             return "Checking recent activity data…"
         case .needsAuthorization:
-            return "Connect to use recent active calories from Apple Health."
+            return "Connect Apple Health to use recent active calories."
         case .ready:
             if let appleHealthSummary {
                 return "\(Int(appleHealthSummary.averageActiveCalories.rounded())) active kcal/day average."
             }
             return GoalActivitySource.appleHealth.subtitle
         case .noData:
-            return "No recent active calorie data was found yet."
+            return "No recent active calorie data found."
         case .unavailable:
-            return "Apple Health is not available on this device."
+            return "Apple Health isn't available on this device."
         case .failed:
-            return appleHealthErrorMessage ?? "Nomva couldn't load Apple Health right now."
+            return appleHealthErrorMessage ?? "There was a problem reading Apple Health."
         }
     }
 
@@ -326,18 +326,18 @@ struct RecalculateGoalsView: View {
 
     private var garminRowSubtitle: String {
         if !garminManager.isConfigured {
-            return "Finish Garmin credentials on Nomva Cloud to enable this source."
+            return "Garmin isn't set up on Nomva Cloud yet."
         }
         if let average = garminManager.averageActiveCalories {
             return "\(Int(average.rounded())) active kcal/day average from Garmin."
         }
         if garminManager.isConnected {
-            return "Connected. Waiting for daily summaries from Garmin Connect."
+            return "Connected. Waiting for daily summaries."
         }
         if let lastError = garminManager.lastErrorMessage, !lastError.isEmpty {
             return lastError
         }
-        return "Connect Garmin to use cloud-synced active calories."
+        return "Connect Garmin to use synced active calories."
     }
 
     private var garminBadgeText: String? {
@@ -574,7 +574,7 @@ struct RecalculateGoalsView: View {
 
     private var appleHealthSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Nomva uses your average active calories from the last 28 completed days. Apple Watch data usually gives the cleanest result.")
+            Text("Nomva uses your average active calories from the last 28 full days. Apple Watch data usually gives the best read.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -593,7 +593,7 @@ struct RecalculateGoalsView: View {
 
             case .needsAuthorization:
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect Apple Health to use recent active calories instead of a broad activity bucket.")
+                    Text("Connect Apple Health to base your goal on recent activity.")
                         .font(.subheadline)
                         .foregroundStyle(.primary)
 
@@ -634,7 +634,7 @@ struct RecalculateGoalsView: View {
 
             case .noData:
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Nomva couldn't find recent active calorie data. If you expected activity here, check Apple Health permissions and make sure workouts or movement are syncing.")
+                    Text("No recent active calorie data found. Check Apple Health permissions and make sure activity is syncing.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
@@ -648,7 +648,7 @@ struct RecalculateGoalsView: View {
                 .padding(.bottom, 16)
 
             case .unavailable:
-                Text("Apple Health isn't available on this device, so manual activity is the fallback here.")
+                Text("Apple Health isn't available on this device. Nomva will use manual activity instead.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
@@ -656,7 +656,7 @@ struct RecalculateGoalsView: View {
 
             case .failed:
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(appleHealthErrorMessage ?? "Nomva hit an issue while reading Apple Health.")
+                    Text(appleHealthErrorMessage ?? "There was a problem reading Apple Health.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
@@ -674,7 +674,7 @@ struct RecalculateGoalsView: View {
 
     private var garminSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Garmin activity syncs through Nomva Cloud. The app uses recent active calories from synced daily summaries to recalculate your baseline.")
+            Text("Garmin data syncs through Nomva Cloud. Recent active calories can adjust your goal.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -690,14 +690,14 @@ struct RecalculateGoalsView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
             } else if !garminManager.isConfigured {
-                Text("Nomva Cloud still needs Garmin credentials and webhook settings before the app can connect.")
+                Text("Garmin isn't set up on Nomva Cloud yet.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
             } else if !garminManager.isConnected {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect Garmin to use active calories from synced daily summaries instead of a broad activity bucket.")
+                    Text("Connect Garmin to use synced activity for your goal.")
                         .font(.subheadline)
                         .foregroundStyle(.primary)
 

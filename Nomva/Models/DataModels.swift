@@ -20,13 +20,46 @@ class FoodEntry {
     var fiberG: Double = 0
     var sugarG: Double = 0
     var sodiumMg: Double = 0
+    var saturatedFatG: Double?
+    var transFatG: Double?
+    var cholesterolMg: Double?
+    var addedSugarG: Double?
+    var vitaminDMcg: Double?
+    var calciumMg: Double?
+    var ironMg: Double?
+    var potassiumMg: Double?
+    var vitaminAMcgRAE: Double?
+    var vitaminCMg: Double?
+    var vitaminB12Mcg: Double?
+    var folateMcgDFE: Double?
+    var magnesiumMg: Double?
+    var zincMg: Double?
     var caloriesPer100g: Double = 0
     var proteinPer100g: Double = 0
     var carbsPer100g: Double = 0
     var fatPer100g: Double = 0
     var fiberPer100g: Double = 0
+    var sugarPer100g: Double = 0
+    var sodiumPer100g: Double = 0
+    var saturatedFatPer100g: Double?
+    var transFatPer100g: Double?
+    var cholesterolPer100g: Double?
+    var addedSugarPer100g: Double?
+    var vitaminDPer100g: Double?
+    var calciumPer100g: Double?
+    var ironPer100g: Double?
+    var potassiumPer100g: Double?
+    var vitaminAPer100g: Double?
+    var vitaminCPer100g: Double?
+    var vitaminB12Per100g: Double?
+    var folatePer100g: Double?
+    var magnesiumPer100g: Double?
+    var zincPer100g: Double?
     var rawUserInput: String = ""
     var fdcId: Int?
+    var foodDatabaseId: Int?
+    var source: String?
+    var barcode: String?
     var isFavorite: Bool = false
 
     init(name: String, brand: String? = nil, meal: String, date: Date = .now,
@@ -34,9 +67,25 @@ class FoodEntry {
          servings: Double = 1.0, servingUnit: String = "serving",
          calories: Double, proteinG: Double, carbsG: Double, fatG: Double,
          fiberG: Double, sugarG: Double = 0, sodiumMg: Double = 0,
+         saturatedFatG: Double? = nil, transFatG: Double? = nil,
+         cholesterolMg: Double? = nil, addedSugarG: Double? = nil,
+         vitaminDMcg: Double? = nil, calciumMg: Double? = nil,
+         ironMg: Double? = nil, potassiumMg: Double? = nil,
+         vitaminAMcgRAE: Double? = nil, vitaminCMg: Double? = nil,
+         vitaminB12Mcg: Double? = nil, folateMcgDFE: Double? = nil,
+         magnesiumMg: Double? = nil, zincMg: Double? = nil,
          caloriesPer100g: Double = 0, proteinPer100g: Double = 0,
          carbsPer100g: Double = 0, fatPer100g: Double = 0, fiberPer100g: Double = 0,
-         rawUserInput: String, fdcId: Int? = nil) {
+         sugarPer100g: Double = 0, sodiumPer100g: Double = 0,
+         saturatedFatPer100g: Double? = nil, transFatPer100g: Double? = nil,
+         cholesterolPer100g: Double? = nil, addedSugarPer100g: Double? = nil,
+         vitaminDPer100g: Double? = nil, calciumPer100g: Double? = nil,
+         ironPer100g: Double? = nil, potassiumPer100g: Double? = nil,
+         vitaminAPer100g: Double? = nil, vitaminCPer100g: Double? = nil,
+         vitaminB12Per100g: Double? = nil, folatePer100g: Double? = nil,
+         magnesiumPer100g: Double? = nil, zincPer100g: Double? = nil,
+         rawUserInput: String, fdcId: Int? = nil,
+         foodDatabaseId: Int? = nil, source: String? = nil, barcode: String? = nil) {
         self.id = UUID()
         self.name = name
         self.brand = brand
@@ -53,13 +102,46 @@ class FoodEntry {
         self.fiberG = fiberG
         self.sugarG = sugarG
         self.sodiumMg = sodiumMg
+        self.saturatedFatG = saturatedFatG
+        self.transFatG = transFatG
+        self.cholesterolMg = cholesterolMg
+        self.addedSugarG = addedSugarG
+        self.vitaminDMcg = vitaminDMcg
+        self.calciumMg = calciumMg
+        self.ironMg = ironMg
+        self.potassiumMg = potassiumMg
+        self.vitaminAMcgRAE = vitaminAMcgRAE
+        self.vitaminCMg = vitaminCMg
+        self.vitaminB12Mcg = vitaminB12Mcg
+        self.folateMcgDFE = folateMcgDFE
+        self.magnesiumMg = magnesiumMg
+        self.zincMg = zincMg
         self.caloriesPer100g = caloriesPer100g
         self.proteinPer100g = proteinPer100g
         self.carbsPer100g = carbsPer100g
         self.fatPer100g = fatPer100g
         self.fiberPer100g = fiberPer100g
+        self.sugarPer100g = sugarPer100g
+        self.sodiumPer100g = sodiumPer100g
+        self.saturatedFatPer100g = saturatedFatPer100g
+        self.transFatPer100g = transFatPer100g
+        self.cholesterolPer100g = cholesterolPer100g
+        self.addedSugarPer100g = addedSugarPer100g
+        self.vitaminDPer100g = vitaminDPer100g
+        self.calciumPer100g = calciumPer100g
+        self.ironPer100g = ironPer100g
+        self.potassiumPer100g = potassiumPer100g
+        self.vitaminAPer100g = vitaminAPer100g
+        self.vitaminCPer100g = vitaminCPer100g
+        self.vitaminB12Per100g = vitaminB12Per100g
+        self.folatePer100g = folatePer100g
+        self.magnesiumPer100g = magnesiumPer100g
+        self.zincPer100g = zincPer100g
         self.rawUserInput = rawUserInput
         self.fdcId = fdcId
+        self.foodDatabaseId = foodDatabaseId
+        self.source = source
+        self.barcode = barcode
         self.isFavorite = false
     }
 }
@@ -383,6 +465,20 @@ struct NutritionTotals {
     var fiber: Double = 0
     var sugar: Double = 0
     var sodium: Double = 0
+    var saturatedFat: Double = 0
+    var transFat: Double = 0
+    var cholesterol: Double = 0
+    var addedSugar: Double = 0
+    var vitaminD: Double = 0
+    var calcium: Double = 0
+    var iron: Double = 0
+    var potassium: Double = 0
+    var vitaminA: Double = 0
+    var vitaminC: Double = 0
+    var vitaminB12: Double = 0
+    var folate: Double = 0
+    var magnesium: Double = 0
+    var zinc: Double = 0
 
     static func from(entries: [FoodEntry]) -> NutritionTotals {
         entries.reduce(into: NutritionTotals()) { totals, entry in
@@ -393,6 +489,20 @@ struct NutritionTotals {
             totals.fiber    += entry.fiberG
             totals.sugar    += entry.sugarG
             totals.sodium   += entry.sodiumMg
+            totals.saturatedFat += entry.saturatedFatG ?? 0
+            totals.transFat += entry.transFatG ?? 0
+            totals.cholesterol += entry.cholesterolMg ?? 0
+            totals.addedSugar += entry.addedSugarG ?? 0
+            totals.vitaminD += entry.vitaminDMcg ?? 0
+            totals.calcium += entry.calciumMg ?? 0
+            totals.iron += entry.ironMg ?? 0
+            totals.potassium += entry.potassiumMg ?? 0
+            totals.vitaminA += entry.vitaminAMcgRAE ?? 0
+            totals.vitaminC += entry.vitaminCMg ?? 0
+            totals.vitaminB12 += entry.vitaminB12Mcg ?? 0
+            totals.folate += entry.folateMcgDFE ?? 0
+            totals.magnesium += entry.magnesiumMg ?? 0
+            totals.zinc += entry.zincMg ?? 0
         }
     }
 }

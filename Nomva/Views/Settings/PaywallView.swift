@@ -5,6 +5,9 @@ struct PaywallView: View {
     @ObservedObject var subManager = SubscriptionManager.shared
     @Environment(\.dismiss) var dismiss
 
+    private let privacyPolicyURL = URL(string: "https://nomva.nerdquad.com/privacy.html")!
+    private let standardEULAURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -14,23 +17,23 @@ struct PaywallView: View {
                     VStack(spacing: 14) {
                         featureCard(
                             icon: "brain.head.profile",
-                            title: "Smart AI Logging",
-                            desc: "Describe meals naturally and skip the tedious search flow."
+                            title: "Faster food logging",
+                            desc: "Type meals the way you normally would."
                         )
                         featureCard(
                             icon: "wand.and.stars",
-                            title: "Natural Language Editing",
-                            desc: "Fix entries the same way you talk: “Actually, make that 3 eggs.”"
+                            title: "Quick edits",
+                            desc: "Fix an entry without starting over."
                         )
                         featureCard(
                             icon: "chart.line.uptrend.xyaxis",
-                            title: "Deep Health Insights",
-                            desc: "Ask about trends, calories left, or how your habits are stacking up."
+                            title: "Trend summaries",
+                            desc: "Check trends, calories left, and how your week is going."
                         )
                         featureCard(
                             icon: "cloud.fill",
                             title: "Nomva Cloud",
-                            desc: "Keep AI features available even when on-device models are limited."
+                            desc: "Runs AI features that need cloud processing."
                         )
                     }
 
@@ -66,14 +69,25 @@ struct PaywallView: View {
                 .buttonStyle(NomvaSecondaryButtonStyle())
 
                 if subManager.remainingFreeMessages > 0 {
-                    Text("Or start with \(subManager.remainingFreeMessages) free messages.")
+                    Text("You still have \(subManager.remainingFreeMessages) free messages.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Cancel anytime. Terms and Privacy apply.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 4) {
+                    Text("Cancel anytime.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        legalLink("Terms of Use", destination: standardEULAURL)
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        legalLink("Privacy Policy", destination: privacyPolicyURL)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
@@ -108,13 +122,13 @@ struct PaywallView: View {
             Text("Unlock Nomva Pro")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
 
-            Text("Make the app feel like a real nutrition copilot instead of a basic logbook.")
+            Text("Get faster logging, easier edits, and premium insights.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
-                statPill("AI logging")
-                statPill("Corrections")
+                statPill("Faster logging")
+                statPill("Quick edits")
                 statPill("Insights")
             }
         }
@@ -126,7 +140,7 @@ struct PaywallView: View {
             Text("Included with Pro")
                 .font(.headline)
 
-            Text("Unlimited AI-first food logging, better edit flows, and cloud-backed intelligence when you need it.")
+            Text("Unlimited AI logging, easier corrections, and premium insights.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -181,6 +195,12 @@ struct PaywallView: View {
 
     private func purchase() {
         Task { await subManager.purchase() }
+    }
+
+    private func legalLink(_ title: String, destination: URL) -> some View {
+        Link(title, destination: destination)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(NomvaTheme.accent)
     }
 }
 

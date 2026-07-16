@@ -20,7 +20,7 @@ struct OnboardingGoalsView: View {
         OnboardingShell {
             OnboardingSectionCard(
                 title: "Set your goals",
-                subtitle: "Nomva calculates a starting point from the info you just shared. You can later swap the activity estimate for Apple Health.",
+                subtitle: "These are your starting targets. You can adjust them later or use Apple Health instead.",
                 tone: .hero
             ) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -43,7 +43,7 @@ struct OnboardingGoalsView: View {
 
             OnboardingSectionCard(
                 title: "Fine-tune the numbers",
-                subtitle: "These suggestions are editable now and anytime later in Settings."
+                subtitle: "Adjust them now if you want. You can change them later in Settings."
             ) {
                 VStack(spacing: 18) {
                     GoalInputRow(label: "Calories", value: $calorieGoal, unit: "kcal", range: 1000...5000)

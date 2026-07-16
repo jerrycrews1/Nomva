@@ -103,6 +103,7 @@ enum IntentCategory: String {
     case editFood     = "edit_food"
     case queryData    = "query_data"
     case logWeight    = "log_weight"
+    case logWater     = "log_water"
     case setGoal      = "set_goal"
     case reply        = "reply"
 }
@@ -123,6 +124,39 @@ struct FoodSplit {
 
 @available(iOS 26, *)
 @Generable
+struct SearchQueryPick {
+    @Guide(description: "Short database search query, usually 1-4 words.")
+    var query: String
+}
+
+@available(iOS 26, *)
+@Generable
+struct CandidateIndexPick {
+    @Guide(description: "Zero-based index of the best candidate, or -1 if none fit.")
+    var candidateIndex: Int
+}
+
+@available(iOS 26, *)
+@Generable
+struct CandidateValidationPick {
+    @Guide(description: "True when the currently selected candidate is a realistic nutrition basis for what the user said they ate.")
+    var keepCurrentCandidate: Bool
+    @Guide(description: "Final serving count after reconciling the food mention with the extracted portion.")
+    var servings: Double
+    @Guide(description: "Final human-readable portion description such as '3 nuggets' or '5 fries'.")
+    var portionDescription: String
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'nugget', 'fry', 'egg', 'slice', 'cup', or 'serving'.")
+    var servingUnit: String
+    @Guide(description: "True if the final amount is explicit and trustworthy.")
+    var confident: Bool
+    @Guide(description: "True only when the user explicitly provided a usable amount, size, count, or fraction.")
+    var hasExplicitPortion: Bool
+    @Guide(description: "A neutral scalable replacement search query such as 'chicken nuggets' when the current candidate should not be kept. Empty string if not needed.")
+    var replacementSearchQuery: String
+}
+
+@available(iOS 26, *)
+@Generable
 struct MatchConfirm {
     @Guide(description: "True if the candidate is a reasonable match for what the user said. False if it's clearly wrong.")
     var isMatch: Bool
@@ -135,8 +169,12 @@ struct ServingsPick {
     var servings: Double
     @Guide(description: "Portion description using the user's own words, e.g. '2 slices', '1 cup', '3 oz'. If user said nothing, use '1 serving'.")
     var portionDescription: String
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'slice', 'cup', 'egg', 'nugget', 'fry', or 'serving'.")
+    var servingUnit: String
     @Guide(description: "True if the user clearly stated an amount, false if you had to guess.")
     var confident: Bool
+    @Guide(description: "True only when the user explicitly provided a usable amount, size, count, or fraction for this message. False for vague objections like 'that's not right'.")
+    var hasExplicitPortion: Bool
 }
 
 @available(iOS 26, *)
@@ -148,9 +186,57 @@ struct MealPick {
 
 @available(iOS 26, *)
 @Generable
+struct WaterMutationPick {
+    @Guide(description: "Exactly one of: add, delete_all, update_total, reply.")
+    var action: String
+    @Guide(description: "Water amount in fluid ounces for add or update_total. Use null-ish 0 only when no amount was provided.")
+    var amountOz: Double
+}
+
+@available(iOS 26, *)
+@Generable
+struct WeightMutationPick {
+    @Guide(description: "Exactly one of: add, update, delete, delete_all, reply.")
+    var action: String
+    @Guide(description: "Body weight in pounds for add/update. Use 0 when absent.")
+    var weightLbs: Double
+    @Guide(description: "Date hint: today, yesterday, latest, or empty when unspecified.")
+    var dateHint: String
+}
+
+@available(iOS 26, *)
+@Generable
 struct DeletePick {
     @Guide(description: "Exact food names from the log the user wants to delete. Use the names exactly as they appear in the provided log.")
     var foodNames: [String]
+}
+
+@available(iOS 26, *)
+@Generable
+struct EditTargetPick {
+    @Guide(description: "Exact food name from the provided log to edit. Empty string if unclear.")
+    var foodName: String
+    @Guide(description: "A short follow-up question when the target is unclear. Empty string if not needed.")
+    var clarificationQuestion: String
+}
+
+@available(iOS 26, *)
+@Generable
+struct EditResolutionPick {
+    @Guide(description: "Number of servings represented by the corrected amount.")
+    var servings: Double
+    @Guide(description: "User-facing portion description for the corrected amount.")
+    var portionDescription: String
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'nugget', 'fry', 'egg', 'slice', 'cup', or 'serving'.")
+    var servingUnit: String
+    @Guide(description: "True if the user clearly stated a replacement amount.")
+    var confident: Bool
+    @Guide(description: "False when the user only objected or was too vague to edit yet.")
+    var hasExplicitPortion: Bool
+    @Guide(description: "Short follow-up question when the amount is unclear. Empty string if not needed.")
+    var clarificationQuestion: String
+    @Guide(description: "Neutral replacement search query when the current item is too specific to resize directly. Empty string if direct resizing is fine.")
+    var replacementSearchQuery: String
 }
 
 @available(iOS 26, *)
@@ -222,10 +308,17 @@ struct FoundationModelsProvider: LLMProvider {
         delete_food — user wants to remove something from their log.
           "delete the bacon"        → delete_food
           "remove lunch"            → delete_food
+          after a recent correction, requests to remove an old/original/previous item → delete_food
+          "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
 
         edit_food — user wants to change a portion they already logged.
           "make the bacon 3 slices" → edit_food
           "that was 1 cup not 2"    → edit_food
+          after a recent food log, "that's not right" → edit_food
+          after a recent food log, "actually it was only 5 fries" → edit_food
+          after a recent food log, corrections to food type, ingredient, brand, preparation, caffeine, dairy, meat, or plant-based variant → edit_food
+          after a recent food log, vague correction requests like "too much", "undo that", or "make it healthier" → edit_food
+          "undo", "revert", or "change back" after recent food logging/editing → edit_food unless the user explicitly asks to delete
 
         query_data — user asks about their logs, weight, nutrition history, trends, averages, or goals.
           "how many calories today?"                     → query_data
@@ -238,9 +331,24 @@ struct FoundationModelsProvider: LLMProvider {
           "how much protein have I been getting?"        → query_data
           "am I hitting my goals?"                       → query_data
           "compare this week to last week"               → query_data
+          "how much water did I drink today?"            → query_data
+          water or hydration amount questions, even when they use contextual words like "after that" → query_data
+          "am I staying hydrated?"                       → query_data
 
         log_weight — user is recording a body-weight measurement.
           "I weigh 180 lbs" → log_weight
+          "change today's weight to 181" → log_weight
+          "delete yesterday's weight" → log_weight
+          "clear all my weights" → log_weight
+
+        log_water — user is logging water or hydration intake, or wants to clear their water log.
+          "I drank 16 oz of water"    → log_water
+          "log 2 cups of water"       → log_water
+          "had a glass of water"      → log_water
+          "drank a bottle of water"   → log_water
+          "set my water total to 64 oz" → log_water
+          "set hydration to 80 ounces"  → log_water
+          "clear my water log"        → log_water
 
         set_goal — user wants to change their calorie or macro target.
           "set my calorie goal to 2000" → set_goal
@@ -252,6 +360,8 @@ struct FoundationModelsProvider: LLMProvider {
 
         If the message mentions food the user ate, drank, or had, the answer is
         log_food — never reply.
+        If the message is specifically about water/hydration intake, the answer is
+        log_water — not log_food.
         """
 
         let enriched = buildContext(recentMessages: recentMessages) + "User: \(userMessage)"
@@ -269,6 +379,7 @@ struct FoundationModelsProvider: LLMProvider {
         case .editFood:   return .editFood
         case .queryData:  return .queryData
         case .logWeight:  return .logWeight
+        case .logWater:   return .logWater
         case .setGoal:    return .setGoal
         case .reply:      return .reply
         }
@@ -296,6 +407,117 @@ struct FoundationModelsProvider: LLMProvider {
             .filter { !$0.isEmpty }
 
         return cleaned.isEmpty ? [userMessage] : cleaned
+    }
+
+    func buildFoodSearchQuery(
+        userMessage: String,
+        foodMention: String
+    ) async throws -> String {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Convert the food mention into the best short database search query.
+        The amount in the food mention matters.
+        Keep exact restaurant or menu wording only when the user clearly specified that exact size or count and wants that exact menu item.
+        If the user gave a loose partial amount like "5 Chick-fil-A fries" or "3 Chick-fil-A nuggets",
+        prefer the underlying scalable food such as "waffle fries" or "chicken nuggets" instead of a whole menu item.
+        """
+
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "User said: \(userMessage)\nFood mention: \(foodMention)",
+            generating: SearchQueryPick.self
+        )
+
+        let query = result.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? foodMention : query
+    }
+
+    func chooseFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        candidates: [FoodChoiceOption]
+    ) async throws -> Int? {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Pick the best candidate for the user's food mention.
+        Favor candidates whose serving description and specificity fit the user's amount.
+        Favor gram-scalable candidates for loose partial amounts when the alternatives are fixed whole servings.
+        Reject menu-size candidates when the size or count clearly conflicts with the user's wording.
+        Return -1 if none fit.
+        """
+
+        let candidateLines = candidates.enumerated().map { index, candidate in
+            let brand = candidate.brand?.isEmpty == false ? " | brand: \(candidate.brand!)" : ""
+            let serving = candidate.servingDescription?.isEmpty == false ? " | serving: \(candidate.servingDescription!)" : ""
+            let source = candidate.source?.isEmpty == false ? " | source: \(candidate.source!)" : ""
+            return "\(index): \(candidate.name)\(brand)\(serving)\(source) | basis: \(candidate.portionBasis) | calories: \(Int(candidate.caloriesPerServing.rounded()))"
+        }.joined(separator: "\n")
+
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "User said: \(userMessage)\nFood mention: \(foodMention)\nCandidates:\n\(candidateLines)",
+            generating: CandidateIndexPick.self
+        )
+
+        return candidates.indices.contains(result.candidateIndex) ? result.candidateIndex : nil
+    }
+
+    func validateFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        searchQuery: String,
+        candidate: FoodChoiceOption,
+        servingsInfo: ServingsInfo
+    ) async throws -> FoodCandidateValidation {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Review whether the selected nutrition database candidate is a realistic basis for the user's portion.
+        The original food mention is the source of truth for the amount.
+        If the extracted portion lost an explicit count or size from the food mention, correct it.
+        If the selected candidate introduces an unrelated subpart or meal context the user did not mention, reject it and provide a better replacement search query.
+        If the user gave a vague amount like "some spinach", convert it into a natural everyday portion such as "1 cup" instead of leaving a synthetic "1 serving".
+        If the candidate is a fixed whole serving or menu item that does not fit the user's small partial amount, reject it and provide a neutral scalable replacement search query.
+        Keep restaurant/menu candidates only when the user's amount actually matches that exact item size or count.
+        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        """
+
+        let brand = candidate.brand?.isEmpty == false ? "\nCandidate brand: \(candidate.brand!)" : ""
+        let serving = candidate.servingDescription?.isEmpty == false ? "\nCandidate serving: \(candidate.servingDescription!)" : ""
+        let source = candidate.source?.isEmpty == false ? "\nCandidate source: \(candidate.source!)" : ""
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: """
+            User said: \(userMessage)
+            Food mention: \(foodMention)
+            Search query: \(searchQuery)
+            Selected candidate: \(candidate.name)\(brand)\(serving)\(source)
+            Portion basis: \(candidate.portionBasis)
+            Calories per serving: \(Int(candidate.caloriesPerServing.rounded()))
+            Extracted portion: \(servingsInfo.portionDescription)
+            Extracted servings: \(servingsInfo.servings)
+            Extracted serving unit: \(servingsInfo.servingUnit)
+            Extracted confident: \(servingsInfo.confident)
+            Extracted hasExplicitPortion: \(servingsInfo.hasExplicitPortion)
+            """,
+            generating: CandidateValidationPick.self
+        )
+
+        let replacementQuery = result.replacementSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FoodCandidateValidation(
+            keepCurrentCandidate: result.keepCurrentCandidate,
+            servings: max(0.1, result.servings),
+            portionDescription: result.portionDescription.isEmpty ? servingsInfo.portionDescription : result.portionDescription,
+            servingUnit: result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? servingsInfo.servingUnit : result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+            confident: result.confident,
+            hasExplicitPortion: result.hasExplicitPortion,
+            replacementSearchQuery: replacementQuery.isEmpty ? nil : replacementQuery
+        )
     }
 
     func confirmFoodMatch(
@@ -340,11 +562,19 @@ struct FoundationModelsProvider: LLMProvider {
 
         let instructions = """
         Figure out how many servings of the food the user ate, and a short human description.
+        Focus only on the named food mention. Do not borrow quantities from other foods in the same message.
+        Do not invent a replacement amount when the user is only objecting or saying the previous amount was wrong.
+        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
         Examples:
-        - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", confident: true
-        - "a cup of rice" → servings: 1, portionDescription: "1 cup", confident: true
-        - "some chicken" → servings: 1, portionDescription: "1 serving", confident: false
-        - "half an avocado" → servings: 0.5, portionDescription: "1/2 avocado", confident: true
+        - "I had three Chick-fil-A nuggets, one egg, and about 5 Chick-fil-A fries", for the nuggets mention return portionDescription "3 nuggets" and servingUnit "nugget"
+        - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", servingUnit: "slice", confident: true, hasExplicitPortion: true
+        - "a cup of rice" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
+        - "some chicken" → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
+        - "some spinach" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: false, hasExplicitPortion: false
+        - "half an avocado" → servings: 0.5, portionDescription: "1/2 avocado", servingUnit: "avocado", confident: true, hasExplicitPortion: true
+        - in "I had 3 nuggets, 1 egg, and about 5 fries", for the fries mention return portionDescription "5 fries" and servingUnit "fry"
+        - "It was only about 5 fries" → servings: 5, portionDescription: "5 fries", servingUnit: "fry", confident: true, hasExplicitPortion: true
+        - "That's not right..." → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
         """
 
         let servingText = candidateServingDescription.map { " (default serving: \($0))" } ?? ""
@@ -362,7 +592,9 @@ struct FoundationModelsProvider: LLMProvider {
         return ServingsInfo(
             servings: max(0.1, result.servings),
             portionDescription: result.portionDescription.isEmpty ? "1 serving" : result.portionDescription,
-            confident: result.confident
+            servingUnit: result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+            confident: result.confident,
+            hasExplicitPortion: result.hasExplicitPortion
         )
     }
 
@@ -392,9 +624,49 @@ struct FoundationModelsProvider: LLMProvider {
         }
     }
 
+    func extractWaterMutation(userMessage: String) async throws -> WaterMutation {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Parse a water-log request for a nutrition app.
+        action add means add the amount to today's water log.
+        action delete_all means clear today's water log.
+        action update_total means replace today's water total with the specified amount.
+        Convert cups or glasses to 8 oz, bottles to 16.9 oz, liters to 33.814 oz, milliliters to oz.
+        """
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "User: \(userMessage)",
+            generating: WaterMutationPick.self
+        )
+        let amount = result.amountOz > 0 ? result.amountOz : nil
+        return WaterMutation(action: result.action, amountOz: amount)
+    }
+
+    func extractWeightMutation(userMessage: String) async throws -> WeightMutation {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Parse a body-weight log request for a nutrition app.
+        action add records a new weight. action update changes an existing weight. action delete removes one existing weight. action delete_all clears all weight entries.
+        Convert kg to pounds. dateHint should be today, yesterday, latest, or empty.
+        """
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "User: \(userMessage)",
+            generating: WeightMutationPick.self
+        )
+        let amount = result.weightLbs > 0 ? result.weightLbs : nil
+        let hint = result.dateHint.trimmingCharacters(in: .whitespacesAndNewlines)
+        return WeightMutation(action: result.action, weightLbs: amount, dateHint: hint.isEmpty ? nil : hint)
+    }
+
     func pickDeleteTargets(
         userMessage: String,
-        logSummary: String
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
     ) async throws -> [String] {
         guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
         try assertAvailable()
@@ -403,10 +675,18 @@ struct FoundationModelsProvider: LLMProvider {
         The user wants to delete entries from their food log. Return the EXACT food names from the log
         that should be deleted. If the user says "delete breakfast", return every breakfast entry's name.
         If the user says "remove the bacon", return only the bacon entry (or all bacon entries).
+        If the user says "remove that" or "delete it", use recent conversation context and delete only the most recently logged referenced food.
+        If the user says "keep X", do not delete X.
+        If the user asks to remove a modifier, topping, add-on, or included component while keeping the main item, delete only that component and not unrelated sides.
+        If the user uses relative position language such as "before the last", "previous", "middle", or "between X and Y", use the order in the current food log and recent conversation.
         Never invent names that aren't in the log.
         """
 
+        let history = buildContext(recentMessages: recentMessages)
         let userPrompt = """
+        Recent conversation:
+        \(history)
+
         Food log:
         \(logSummary)
 
@@ -424,9 +704,92 @@ struct FoundationModelsProvider: LLMProvider {
             .filter { !$0.isEmpty }
     }
 
+    func pickEditTarget(
+        userMessage: String,
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
+    ) async throws -> EditTargetSelection {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Pick the exact food name from the log that the user wants to edit.
+        Use recent conversation context when the user says things like "that's not right" or "actually".
+        If the user only says a vague command like "fix it" without a food, amount, size, or other correction, ask what they want changed instead of choosing the most recent item.
+        If multiple separate assistant food lists are in recent context and the user says only "first one" or "second one", ask a clarification question unless the current message also names the meal or food.
+        If multiple log entries share the same broad word, ask a clarification question when the user uses only that broad word.
+        If you ask a clarification question, leave foodName empty.
+        If the user identifies an item by an attribute it lacks, such as "without X", choose the entry whose name/description lacks that attribute.
+        If the user says "not X, it was Y", choose the logged entry matching X as the edit target.
+        If the user corrects "not the second, the first" or similar, choose the explicitly corrected ordinal item.
+        If the user uses temporal/relative wording such as "former", "previous", "before that", or "the one before it", resolve it from recent conversation order. "Former last" means the item that used to be last before a newer item was added, not the current last item.
+        If the user says "it" should match "the one before it", choose the current/recent item after that previous entry.
+        If you cannot identify one entry confidently, ask a short clarification question.
+        """
+
+        let history = buildContext(recentMessages: recentMessages)
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "\(history)\nFood log:\n\(logSummary)\n\nUser said: \(userMessage)",
+            generating: EditTargetPick.self
+        )
+
+        let foodName = result.foodName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = result.clarificationQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return EditTargetSelection(
+            foodName: foodName.isEmpty ? nil : foodName,
+            clarificationQuestion: question.isEmpty ? nil : question
+        )
+    }
+
+    func resolveEditRequest(
+        userMessage: String,
+        currentEntryName: String,
+        currentEntryBrand: String?,
+        currentPortionDescription: String
+    ) async throws -> EditResolution {
+        guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
+        try assertAvailable()
+
+        let instructions = """
+        Interpret the user's correction for the currently logged food.
+        If the user did not provide a concrete replacement amount, set hasExplicitPortion to false and ask a short follow-up question.
+        Sizes such as "small", "medium", "large", "regular", "kids", "half", or "double" are concrete replacement portions; set hasExplicitPortion to true when the user says one of them.
+        Units such as "oz", "ounces", "cups", "pieces", "nuggets", "slices", "tablespoons", and "tbsp" are concrete replacement portions; set hasExplicitPortion to true.
+        Fractions of the current item, such as half, quarter, three quarters, or half a sandwich/banana/bowl, are explicit portions; set hasExplicitPortion to true.
+        Natural portion phrases such as small handful, bite, sip, scoop, bowl, plate, glass, can, bottle, or packet are explicit enough to edit; set hasExplicitPortion to true.
+        If the user says the current item should have the same amount as the entry before it, use the previous entry's portion from conversation context.
+        If the current item is too specific to resize directly, provide a neutral replacement search query like "chicken nuggets" or "waffle fries".
+        Leave replacementSearchQuery empty when direct resizing of the current item is appropriate.
+        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        The servings number must match the corrected count in portionDescription when the unit is countable: "3 slices" means servings 3, "5 fries" means servings 5, "1/2 cup" means servings 0.5.
+        """
+
+        let brandLine = currentEntryBrand?.isEmpty == false ? "\nCurrent brand: \(currentEntryBrand!)" : ""
+        let result = try await respond(
+            instructions: instructions,
+            userMessage: "Current entry: \(currentEntryName)\(brandLine)\nCurrent portion: \(currentPortionDescription)\nUser said: \(userMessage)",
+            generating: EditResolutionPick.self
+        )
+
+        let question = result.clarificationQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacementQuery = result.replacementSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return EditResolution(
+            servings: max(0.1, result.servings),
+            portionDescription: result.portionDescription.isEmpty ? "1 serving" : result.portionDescription,
+            servingUnit: result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "serving" : result.servingUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+            confident: result.confident,
+            hasExplicitPortion: result.hasExplicitPortion,
+            clarificationQuestion: question.isEmpty ? nil : question,
+            replacementSearchQuery: replacementQuery.isEmpty ? nil : replacementQuery
+        )
+    }
+
     func estimateGrams(
         foodName: String,
-        portionDescription: String
+        portionDescription: String,
+        referenceServingDescription: String?,
+        referenceServingGrams: Double?
     ) async throws -> Double {
         guard #available(iOS 26.0, *) else { throw ProviderError.unsupportedOS }
         try assertAvailable()
@@ -434,6 +797,7 @@ struct FoundationModelsProvider: LLMProvider {
         let instructions = """
         Given a food and a portion description, estimate the TOTAL weight in grams.
         Use real-world knowledge of typical food weights.
+        If a reference serving is provided, anchor the estimate to that serving when the request is a subset like "5 fries" or "3 nuggets".
 
         Examples:
         - "bacon", "2 slices" → 24   (one raw strip ≈ 12 g)
@@ -442,11 +806,23 @@ struct FoundationModelsProvider: LLMProvider {
         - "egg", "1 large"    → 50
         - "chicken breast", "6 oz" → 170
         - "rice", "1 cup cooked" → 158
+        - "rice", "1/2 cup cooked" → 79
+        - "rice", "0.5 cup cooked" → 79
         - "cheddar cheese", "2 slices" → 42
         - "peanut butter", "1 tbsp" → 16
+        - with reference "1 large fries ≈ 134 g", "5 fries" should be much smaller than the full serving
+        - for fries, estimate individual pieces conservatively: 5 fries is usually about 20-30 g, not 50+ g, unless the user says oversized wedges
+        - with reference "6 nuggets ≈ 96 g", "3 nuggets" should be about half the serving
         """
 
-        let userPrompt = "Food: \(foodName)\nPortion: \(portionDescription)"
+        var promptLines = [
+            "Food: \(foodName)",
+            "Portion: \(portionDescription)"
+        ]
+        if let referenceServingDescription, let referenceServingGrams {
+            promptLines.append("Reference serving: \(referenceServingDescription) ≈ \(Int(referenceServingGrams.rounded())) g")
+        }
+        let userPrompt = promptLines.joined(separator: "\n")
         let result = try await respond(
             instructions: instructions,
             userMessage: userPrompt,
@@ -582,7 +958,6 @@ struct FoundationModelsProvider: LLMProvider {
                 generating: GeneratedResponse.self
             )
             let json = serializeToJSON(response.content)
-            print("🤖 Structured response: \(json)")
             return LLMCompletion(
                 text: json,
                 providerType: "foundation_models",

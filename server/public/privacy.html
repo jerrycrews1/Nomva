@@ -4,68 +4,237 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy — Nomva</title>
+  <meta name="description" content="Nomva Privacy Policy — how we handle your data, what we collect, and your rights.">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #fcf7f1;
+      --paper: rgba(255, 255, 255, 0.82);
+      --paper-solid: #fffdf9;
+      --text: #1d160f;
+      --muted: #6d6257;
+      --line: rgba(64, 45, 24, 0.1);
+      --accent: #ef8e38;
+      --accent-deep: #d96f12;
+      --accent-soft: rgba(239, 142, 56, 0.14);
+      --shadow: 0 20px 60px rgba(65, 41, 16, 0.08);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #fafafa; color: #1a1a1a; line-height: 1.7;
+      font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(239, 142, 56, 0.18), transparent 32%),
+        radial-gradient(circle at 85% 18%, rgba(255, 209, 168, 0.7), transparent 26%),
+        linear-gradient(180deg, #fff9f2 0%, var(--bg) 45%, #f7f2eb 100%);
+      min-height: 100vh;
+      line-height: 1.7;
     }
-    header {
-      background: #fff; border-bottom: 1px solid #e5e5e5;
-      padding: 20px 0; text-align: center;
+
+    a { color: inherit; }
+
+    .shell {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
     }
-    header img { width: 56px; height: 56px; border-radius: 14px; }
-    header h1 { font-size: 20px; font-weight: 700; margin-top: 8px; }
-    main {
-      max-width: 680px; margin: 40px auto; padding: 0 24px 80px;
+
+    /* ── Nav ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 10px 30px rgba(65, 41, 16, 0.04);
     }
-    h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; }
-    p { margin-bottom: 16px; font-size: 15px; color: #333; }
-    .updated { font-size: 13px; color: #888; margin-bottom: 32px; }
-    footer {
-      text-align: center; padding: 24px; font-size: 13px; color: #999;
-      border-top: 1px solid #e5e5e5;
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand img {
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(239, 142, 56, 0.24);
+    }
+
+    .nav-links {
+      display: inline-flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .nav-links a:hover { color: var(--accent-deep); }
+
+    /* ── Content panel ── */
+    .content-panel {
+      margin-top: 28px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 251, 246, 0.94));
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+      padding: 40px;
+      max-width: 780px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .content-panel .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-deep);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .content-panel h1 {
+      margin: 18px 0 6px;
+      font-size: clamp(28px, 5vw, 40px);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+    }
+
+    .updated {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .content-panel h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 28px 0 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .content-panel p {
+      margin-bottom: 14px;
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .content-panel a {
+      color: var(--accent-deep);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .content-panel a:hover { text-decoration: underline; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 32px;
+      padding: 18px 8px 0;
+      text-align: center;
+      font-size: 13px;
+      color: #86796c;
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100vw - 20px, 1120px);
+        padding-top: 14px;
+      }
+
+      .nav {
+        border-radius: 24px;
+        padding: 16px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links { gap: 14px; }
+
+      .content-panel { padding: 24px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <img src="/logo.png" alt="Nomva">
-    <h1>Nomva Privacy Policy</h1>
-  </header>
-  <main>
-    <p class="updated">Last updated: April 18, 2026</p>
+  <div class="shell">
+    <nav class="nav">
+      <a class="brand" href="/">
+        <img src="/logo.png" alt="Nomva">
+        <span>Nomva</span>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/support.html">Support</a>
+        <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>
+      </div>
+    </nav>
 
-    <h2>Overview</h2>
-    <p>Nomva is a nutrition tracking app designed to help you log meals, monitor macros, and reach your health goals. Your privacy matters, and this policy explains what data we collect, how we use it, and the choices you have.</p>
+    <main class="content-panel">
+      <div class="eyebrow">Your Data, Your Control</div>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: April 18, 2026</p>
 
-    <h2>Data We Collect</h2>
-    <p>Nomva stores your food log entries, daily goals, weight entries, and custom foods on your device using local storage and optional iCloud sync. When you use AI-powered features such as meal parsing or chat, the text you type, along with limited recent AI context needed to answer correctly, is sent through Nomva's server to our AI provider for processing.</p>
+      <h2>Overview</h2>
+      <p>Nomva is a nutrition tracking app designed to help you log meals, monitor macros, and reach your health goals. Your privacy matters, and this policy explains what data we collect, how we use it, and the choices you have.</p>
 
-    <h2>Health & Fitness Data</h2>
-    <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) on your device solely to adjust your daily calorie goals. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
+      <h2>Data We Collect</h2>
+      <p>Nomva stores your food log entries, daily goals, weight entries, and custom foods on your device using local storage and optional iCloud sync. When you use AI-powered features such as meal parsing or chat, the text you type, along with limited recent AI context needed to answer correctly, is sent through Nomva's server to our AI provider for processing.</p>
 
-    <h2>Garmin Connect</h2>
-    <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. This data is used only to personalize your calorie targets within the app. We store a Garmin access token on our server to maintain your connection; no Garmin data is sold, shared, or used for advertising.</p>
+      <h2>Health & Fitness Data</h2>
+      <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) on your device solely to adjust your daily calorie goals. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
 
-    <h2>Third-Party Services</h2>
-    <p>Nomva uses OpenAI's API to power AI features. AI chat and meal-parsing text is relayed through Nomva's server and then sent to OpenAI for processing. We do not intentionally store the content of those AI conversations on our server after processing, and we avoid logging raw prompt and response text in production. Text sent for processing is also subject to OpenAI's data usage policies. Barcode lookups may query the Open Food Facts API, a public food database.</p>
+      <h2>Garmin Connect</h2>
+      <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. This data is used only to personalize your calorie targets within the app. We store the Garmin credentials needed to maintain your connection in encrypted form on our server; no Garmin data is sold, shared, or used for advertising.</p>
 
-    <h2>iCloud Sync</h2>
-    <p>When enabled, your food logs, goals, and custom foods sync across your Apple devices via your private iCloud account. Nomva does not have access to your iCloud credentials or data stored in iCloud.</p>
+      <h2>Third-Party Services</h2>
+      <p>Nomva uses OpenAI's API to power AI features. AI chat and meal-parsing text is relayed through Nomva's server and then sent to OpenAI for processing. We do not intentionally store the content of those AI conversations on our server after processing, and we avoid logging raw prompt and response text in production. Text sent for processing is also subject to OpenAI's data usage policies. Barcode lookups use the built-in Nomva food database bundled with the app.</p>
 
-    <h2>Analytics & Advertising</h2>
-    <p>Nomva does not include any third-party analytics SDKs, tracking pixels, or advertising frameworks. We do not track you and we do not sell your data.</p>
+      <h2>iCloud Sync</h2>
+      <p>When enabled, your food logs, goals, and custom foods sync across your Apple devices via your private iCloud account. Nomva does not have access to your iCloud credentials or data stored in iCloud.</p>
 
-    <h2>Data Retention</h2>
-    <p>All nutrition and health data is stored locally on your device (and in your private iCloud container if sync is enabled). We do not maintain server-side copies of your food logs, weight entries, or health data. AI requests pass through our server in order to be processed, but we do not intentionally retain full AI message content after the response is returned.</p>
+      <h2>Analytics & Advertising</h2>
+      <p>Nomva does not include any third-party analytics SDKs, tracking pixels, or advertising frameworks. We do not track you and we do not sell your data.</p>
 
-    <h2>Your Rights</h2>
-    <p>You can delete all of your data at any time by removing the app from your device. If you use iCloud sync, you can also delete your data from iCloud through your device settings. To disconnect Garmin, visit the Garmin Connect app or website.</p>
+      <h2>Data Retention</h2>
+      <p>All nutrition and health data is stored locally on your device (and in your private iCloud container if sync is enabled). We do not maintain server-side copies of your food logs, weight entries, or health data. AI requests pass through our server in order to be processed, but we do not intentionally retain full AI message content after the response is returned.</p>
 
-    <h2>Contact</h2>
-    <p>If you have questions about this privacy policy, contact us at <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>.</p>
-  </main>
-  <footer>&copy; 2026 Nomva. All rights reserved.</footer>
+      <h2>Your Rights</h2>
+      <p>You can delete all of your data at any time by removing the app from your device. If you use iCloud sync, you can also delete your data from iCloud through your device settings. To disconnect Garmin, visit the Garmin Connect app or website.</p>
+
+      <h2>Contact</h2>
+      <p>If you have questions about this privacy policy, contact us at <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>.</p>
+    </main>
+
+    <footer class="footer">
+      &copy; 2026 Nomva. Built and supported by Nerdquad.
+    </footer>
+  </div>
 </body>
 </html>

@@ -5,11 +5,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "baseline:llm": "node scripts/run_llm_baseline.js",
+    "eval:chat-crud": "node scripts/run_chat_crud_eval.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "express": "^4.21.0",
     "openai": "^4.73.0",
+    "node-app-attest": "^0.0.8",
     "dotenv": "^16.4.5",
     "helmet": "^8.0.0",
     "express-rate-limit": "^7.4.1"

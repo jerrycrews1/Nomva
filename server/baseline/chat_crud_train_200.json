@@ -1,0 +1,3272 @@
+[
+  {
+    "id": "train-0001",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "set protein to 140g and calories to 1900",
+    "expect": {
+      "intent": "set_goal"
+    }
+  },
+  {
+    "id": "train-0002",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I ate eggs and toast",
+    "expect": {
+      "foods": [
+        "eggs",
+        "toast"
+      ]
+    }
+  },
+  {
+    "id": "train-0003",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For dinner I had scrambled eggs",
+    "expect": {
+      "meal": "dinner"
+    }
+  },
+  {
+    "id": "train-0004",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0005",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "clear all my weights",
+    "expect": {
+      "weightMutation": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      }
+    }
+  },
+  {
+    "id": "train-0006",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 250 and fat to 80",
+    "expect": {
+      "goal": {
+        "carbs": 250,
+        "fat": 80
+      }
+    }
+  },
+  {
+    "id": "train-0007",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete coffee but keep the mocha",
+    "expect": {
+      "deleteTargets": [
+        "Black coffee"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0008",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "fix the coffee",
+    "expect": {
+      "clarification": true
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0009",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "make it half a cup",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "1/2 cup"
+      }
+    },
+    "currentEntryName": "Rice, cooked",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 cup"
+  },
+  {
+    "id": "train-0010",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had about 5 Chick-fil-A fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "about 5 Chick-fil-A fries",
+        "query": "waffle fries"
+      }
+    }
+  },
+  {
+    "id": "train-0011",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0012",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "how much water did I drink today?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "train-0013",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a bacon egg and cheese sandwich",
+    "expect": {
+      "foods": [
+        "bacon egg and cheese sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0014",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a lunchable as a snack",
+    "expect": {
+      "meal": "snack"
+    }
+  },
+  {
+    "id": "train-0015",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0016",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "clear all my weights",
+    "expect": {
+      "weightMutation": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      }
+    }
+  },
+  {
+    "id": "train-0017",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set my calorie goal to 1800",
+    "expect": {
+      "goal": {
+        "calories": 1800
+      }
+    }
+  },
+  {
+    "id": "train-0018",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete coffee but keep the mocha",
+    "expect": {
+      "deleteTargets": [
+        "Black coffee"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0019",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "that yogurt was 2 servings",
+    "expect": {
+      "editTarget": "Greek Yogurt"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0020",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0021",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "some spinach",
+        "query": "fresh spinach"
+      }
+    }
+  },
+  {
+    "id": "train-0022",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "servings": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "three Chick-fil-A nuggets",
+    "candidateName": "Chick-Fil-A Nuggets",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0023",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "set protein to 160g and calories to 2400",
+    "expect": {
+      "intent": "set_goal"
+    }
+  },
+  {
+    "id": "train-0024",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had mac and cheese and a protein shake",
+    "expect": {
+      "foods": [
+        "mac and cheese",
+        "protein shake"
+      ]
+    }
+  },
+  {
+    "id": "train-0025",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had Greek yogurt",
+    "expect": {
+      "meal": "lunch"
+    }
+  },
+  {
+    "id": "train-0026",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "set my water total to 64 oz",
+    "expect": {
+      "waterMutation": {
+        "action": "update_total",
+        "amountOz": 64
+      }
+    }
+  },
+  {
+    "id": "train-0027",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "change today's weight to 180",
+    "expect": {
+      "weightMutation": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0028",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set my calorie goal to 2400",
+    "expect": {
+      "goal": {
+        "calories": 2400
+      }
+    }
+  },
+  {
+    "id": "train-0029",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "remove the fries",
+    "expect": {
+      "deleteTargets": [
+        "Waffle Fries"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0030",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0031",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "that's not right",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": false
+      }
+    },
+    "currentEntryName": "Chicken Nuggets",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "3 nuggets"
+  },
+  {
+    "id": "train-0032",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "some spinach",
+        "query": "fresh spinach"
+      }
+    }
+  },
+  {
+    "id": "train-0033",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "servings": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": false
+      }
+    },
+    "foodMention": "some spinach",
+    "candidateName": "Spinach, raw",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0034",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "set protein to 180g and calories to 1900",
+    "expect": {
+      "intent": "set_goal"
+    }
+  },
+  {
+    "id": "train-0035",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had mac and cheese and a protein shake",
+    "expect": {
+      "foods": [
+        "mac and cheese",
+        "protein shake"
+      ]
+    }
+  },
+  {
+    "id": "train-0036",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a breakfast burrito for dinner",
+    "expect": {
+      "meal": "dinner"
+    }
+  },
+  {
+    "id": "train-0037",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "had a bottle of water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0038",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "delete yesterday's weight",
+    "expect": {
+      "weightMutation": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      }
+    }
+  },
+  {
+    "id": "train-0039",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set my calorie goal to 2400",
+    "expect": {
+      "goal": {
+        "calories": 2400
+      }
+    }
+  },
+  {
+    "id": "train-0040",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete all foods from today",
+    "expect": {
+      "deleteTargets": [
+        "Greek Yogurt",
+        "Blueberries, raw",
+        "Black coffee",
+        "Breakfast Burrito",
+        "Chicken Nuggets",
+        "Waffle Fries",
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0041",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "that yogurt was 2 servings",
+    "expect": {
+      "editTarget": "Greek Yogurt"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0042",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0043",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "Log breakfast: Gree Yogurt",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "Gree Yogurt",
+        "query": "Greek yogurt"
+      }
+    }
+  },
+  {
+    "id": "train-0044",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "servings": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": false
+      }
+    },
+    "foodMention": "some spinach",
+    "candidateName": "Spinach, raw",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0045",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "I had fish and chips and turkey sandwich",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "train-0046",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had peanut butter and jelly sandwich",
+    "expect": {
+      "foods": [
+        "peanut butter and jelly sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0047",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For snack I had scrambled eggs",
+    "expect": {
+      "meal": "snack"
+    }
+  },
+  {
+    "id": "train-0048",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "set my water total to 64 oz",
+    "expect": {
+      "waterMutation": {
+        "action": "update_total",
+        "amountOz": 64
+      }
+    }
+  },
+  {
+    "id": "train-0049",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "delete yesterday's weight",
+    "expect": {
+      "weightMutation": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      }
+    }
+  },
+  {
+    "id": "train-0050",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set fiber to 35g",
+    "expect": {
+      "goal": {
+        "fiber": 35
+      }
+    }
+  },
+  {
+    "id": "train-0051",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "remove the fries",
+    "expect": {
+      "deleteTargets": [
+        "Waffle Fries"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0052",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "fix the coffee",
+    "expect": {
+      "clarification": true
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0053",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "that's not right",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": false
+      }
+    },
+    "currentEntryName": "Chicken Nuggets",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "3 nuggets"
+  },
+  {
+    "id": "train-0054",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "three Chick-fil-A nuggets",
+        "query": "chicken nuggets"
+      }
+    }
+  },
+  {
+    "id": "train-0055",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "servings": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "three Chick-fil-A nuggets",
+    "candidateName": "Chick-Fil-A Nuggets",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0056",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "how many calories do I have left today?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "train-0057",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had peanut butter and jelly sandwich",
+    "expect": {
+      "foods": [
+        "peanut butter and jelly sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0058",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had white rice",
+    "expect": {
+      "meal": "lunch"
+    }
+  },
+  {
+    "id": "train-0059",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "clear today's water",
+    "expect": {
+      "waterMutation": {
+        "action": "delete_all",
+        "amountOz": null
+      }
+    }
+  },
+  {
+    "id": "train-0060",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "change today's weight to 180",
+    "expect": {
+      "weightMutation": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0061",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set fiber to 35g",
+    "expect": {
+      "goal": {
+        "fiber": 35
+      }
+    }
+  },
+  {
+    "id": "train-0062",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete breakfast",
+    "expect": {
+      "deleteTargets": [
+        "Greek Yogurt",
+        "Blueberries, raw",
+        "Black coffee"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0063",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "actually the fries were medium",
+    "expect": {
+      "editTarget": "Waffle Fries"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0064",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "actually only about 5 fries",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 5,
+        "portionDescription": "5 fries",
+        "replacementSearchQuery": "waffle fries"
+      }
+    },
+    "currentEntryName": "Chick-Fil-A, Waffle Potato Fries, Large",
+    "currentEntryBrand": "Chick-Fil-A",
+    "currentPortionDescription": "1 large"
+  },
+  {
+    "id": "train-0065",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had a large Chick-fil-A waffle fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "large Chick-fil-A waffle fries",
+        "query": "Chick-Fil-A waffle potato fries large"
+      }
+    }
+  },
+  {
+    "id": "train-0066",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0067",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "I drank 16 oz of water",
+    "expect": {
+      "intent": "log_water"
+    }
+  },
+  {
+    "id": "train-0068",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had peanut butter and jelly sandwich",
+    "expect": {
+      "foods": [
+        "peanut butter and jelly sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0069",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a lunchable as a snack",
+    "expect": {
+      "meal": "snack"
+    }
+  },
+  {
+    "id": "train-0070",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0071",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "I weigh 181.4 lbs today",
+    "expect": {
+      "weightMutation": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0072",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 250 and fat to 55",
+    "expect": {
+      "goal": {
+        "carbs": 250,
+        "fat": 55
+      }
+    }
+  },
+  {
+    "id": "train-0073",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete breakfast",
+    "expect": {
+      "deleteTargets": [
+        "Greek Yogurt",
+        "Blueberries, raw",
+        "Black coffee"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0074",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0075",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0076",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had a large Chick-fil-A waffle fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "large Chick-fil-A waffle fries",
+        "query": "Chick-Fil-A waffle potato fries large"
+      }
+    }
+  },
+  {
+    "id": "train-0077",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "servings": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "three Chick-fil-A nuggets",
+    "candidateName": "Chick-Fil-A Nuggets",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0078",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "clear all foods from today",
+    "expect": {
+      "intent": "delete_food"
+    }
+  },
+  {
+    "id": "train-0079",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had peanut butter and jelly sandwich",
+    "expect": {
+      "foods": [
+        "peanut butter and jelly sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0080",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a breakfast burrito",
+    "expect": {
+      "meal": null
+    }
+  },
+  {
+    "id": "train-0081",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "set my water total to 64 oz",
+    "expect": {
+      "waterMutation": {
+        "action": "update_total",
+        "amountOz": 64
+      }
+    }
+  },
+  {
+    "id": "train-0082",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "change today's weight to 180",
+    "expect": {
+      "weightMutation": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0083",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set fiber to 35g",
+    "expect": {
+      "goal": {
+        "fiber": 35
+      }
+    }
+  },
+  {
+    "id": "train-0084",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete breakfast burrito",
+    "expect": {
+      "deleteTargets": [
+        "Breakfast Burrito"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0085",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "make the nuggets 6",
+    "expect": {
+      "editTarget": "Chicken Nuggets"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0086",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0087",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "Log breakfast: Gree Yogurt",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "Gree Yogurt",
+        "query": "Greek yogurt"
+      }
+    }
+  },
+  {
+    "id": "train-0088",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "servings": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": false
+      }
+    },
+    "foodMention": "some spinach",
+    "candidateName": "Spinach, raw",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0089",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "how many calories do I have left today?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "train-0090",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I ate eggs and toast",
+    "expect": {
+      "foods": [
+        "eggs",
+        "toast"
+      ]
+    }
+  },
+  {
+    "id": "train-0091",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Log lunch: blueberries",
+    "expect": {
+      "meal": "lunch"
+    }
+  },
+  {
+    "id": "train-0092",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0093",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "clear all my weights",
+    "expect": {
+      "weightMutation": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      }
+    }
+  },
+  {
+    "id": "train-0094",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set protein to 180g",
+    "expect": {
+      "goal": {
+        "protein": 180
+      }
+    }
+  },
+  {
+    "id": "train-0095",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "remove the fries",
+    "expect": {
+      "deleteTargets": [
+        "Waffle Fries"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0096",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0097",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "that's not right",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": false
+      }
+    },
+    "currentEntryName": "Chicken Nuggets",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "3 nuggets"
+  },
+  {
+    "id": "train-0098",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "Log breakfast: Gree Yogurt",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "Gree Yogurt",
+        "query": "Greek yogurt"
+      }
+    }
+  },
+  {
+    "id": "train-0099",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0100",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "delete peanut butter and jelly sandwich from today",
+    "expect": {
+      "intent": "delete_food"
+    }
+  },
+  {
+    "id": "train-0101",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I ate eggs and toast",
+    "expect": {
+      "foods": [
+        "eggs",
+        "toast"
+      ]
+    }
+  },
+  {
+    "id": "train-0102",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "delete breakfast burrito",
+    "expect": {
+      "meal": null
+    }
+  },
+  {
+    "id": "train-0103",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "clear today's water",
+    "expect": {
+      "waterMutation": {
+        "action": "delete_all",
+        "amountOz": null
+      }
+    }
+  },
+  {
+    "id": "train-0104",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "delete yesterday's weight",
+    "expect": {
+      "weightMutation": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      }
+    }
+  },
+  {
+    "id": "train-0105",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 150 and fat to 70",
+    "expect": {
+      "goal": {
+        "carbs": 150,
+        "fat": 70
+      }
+    }
+  },
+  {
+    "id": "train-0106",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete that",
+    "expect": {
+      "deleteTargets": [
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0107",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0108",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "It was black coffee",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 serving",
+        "replacementSearchQuery": "black coffee"
+      }
+    },
+    "currentEntryName": "Coffee",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 serving"
+  },
+  {
+    "id": "train-0109",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "three Chick-fil-A nuggets",
+        "query": "chicken nuggets"
+      }
+    }
+  },
+  {
+    "id": "train-0110",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "That was only 2 slices",
+    "expect": {
+      "servings": {
+        "servings": 2,
+        "portionDescription": "2 slices",
+        "servingUnit": "slice",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "2 slices",
+    "candidateName": "Bacon",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0111",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "what can you do?",
+    "expect": {
+      "intent": "reply"
+    }
+  },
+  {
+    "id": "train-0112",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Dinner was fish and chips, salad, and iced tea",
+    "expect": {
+      "foods": [
+        "fish and chips",
+        "salad",
+        "iced tea"
+      ]
+    }
+  },
+  {
+    "id": "train-0113",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For breakfast I had bacon egg and cheese sandwich",
+    "expect": {
+      "meal": "breakfast"
+    }
+  },
+  {
+    "id": "train-0114",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "I drank 16 oz of water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16
+      }
+    }
+  },
+  {
+    "id": "train-0115",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "change today's weight to 180",
+    "expect": {
+      "weightMutation": {
+        "action": "update",
+        "weightLbs": 180,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0116",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set fiber to 35g",
+    "expect": {
+      "goal": {
+        "fiber": 35
+      }
+    }
+  },
+  {
+    "id": "train-0117",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete that",
+    "expect": {
+      "deleteTargets": [
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0118",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0119",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "make it half a cup",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "1/2 cup"
+      }
+    },
+    "currentEntryName": "Rice, cooked",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 cup"
+  },
+  {
+    "id": "train-0120",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had a large Chick-fil-A waffle fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "large Chick-fil-A waffle fries",
+        "query": "Chick-Fil-A waffle potato fries large"
+      }
+    }
+  },
+  {
+    "id": "train-0121",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0122",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "I had bacon egg and cheese sandwich and fish and chips",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "train-0123",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had mac and cheese and a protein shake",
+    "expect": {
+      "foods": [
+        "mac and cheese",
+        "protein shake"
+      ]
+    }
+  },
+  {
+    "id": "train-0124",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Log dinner: Greek yogurt",
+    "expect": {
+      "meal": "dinner"
+    }
+  },
+  {
+    "id": "train-0125",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0126",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "clear all my weights",
+    "expect": {
+      "weightMutation": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      }
+    }
+  },
+  {
+    "id": "train-0127",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 250 and fat to 55",
+    "expect": {
+      "goal": {
+        "carbs": 250,
+        "fat": 55
+      }
+    }
+  },
+  {
+    "id": "train-0128",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete that",
+    "expect": {
+      "deleteTargets": [
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0129",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "actually the fries were medium",
+    "expect": {
+      "editTarget": "Waffle Fries"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0130",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0131",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had a large Chick-fil-A waffle fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "large Chick-fil-A waffle fries",
+        "query": "Chick-Fil-A waffle potato fries large"
+      }
+    }
+  },
+  {
+    "id": "train-0132",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had half a cup of rice",
+    "expect": {
+      "servings": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "half a cup of rice",
+    "candidateName": "Rice, cooked",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0133",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "white rice",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "train-0134",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Dinner was fish and chips, salad, and iced tea",
+    "expect": {
+      "foods": [
+        "fish and chips",
+        "salad",
+        "iced tea"
+      ]
+    }
+  },
+  {
+    "id": "train-0135",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a breakfast burrito for dinner",
+    "expect": {
+      "meal": "dinner"
+    }
+  },
+  {
+    "id": "train-0136",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "log 2 cups water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16
+      }
+    }
+  },
+  {
+    "id": "train-0137",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "I weigh 181.4 lbs today",
+    "expect": {
+      "weightMutation": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0138",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 200 and fat to 80",
+    "expect": {
+      "goal": {
+        "carbs": 200,
+        "fat": 80
+      }
+    }
+  },
+  {
+    "id": "train-0139",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete that",
+    "expect": {
+      "deleteTargets": [
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0140",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "make the nuggets 6",
+    "expect": {
+      "editTarget": "Chicken Nuggets"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0141",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "make it half a cup",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 0.5,
+        "portionDescription": "1/2 cup"
+      }
+    },
+    "currentEntryName": "Rice, cooked",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 cup"
+  },
+  {
+    "id": "train-0142",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "some spinach",
+        "query": "fresh spinach"
+      }
+    }
+  },
+  {
+    "id": "train-0143",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "servings": {
+        "servings": 1,
+        "portionDescription": "1 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": false
+      }
+    },
+    "foodMention": "some spinach",
+    "candidateName": "Spinach, raw",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0144",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "how many calories do I have left today?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "train-0145",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Dinner was fish and chips, salad, and iced tea",
+    "expect": {
+      "foods": [
+        "fish and chips",
+        "salad",
+        "iced tea"
+      ]
+    }
+  },
+  {
+    "id": "train-0146",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a breakfast burrito",
+    "expect": {
+      "meal": null
+    }
+  },
+  {
+    "id": "train-0147",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "I drank 16 oz of water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16
+      }
+    }
+  },
+  {
+    "id": "train-0148",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "I weigh 181.4 lbs today",
+    "expect": {
+      "weightMutation": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0149",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "I want 2400 calories, 140g protein, 250g carbs, 80g fat",
+    "expect": {
+      "goal": {
+        "calories": 2400,
+        "protein": 140,
+        "carbs": 250,
+        "fat": 80
+      }
+    }
+  },
+  {
+    "id": "train-0150",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "remove the fries",
+    "expect": {
+      "deleteTargets": [
+        "Waffle Fries"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0151",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "make the nuggets 6",
+    "expect": {
+      "editTarget": "Chicken Nuggets"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0152",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "that's not right",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": false
+      }
+    },
+    "currentEntryName": "Chicken Nuggets",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "3 nuggets"
+  },
+  {
+    "id": "train-0153",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "some spinach",
+        "query": "fresh spinach"
+      }
+    }
+  },
+  {
+    "id": "train-0154",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had half a cup of rice",
+    "expect": {
+      "servings": {
+        "servings": 0.5,
+        "portionDescription": "1/2 cup",
+        "servingUnit": "cup",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "half a cup of rice",
+    "candidateName": "Rice, cooked",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0155",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "clear all foods from today",
+    "expect": {
+      "intent": "delete_food"
+    }
+  },
+  {
+    "id": "train-0156",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I ate eggs and toast",
+    "expect": {
+      "foods": [
+        "eggs",
+        "toast"
+      ]
+    }
+  },
+  {
+    "id": "train-0157",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "my breakfast was chicken nuggets",
+    "expect": {
+      "meal": "breakfast"
+    }
+  },
+  {
+    "id": "train-0158",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "log 2 cups water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16
+      }
+    }
+  },
+  {
+    "id": "train-0159",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "clear all my weights",
+    "expect": {
+      "weightMutation": {
+        "action": "delete_all",
+        "weightLbs": null,
+        "dateHint": null
+      }
+    }
+  },
+  {
+    "id": "train-0160",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 150 and fat to 80",
+    "expect": {
+      "goal": {
+        "carbs": 150,
+        "fat": 80
+      }
+    }
+  },
+  {
+    "id": "train-0161",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete that",
+    "expect": {
+      "deleteTargets": [
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0162",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "no delete that",
+    "expect": {
+      "editTarget": "Caff Mocha Chilled Espresso Beverage"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0163",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "actually only about 5 fries",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 5,
+        "portionDescription": "5 fries",
+        "replacementSearchQuery": "waffle fries"
+      }
+    },
+    "currentEntryName": "Chick-Fil-A, Waffle Potato Fries, Large",
+    "currentEntryBrand": "Chick-Fil-A",
+    "currentPortionDescription": "1 large"
+  },
+  {
+    "id": "train-0164",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I ate some spinach",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "some spinach",
+        "query": "fresh spinach"
+      }
+    }
+  },
+  {
+    "id": "train-0165",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0166",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "bacon egg and cheese sandwich",
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "train-0167",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a bacon egg and cheese sandwich",
+    "expect": {
+      "foods": [
+        "bacon egg and cheese sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0168",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a lunchable as a snack",
+    "expect": {
+      "meal": "snack"
+    }
+  },
+  {
+    "id": "train-0169",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "had a bottle of water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0170",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "I weigh 181.4 lbs today",
+    "expect": {
+      "weightMutation": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0171",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set my calorie goal to 1800",
+    "expect": {
+      "goal": {
+        "calories": 1800
+      }
+    }
+  },
+  {
+    "id": "train-0172",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete coffee but keep the mocha",
+    "expect": {
+      "deleteTargets": [
+        "Black coffee"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0173",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "actually the fries were medium",
+    "expect": {
+      "editTarget": "Waffle Fries"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0174",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "It was black coffee",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 serving",
+        "replacementSearchQuery": "black coffee"
+      }
+    },
+    "currentEntryName": "Coffee",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 serving"
+  },
+  {
+    "id": "train-0175",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had one egg",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "one egg",
+        "query": "whole egg"
+      }
+    }
+  },
+  {
+    "id": "train-0176",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had three Chick-fil-A nuggets",
+    "expect": {
+      "servings": {
+        "servings": 3,
+        "portionDescription": "3 nuggets",
+        "servingUnit": "nugget",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "three Chick-fil-A nuggets",
+    "candidateName": "Chick-Fil-A Nuggets",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0177",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "clear all foods from today",
+    "expect": {
+      "intent": "delete_food"
+    }
+  },
+  {
+    "id": "train-0178",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had peanut butter and jelly sandwich",
+    "expect": {
+      "foods": [
+        "peanut butter and jelly sandwich"
+      ]
+    }
+  },
+  {
+    "id": "train-0179",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "I had a breakfast burrito",
+    "expect": {
+      "meal": null
+    }
+  },
+  {
+    "id": "train-0180",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "clear today's water",
+    "expect": {
+      "waterMutation": {
+        "action": "delete_all",
+        "amountOz": null
+      }
+    }
+  },
+  {
+    "id": "train-0181",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "I weigh 181.4 lbs today",
+    "expect": {
+      "weightMutation": {
+        "action": "add",
+        "weightLbs": 181.4,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "train-0182",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "change carbs to 150 and fat to 55",
+    "expect": {
+      "goal": {
+        "carbs": 150,
+        "fat": 55
+      }
+    }
+  },
+  {
+    "id": "train-0183",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete all foods from today",
+    "expect": {
+      "deleteTargets": [
+        "Greek Yogurt",
+        "Blueberries, raw",
+        "Black coffee",
+        "Breakfast Burrito",
+        "Chicken Nuggets",
+        "Waffle Fries",
+        "Caff Mocha Chilled Espresso Beverage"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0184",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "make the nuggets 6",
+    "expect": {
+      "editTarget": "Chicken Nuggets"
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0185",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "not chicken curry, it was tofu curry",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 bowl",
+        "replacementSearchQuery": "tofu curry"
+      }
+    },
+    "currentEntryName": "Chicken Curry",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 bowl"
+  },
+  {
+    "id": "train-0186",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had about 5 Chick-fil-A fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "about 5 Chick-fil-A fries",
+        "query": "waffle fries"
+      }
+    }
+  },
+  {
+    "id": "train-0187",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "I had a small handful of almonds",
+    "expect": {
+      "servings": {
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "small handful of almonds",
+    "candidateName": "Almonds",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0188",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "actually that was 2 cups",
+    "expect": {
+      "intent": "edit_food"
+    }
+  },
+  {
+    "id": "train-0189",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Log breakfast: Greek yogurt, blueberries, and black coffee",
+    "expect": {
+      "foods": [
+        "Greek yogurt",
+        "blueberries",
+        "black coffee"
+      ]
+    }
+  },
+  {
+    "id": "train-0190",
+    "task": "extract_meal",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "Log snack: scrambled eggs",
+    "expect": {
+      "meal": "snack"
+    }
+  },
+  {
+    "id": "train-0191",
+    "task": "extract_water_mutation",
+    "category": "water_crud",
+    "difficulty": "medium",
+    "message": "add 500 ml water",
+    "expect": {
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16.9,
+        "tolerance": 0.5
+      }
+    }
+  },
+  {
+    "id": "train-0192",
+    "task": "extract_weight_mutation",
+    "category": "weight_crud",
+    "difficulty": "medium",
+    "message": "delete yesterday's weight",
+    "expect": {
+      "weightMutation": {
+        "action": "delete",
+        "weightLbs": null,
+        "dateHint": "yesterday"
+      }
+    }
+  },
+  {
+    "id": "train-0193",
+    "task": "extract_goal",
+    "category": "goal_crud",
+    "difficulty": "medium",
+    "message": "set my calorie goal to 2200",
+    "expect": {
+      "goal": {
+        "calories": 2200
+      }
+    }
+  },
+  {
+    "id": "train-0194",
+    "task": "pick_delete_targets",
+    "category": "food_delete",
+    "difficulty": "hard",
+    "message": "delete breakfast burrito",
+    "expect": {
+      "deleteTargets": [
+        "Breakfast Burrito"
+      ]
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (breakfast)\nBlueberries, raw (breakfast)\nBlack coffee (breakfast)\nBreakfast Burrito (lunch)\nChicken Nuggets (lunch)\nWaffle Fries (lunch)\nCaff Mocha Chilled Espresso Beverage (snack)"
+  },
+  {
+    "id": "train-0195",
+    "task": "pick_edit_target",
+    "category": "food_edit",
+    "difficulty": "hard",
+    "message": "fix the coffee",
+    "expect": {
+      "clarification": true
+    },
+    "recentMessages": [
+      {
+        "role": "user",
+        "content": "I had coffee for lunch"
+      },
+      {
+        "role": "assistant",
+        "content": "✓ Black coffee (1 serving) — 4 cal"
+      },
+      {
+        "role": "user",
+        "content": "It was a mocha grande from Starbucks"
+      },
+      {
+        "role": "assistant",
+        "content": "Removed Black coffee.\n✓ Caff Mocha Chilled Espresso Beverage (1 grande mocha) — 202 cal"
+      }
+    ],
+    "logSummary": "Greek Yogurt (1 serving, breakfast)\nBlack coffee (1 serving, lunch)\nCaff Mocha Chilled Espresso Beverage (1 grande mocha, lunch)\nWaffle Fries (5 fries, lunch)\nChicken Nuggets (3 nuggets, lunch)"
+  },
+  {
+    "id": "train-0196",
+    "task": "resolve_edit_request",
+    "category": "food_edit",
+    "difficulty": "ridiculous",
+    "message": "It was black coffee",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "portionDescription": "1 serving",
+        "replacementSearchQuery": "black coffee"
+      }
+    },
+    "currentEntryName": "Coffee",
+    "currentEntryBrand": null,
+    "currentPortionDescription": "1 serving"
+  },
+  {
+    "id": "train-0197",
+    "task": "build_food_search_query",
+    "category": "food_search",
+    "difficulty": "hard",
+    "message": "I had a large Chick-fil-A waffle fries",
+    "expect": {
+      "searchQuery": {
+        "foodMention": "large Chick-fil-A waffle fries",
+        "query": "Chick-Fil-A waffle potato fries large"
+      }
+    }
+  },
+  {
+    "id": "train-0198",
+    "task": "extract_servings",
+    "category": "portion",
+    "difficulty": "hard",
+    "message": "That was only 2 slices",
+    "expect": {
+      "servings": {
+        "servings": 2,
+        "portionDescription": "2 slices",
+        "servingUnit": "slice",
+        "hasExplicitPortion": true
+      }
+    },
+    "foodMention": "2 slices",
+    "candidateName": "Bacon",
+    "candidateServingDescription": null
+  },
+  {
+    "id": "train-0199",
+    "task": "classify_intent",
+    "category": "intent",
+    "difficulty": "medium",
+    "message": "thanks",
+    "expect": {
+      "intent": "reply"
+    }
+  },
+  {
+    "id": "train-0200",
+    "task": "split_foods",
+    "category": "food_log",
+    "difficulty": "hard",
+    "message": "For lunch I had mac and cheese and a protein shake",
+    "expect": {
+      "foods": [
+        "mac and cheese",
+        "protein shake"
+      ]
+    }
+  }
+]

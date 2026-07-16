@@ -1,6 +1,23 @@
 import SQLite3
 import Foundation
 
+private func sqliteOptionalDouble(_ stmt: OpaquePointer, _ index: Int32) -> Double? {
+    sqlite3_column_type(stmt, index) != SQLITE_NULL
+        ? sqlite3_column_double(stmt, index)
+        : nil
+}
+
+enum FoodPortionBasis: String, Codable, Hashable {
+    case grams
+    case fixedServing = "fixed_serving"
+}
+
+enum FoodServingSource: String, Codable, Hashable {
+    case explicitServing = "explicit_serving"
+    case parsedServing = "parsed_serving"
+    case fallbackRaw = "fallback_raw"
+}
+
 struct FoodItem: Identifiable, Codable, Hashable {
     let id: Int
     let fdcId: Int?
@@ -16,7 +33,23 @@ struct FoodItem: Identifiable, Codable, Hashable {
     let fiberG: Double
     let sugarG: Double
     let sodiumMg: Double
+    let saturatedFatG: Double?
+    let transFatG: Double?
+    let cholesterolMg: Double?
+    let addedSugarG: Double?
+    let vitaminDMcg: Double?
+    let calciumMg: Double?
+    let ironMg: Double?
+    let potassiumMg: Double?
+    let vitaminAMcgRAE: Double?
+    let vitaminCMg: Double?
+    let vitaminB12Mcg: Double?
+    let folateMcgDFE: Double?
+    let magnesiumMg: Double?
+    let zincMg: Double?
     let barcode: String?
+    let portionBasis: FoodPortionBasis
+    let servingSource: FoodServingSource?
 
     init(
         id: Int,
@@ -33,7 +66,23 @@ struct FoodItem: Identifiable, Codable, Hashable {
         fiberG: Double,
         sugarG: Double,
         sodiumMg: Double,
-        barcode: String? = nil
+        saturatedFatG: Double? = nil,
+        transFatG: Double? = nil,
+        cholesterolMg: Double? = nil,
+        addedSugarG: Double? = nil,
+        vitaminDMcg: Double? = nil,
+        calciumMg: Double? = nil,
+        ironMg: Double? = nil,
+        potassiumMg: Double? = nil,
+        vitaminAMcgRAE: Double? = nil,
+        vitaminCMg: Double? = nil,
+        vitaminB12Mcg: Double? = nil,
+        folateMcgDFE: Double? = nil,
+        magnesiumMg: Double? = nil,
+        zincMg: Double? = nil,
+        barcode: String? = nil,
+        portionBasis: FoodPortionBasis = .grams,
+        servingSource: FoodServingSource? = nil
     ) {
         self.id = id
         self.fdcId = fdcId
@@ -49,11 +98,30 @@ struct FoodItem: Identifiable, Codable, Hashable {
         self.fiberG = fiberG
         self.sugarG = sugarG
         self.sodiumMg = sodiumMg
+        self.saturatedFatG = saturatedFatG
+        self.transFatG = transFatG
+        self.cholesterolMg = cholesterolMg
+        self.addedSugarG = addedSugarG
+        self.vitaminDMcg = vitaminDMcg
+        self.calciumMg = calciumMg
+        self.ironMg = ironMg
+        self.potassiumMg = potassiumMg
+        self.vitaminAMcgRAE = vitaminAMcgRAE
+        self.vitaminCMg = vitaminCMg
+        self.vitaminB12Mcg = vitaminB12Mcg
+        self.folateMcgDFE = folateMcgDFE
+        self.magnesiumMg = magnesiumMg
+        self.zincMg = zincMg
         self.barcode = barcode
+        self.portionBasis = portionBasis
+        self.servingSource = servingSource
     }
 
     // Convenience: nutrition scaled to a custom gram amount
     func scaled(to grams: Double) -> NutritionValues {
+        guard canScaleByGrams else {
+            return nutritionForServings(1)
+        }
         let factor = (servingGrams ?? 100) > 0
             ? grams / (servingGrams ?? 100)
             : 1.0
@@ -64,13 +132,58 @@ struct FoodItem: Identifiable, Codable, Hashable {
             fat: fatG * factor,
             fiber: fiberG * factor,
             sugar: sugarG * factor,
-            sodium: sodiumMg * factor
+            sodium: sodiumMg * factor,
+            saturatedFat: saturatedFatG.map { $0 * factor },
+            transFat: transFatG.map { $0 * factor },
+            cholesterol: cholesterolMg.map { $0 * factor },
+            addedSugar: addedSugarG.map { $0 * factor },
+            vitaminD: vitaminDMcg.map { $0 * factor },
+            calcium: calciumMg.map { $0 * factor },
+            iron: ironMg.map { $0 * factor },
+            potassium: potassiumMg.map { $0 * factor },
+            vitaminA: vitaminAMcgRAE.map { $0 * factor },
+            vitaminC: vitaminCMg.map { $0 * factor },
+            vitaminB12: vitaminB12Mcg.map { $0 * factor },
+            folate: folateMcgDFE.map { $0 * factor },
+            magnesium: magnesiumMg.map { $0 * factor },
+            zinc: zincMg.map { $0 * factor }
         )
+    }
+
+    func nutritionForServings(_ servings: Double) -> NutritionValues {
+        let factor = max(servings, 0)
+        return NutritionValues(
+            calories: caloriesPerServing * factor,
+            protein: proteinG * factor,
+            carbs: carbsG * factor,
+            fat: fatG * factor,
+            fiber: fiberG * factor,
+            sugar: sugarG * factor,
+            sodium: sodiumMg * factor,
+            saturatedFat: saturatedFatG.map { $0 * factor },
+            transFat: transFatG.map { $0 * factor },
+            cholesterol: cholesterolMg.map { $0 * factor },
+            addedSugar: addedSugarG.map { $0 * factor },
+            vitaminD: vitaminDMcg.map { $0 * factor },
+            calcium: calciumMg.map { $0 * factor },
+            iron: ironMg.map { $0 * factor },
+            potassium: potassiumMg.map { $0 * factor },
+            vitaminA: vitaminAMcgRAE.map { $0 * factor },
+            vitaminC: vitaminCMg.map { $0 * factor },
+            vitaminB12: vitaminB12Mcg.map { $0 * factor },
+            folate: folateMcgDFE.map { $0 * factor },
+            magnesium: magnesiumMg.map { $0 * factor },
+            zinc: zincMg.map { $0 * factor }
+        )
+    }
+
+    var canScaleByGrams: Bool {
+        portionBasis == .grams && (servingGrams ?? 0) > 0
     }
 
     // Per-100g values for edit recalculation
     var per100g: NutritionValues {
-        scaled(to: 100)
+        canScaleByGrams ? scaled(to: 100) : NutritionValues.zero
     }
 
     // Initialize from a raw SQLite3 row pointer
@@ -94,8 +207,35 @@ struct FoodItem: Identifiable, Codable, Hashable {
         fiberG      = sqlite3_column_double(stmt, 11)
         sugarG      = sqlite3_column_double(stmt, 12)
         sodiumMg    = sqlite3_column_double(stmt, 13)
-        barcode     = sqlite3_column_type(stmt, 14) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 14)) : nil
+        saturatedFatG = sqliteOptionalDouble(stmt, 14)
+        transFatG = sqliteOptionalDouble(stmt, 15)
+        cholesterolMg = sqliteOptionalDouble(stmt, 16)
+        addedSugarG = sqliteOptionalDouble(stmt, 17)
+        vitaminDMcg = sqliteOptionalDouble(stmt, 18)
+        calciumMg = sqliteOptionalDouble(stmt, 19)
+        ironMg = sqliteOptionalDouble(stmt, 20)
+        potassiumMg = sqliteOptionalDouble(stmt, 21)
+        vitaminAMcgRAE = sqliteOptionalDouble(stmt, 22)
+        vitaminCMg = sqliteOptionalDouble(stmt, 23)
+        vitaminB12Mcg = sqliteOptionalDouble(stmt, 24)
+        folateMcgDFE = sqliteOptionalDouble(stmt, 25)
+        magnesiumMg = sqliteOptionalDouble(stmt, 26)
+        zincMg = sqliteOptionalDouble(stmt, 27)
+        barcode     = sqlite3_column_type(stmt, 28) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 28)) : nil
+        if sqlite3_column_type(stmt, 29) != SQLITE_NULL,
+           let raw = sqlite3_column_text(stmt, 29).map({ String(cString: $0) }),
+           let parsed = FoodPortionBasis(rawValue: raw) {
+            portionBasis = parsed
+        } else {
+            portionBasis = .grams
+        }
+        if sqlite3_column_type(stmt, 30) != SQLITE_NULL,
+           let raw = sqlite3_column_text(stmt, 30).map({ String(cString: $0) }) {
+            servingSource = FoodServingSource(rawValue: raw)
+        } else {
+            servingSource = nil
+        }
     }
 }
 
@@ -107,6 +247,30 @@ struct NutritionValues {
     var fiber: Double
     var sugar: Double
     var sodium: Double
+    var saturatedFat: Double? = nil
+    var transFat: Double? = nil
+    var cholesterol: Double? = nil
+    var addedSugar: Double? = nil
+    var vitaminD: Double? = nil
+    var calcium: Double? = nil
+    var iron: Double? = nil
+    var potassium: Double? = nil
+    var vitaminA: Double? = nil
+    var vitaminC: Double? = nil
+    var vitaminB12: Double? = nil
+    var folate: Double? = nil
+    var magnesium: Double? = nil
+    var zinc: Double? = nil
+
+    static let zero = NutritionValues(
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+        sugar: 0,
+        sodium: 0
+    )
 }
 
 // MARK: - LLM Response Models

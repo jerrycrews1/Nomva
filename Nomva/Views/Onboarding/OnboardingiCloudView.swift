@@ -1,18 +1,17 @@
 import SwiftUI
-import SwiftData
 
 struct OnboardingiCloudView: View {
     var onContinue: () -> Void
 
     @State private var enableSync = false
-    @State private var iCloudAvailable = false
+    @State private var isApplying = false
     @EnvironmentObject private var syncManager: SyncManager
 
     var body: some View {
         OnboardingShell {
             OnboardingSectionCard(
                 title: "Sync across your devices?",
-                subtitle: "Keep your data private in iCloud and available on iPhone, iPad, and Mac.",
+                subtitle: "Use iCloud if you want your history on your other Apple devices.",
                 tone: .hero
             ) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -25,17 +24,23 @@ struct OnboardingiCloudView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Optional and private")
+                            Text("Optional")
                                 .font(.headline)
-                            Text("Nomva uses your Apple account. No separate signup required.")
+                            Text("This uses your Apple account. Nomva creates a backup before switching stores.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     }
 
                     if !syncManager.isAccountAvailable {
-                        Label("No iCloud account was found on this device yet.", systemImage: "exclamationmark.triangle.fill")
+                        Label("Sign in to iCloud on this device to turn sync on.", systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+
+                    if case .error(let message) = syncManager.syncStatus {
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
                             .foregroundStyle(.orange)
                     }
                 }
@@ -55,21 +60,37 @@ struct OnboardingiCloudView: View {
                     }
                 }
                 .tint(.blue)
-                .disabled(!syncManager.isAccountAvailable)
+                .disabled(!syncManager.isAccountAvailable || isApplying)
+
+                if isApplying, let message = syncManager.syncStatus.message {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         } footer: {
             Button(enableSync ? "Enable & Continue" : "Continue Without Sync") {
-                if enableSync {
-                    syncManager.iCloudEnabled = true
+                Task {
+                    if enableSync {
+                        isApplying = true
+                        await syncManager.setSyncEnabled(true)
+                        isApplying = false
+                        guard syncManager.iCloudEnabled else { return }
+                    }
+                    onContinue()
                 }
-                onContinue()
             }
             .buttonStyle(NomvaPrimaryButtonStyle())
+            .disabled(isApplying)
 
             Button("Decide Later") {
                 onContinue()
             }
             .buttonStyle(NomvaSecondaryButtonStyle())
+            .disabled(isApplying)
         }
         .task {
             await syncManager.updateAccountStatus()

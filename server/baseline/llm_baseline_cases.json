@@ -1,0 +1,360 @@
+[
+  {
+    "id": "breakfast_multi_food",
+    "message": "For breakfast I had 2 slices of bacon and 3 scrambled eggs.",
+    "expect": {
+      "intent": "log_food",
+      "foods": ["bacon", "scrambled eggs"],
+      "meal": "breakfast",
+      "servings": [
+        {
+          "foodMention": "bacon",
+          "candidateName": "Bacon",
+          "candidateServingDescription": "1 slice",
+          "servings": 2
+        }
+      ],
+      "grams": [
+        {
+          "foodName": "bacon",
+          "portionDescription": "2 slices",
+          "grams": 24,
+          "tolerance": 20
+        }
+      ]
+    }
+  },
+  {
+    "id": "compound_and_separate_food",
+    "message": "I had a peanut butter and jelly sandwich and a banana for lunch.",
+    "expect": {
+      "intent": "log_food",
+      "foods": ["peanut butter and jelly sandwich", "banana"],
+      "meal": "lunch"
+    }
+  },
+  {
+    "id": "coffee_and_fruit",
+    "message": "Coffee with oat milk and a banana.",
+    "expect": {
+      "intent": "log_food",
+      "foods": ["coffee with oat milk", "banana"],
+      "meal": null
+    }
+  },
+  {
+    "id": "log_water",
+    "message": "I drank 16 oz of water.",
+    "expect": {
+      "intent": "log_water"
+    }
+  },
+  {
+    "id": "delete_food",
+    "message": "Delete the turkey sandwich from lunch.",
+    "expect": {
+      "intent": "delete_food"
+    }
+  },
+  {
+    "id": "query_data",
+    "message": "How many calories do I have left today?",
+    "expect": {
+      "intent": "query_data"
+    }
+  },
+  {
+    "id": "log_weight",
+    "message": "I weigh 181.4 lbs today.",
+    "expect": {
+      "intent": "log_weight"
+    }
+  },
+  {
+    "id": "set_goals",
+    "message": "Set my calories to 2100 and protein to 160g.",
+    "expect": {
+      "intent": "set_goal",
+      "goal": {
+        "calories": 2100,
+        "protein": 160
+      }
+    }
+  },
+  {
+    "id": "serving_fraction",
+    "message": "I ate half a cup of cooked rice.",
+    "expect": {
+      "intent": "log_food",
+      "foods": ["cooked rice"],
+      "servings": [
+        {
+          "foodMention": "cooked rice",
+          "candidateName": "Rice, white, cooked",
+          "candidateServingDescription": "1 cup cooked",
+          "servings": 0.5,
+          "tolerance": 0.2
+        }
+      ],
+      "grams": [
+        {
+          "foodName": "rice, cooked",
+          "portionDescription": "1/2 cup cooked",
+          "grams": 79,
+          "tolerance": 25
+        }
+      ]
+    }
+  },
+  {
+    "id": "general_reply",
+    "message": "Thanks, that helps.",
+    "expect": {
+      "intent": "reply",
+      "reply": true
+    }
+  },
+  {
+    "id": "vague_correction_no_portion",
+    "message": "That's not right...",
+    "expect": {
+      "intent": "edit_food",
+      "servings": [
+        {
+          "foodMention": "waffle fries",
+          "candidateName": "Chick-Fil-A, Waffle Potato Fries, Large",
+          "candidateServingDescription": "1 large serving",
+          "servings": 1,
+          "portionDescription": "1 serving",
+          "hasExplicitPortion": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "five_fries_correction",
+    "message": "It was only about 5 fries.",
+    "expect": {
+      "intent": "edit_food",
+      "servings": [
+        {
+          "foodMention": "fries",
+          "candidateName": "Chick-Fil-A, Waffle Potato Fries, Large",
+          "candidateServingDescription": "1 large serving",
+          "servings": 5,
+          "portionDescription": "5 fries",
+          "hasExplicitPortion": true,
+          "tolerance": 0.2
+        }
+      ],
+      "grams": [
+        {
+          "foodName": "waffle fries",
+          "portionDescription": "5 fries",
+          "referenceServingDescription": "1 large serving",
+          "referenceServingGrams": 134,
+          "grams": 20,
+          "tolerance": 14
+        }
+      ]
+    }
+  },
+  {
+    "id": "three_nuggets_followup",
+    "message": "3 nuggets",
+    "expect": {
+      "intent": "log_food",
+      "servings": [
+        {
+          "foodMention": "nuggets",
+          "candidateName": "Chicken nuggets",
+          "candidateServingDescription": "6 nuggets",
+          "servings": 3,
+          "portionDescription": "3 nuggets",
+          "hasExplicitPortion": true,
+          "tolerance": 0.1
+        }
+      ],
+      "grams": [
+        {
+          "foodName": "chicken nuggets",
+          "portionDescription": "3 nuggets",
+          "referenceServingDescription": "6 nuggets",
+          "referenceServingGrams": 96,
+          "grams": 48,
+          "tolerance": 18
+        }
+      ]
+    }
+  },
+  {
+    "id": "mixed_branded_partials",
+    "message": "I had three Chick-fil-A nuggets, one egg, and some spinach. Also had about 5 Chick-fil-A fries.",
+    "expect": {
+      "intent": "log_food",
+      "searchQueries": [
+        {
+          "foodMention": "three Chick-fil-A nuggets",
+          "query": "chicken nuggets"
+        },
+        {
+          "foodMention": "about 5 Chick-fil-A fries",
+          "query": "waffle fries"
+        }
+      ],
+      "servings": [
+        {
+          "foodMention": "three Chick-fil-A nuggets",
+          "candidateName": "Chicken nuggets",
+          "candidateServingDescription": "6 nuggets",
+          "servings": 3,
+          "portionDescription": "3 nuggets",
+          "hasExplicitPortion": true,
+          "tolerance": 0.1
+        },
+        {
+          "foodMention": "about 5 Chick-fil-A fries",
+          "candidateName": "Waffle Fries",
+          "candidateServingDescription": "6 pieces (85 g)",
+          "servings": 5,
+          "portionDescription": "5 fries",
+          "hasExplicitPortion": true,
+          "tolerance": 0.2
+        }
+      ],
+      "candidateValidation": [
+        {
+          "foodMention": "three Chick-fil-A nuggets",
+          "searchQuery": "chick-fil-a nuggets",
+          "candidateName": "Chick-Fil-A, Chick Fil A Nuggets",
+          "servingDescription": "1 serving",
+          "source": "open_food_facts",
+          "portionBasis": "fixed_serving",
+          "caloriesPerServing": 256,
+          "extractedPortionDescription": "3 nuggets",
+          "extractedServings": 3,
+          "extractedConfident": true,
+          "extractedHasExplicitPortion": true,
+          "keepCurrentCandidate": false,
+          "portionDescription": "3 nuggets",
+          "servings": 3,
+          "hasExplicitPortion": true,
+          "replacementSearchQuery": "chicken nuggets"
+        },
+        {
+          "foodMention": "about 5 Chick-fil-A fries",
+          "searchQuery": "chick-fil-a fries",
+          "candidateName": "Chick-Fil-A, Waffle Potato Fries, Large",
+          "servingDescription": "1 serving",
+          "source": "open_food_facts",
+          "portionBasis": "fixed_serving",
+          "caloriesPerServing": 464,
+          "extractedPortionDescription": "1 serving",
+          "extractedServings": 1,
+          "extractedConfident": false,
+          "extractedHasExplicitPortion": false,
+          "keepCurrentCandidate": false,
+          "portionDescription": "5 fries",
+          "servings": 5,
+          "hasExplicitPortion": true,
+          "replacementSearchQuery": "waffle fries"
+        }
+      ]
+    }
+  },
+  {
+    "id": "water_add_cups",
+    "message": "Log 2 cups of water.",
+    "expect": {
+      "intent": "log_water",
+      "waterMutation": {
+        "action": "add",
+        "amountOz": 16
+      }
+    }
+  },
+  {
+    "id": "water_update_total",
+    "message": "Set my water total to 64 oz for today.",
+    "expect": {
+      "intent": "log_water",
+      "waterMutation": {
+        "action": "update_total",
+        "amountOz": 64
+      }
+    }
+  },
+  {
+    "id": "water_delete",
+    "message": "Clear today's water log.",
+    "expect": {
+      "intent": "log_water",
+      "waterMutation": {
+        "action": "delete_all"
+      }
+    }
+  },
+  {
+    "id": "weight_update",
+    "message": "Change today's weight to 181.2 lbs.",
+    "expect": {
+      "intent": "log_weight",
+      "weightMutation": {
+        "action": "update",
+        "weightLbs": 181.2,
+        "dateHint": "today"
+      }
+    }
+  },
+  {
+    "id": "weight_delete_yesterday",
+    "message": "Delete yesterday's weight entry.",
+    "expect": {
+      "intent": "log_weight",
+      "weightMutation": {
+        "action": "delete",
+        "dateHint": "yesterday"
+      }
+    }
+  },
+  {
+    "id": "weight_delete_all",
+    "message": "Clear all my weight history.",
+    "expect": {
+      "intent": "log_weight",
+      "weightMutation": {
+        "action": "delete_all"
+      }
+    }
+  },
+  {
+    "id": "food_delete_meal_targets",
+    "message": "Remove lunch.",
+    "expect": {
+      "intent": "delete_food",
+      "deleteTargets": {
+        "logSummary": "Turkey Sandwich (lunch)\nApple (lunch)\nGreek Yogurt (breakfast)",
+        "foodNames": ["Turkey Sandwich", "Apple"]
+      }
+    }
+  },
+  {
+    "id": "food_edit_target_from_context",
+    "message": "Actually make that 3 slices.",
+    "expect": {
+      "intent": "edit_food",
+      "editTarget": {
+        "recentMessages": "User: I had bacon\nAssistant: ✓ Bacon (2 slices) — 90 cal",
+        "logSummary": "Bacon (2 slices, breakfast)\nEgg (1 egg, breakfast)",
+        "foodName": "Bacon"
+      },
+      "editRequest": {
+        "currentEntryName": "Bacon",
+        "currentPortionDescription": "2 slices",
+        "hasExplicitPortion": true,
+        "servings": 3,
+        "portionDescription": "3 slices"
+      }
+    }
+  }
+]

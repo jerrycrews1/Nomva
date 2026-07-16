@@ -14,6 +14,7 @@ FILLER_WORDS = {
     "a", "an", "the", "for", "at", "to", "of", "and", "with", "i", "had",
     "ate", "drank", "this", "that", "it", "was", "just", "my", "me", "please",
     "no", "yes", "item", "items", "dude", "actually", "instead", "meant", "wasn", "t",
+    "log", "logged", "from", "about",
 }
 MEAL_WORDS = {"breakfast", "lunch", "dinner", "snack"}
 COUNT_WORDS = {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "couple", "pair", "double"}
@@ -33,13 +34,14 @@ SUSPICIOUS_FORM_WORDS = [
     "cookie", "oatmeal", "cereal", "granola", "waffle", "waffles", "cream", "flavored", "shake",
     "yogurt", "yoghurt", "protein",
 ]
+NUTRITION_MODIFIER_WORDS = {"low", "light", "lite", "reduced", "lean", "skinless", "fat", "free", "nonfat", "non", "diet"}
 WHOLE_FOOD_NEUTRAL_WORDS = {"raw", "plain", "fresh"}
-BASE_DESCRIPTOR_WORDS = {"pork", "beef", "cured", "uncured", "prepared", "unprepared", "cooked", "baked", "fried", "raw", "plain", "fresh"}
+BASE_DESCRIPTOR_WORDS = {"pork", "beef", "whole", "cured", "uncured", "prepared", "unprepared", "cooked", "baked", "fried", "raw", "plain", "fresh"}
 VARIANT_QUALIFIER_WORDS = {
-    "meatless", "vegetarian", "vegan", "turkey", "canadian",
+    "meatless", "vegetarian", "vegan", "white", "yolk", "duck", "goose", "quail", "turkey", "canadian",
     "bit", "wrapped", "ranch", "maple", "onion", "jam", "sauce",
     "dressing", "pizza", "bean", "cheddar", "smoky", "club",
-    "original", "center", "cut", "style", "grease",
+    "original", "center", "cut", "style", "grease", "salad", "cobb", "kids", "kid", "meal", "medium", "large", "small",
 }
 
 
@@ -60,6 +62,8 @@ class Candidate:
     sugar_g: float
     sodium_mg: float
     barcode: str | None
+    portion_basis: str | None
+    serving_source: str | None
     score: int = 0
     confidence: float = 0.0
     notes: list[str] = field(default_factory=list)
@@ -111,6 +115,60 @@ def is_count_based(query: str) -> bool:
     return any(token.isdigit() or token in COUNT_WORDS for token in tokens) and not any(token in UNIT_WORDS for token in tokens)
 
 
+def is_plain_coffee_query(query: str) -> bool:
+    return {singularize(token) for token in identity_tokens(query)} == {"coffee"}
+
+
+def is_ambiguous_plain_coffee_candidate(candidate: Candidate) -> bool:
+    candidate_tokens = {singularize(token) for token in meaningful_tokens(candidate.name)}
+    if candidate_tokens != {"coffee"}:
+        return False
+    if candidate.source == "recent" and candidate.calories > 25:
+        return True
+    density = calorie_density(candidate)
+    return density is not None and density > 20
+
+
+def inferred_serving_unit(query: str) -> str:
+    tokens = {singularize(token) for token in tokenize(query)}
+    for unit in ["nugget", "fry", "egg", "slice", "piece", "cup"]:
+        if unit in tokens:
+            return unit
+    return "serving"
+
+
+def requested_count(query: str) -> float | None:
+    words = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "couple": 2, "pair": 2,
+    }
+    for token in tokenize(query):
+        if token.isdigit():
+            return float(token)
+        if token in words:
+            return float(words[token])
+    return None
+
+
+def count_represented_by_fixed_serving(candidate: Candidate, unit: str) -> float | None:
+    singular_unit = singularize(unit.lower())
+    if singular_unit not in {"nugget", "piece", "strip", "slice"}:
+        return None
+    tokens = tokenize(f"{candidate.name} {candidate.serving_desc or ''}")
+    for index in range(len(tokens) - 1):
+        try:
+            value = float(tokens[index])
+        except ValueError:
+            continue
+        if value <= 0:
+            continue
+        following = [singularize(token) for token in tokens[index + 1:index + 6]]
+        if singular_unit in following:
+            return value
+    return None
+
+
 def query_overlap_score(query: str, candidate_name: str, brand: str | None) -> int:
     query_tokens = {singularize(token) for token in identity_tokens(query)}
     name_tokens = {singularize(token) for token in meaningful_tokens(candidate_name)}
@@ -118,16 +176,62 @@ def query_overlap_score(query: str, candidate_name: str, brand: str | None) -> i
     return len(query_tokens.intersection(name_tokens.union(brand_tokens)))
 
 
+def edit_distance_limited(left: str, right: str, max_distance: int = 1) -> int:
+    if left == right:
+        return 0
+    if abs(len(left) - len(right)) > max_distance:
+        return max_distance + 1
+    previous = list(range(len(right) + 1))
+    current = [0] * (len(right) + 1)
+    for i, left_char in enumerate(left, start=1):
+        current[0] = i
+        row_min = current[0]
+        for j, right_char in enumerate(right, start=1):
+            substitution = previous[j - 1] + (0 if left_char == right_char else 1)
+            insertion = current[j - 1] + 1
+            deletion = previous[j] + 1
+            current[j] = min(substitution, insertion, deletion)
+            row_min = min(row_min, current[j])
+        if row_min > max_distance:
+            return max_distance + 1
+        previous, current = current, previous
+    return previous[len(right)]
+
+
+def fuzzy_query_overlap_score(query_tokens: set[str], candidate_tokens: set[str]) -> int:
+    total = 0
+    for query_token in query_tokens:
+        if query_token in candidate_tokens:
+            continue
+        if any(edit_distance_limited(query_token, candidate_token, 1) <= 1 for candidate_token in candidate_tokens):
+            total += 1
+    return total
+
+
 def extra_concept_tokens(candidate_name: str, query: str) -> list[str]:
     query_tokens = {singularize(token) for token in identity_tokens(query)}
     candidate_tokens = [singularize(token) for token in meaningful_tokens(candidate_name)]
-    return [token for token in candidate_tokens if token not in query_tokens and token not in WHOLE_FOOD_NEUTRAL_WORDS]
+    extras: list[str] = []
+    for token in candidate_tokens:
+        if token in query_tokens or token in WHOLE_FOOD_NEUTRAL_WORDS:
+            continue
+        fuzzy_matched = any(
+            len(token) >= 4 and len(query_token) >= 4 and edit_distance_limited(token, query_token, 1) <= 1
+            for query_token in query_tokens
+        )
+        if not fuzzy_matched:
+            extras.append(token)
+    return extras
 
 
 def is_literal_whole_food_match(candidate: Candidate, query: str) -> bool:
     if not looks_like_plain_whole_food_query(query):
         return False
+    if is_plain_coffee_query(query) and is_ambiguous_plain_coffee_candidate(candidate):
+        return False
     if candidate.brand:
+        return False
+    if candidate.source == "open_food_facts" and len(meaningful_tokens(candidate.name)) == 1:
         return False
     if candidate.source and "branded" in candidate.source:
         return False
@@ -139,7 +243,11 @@ def is_literal_whole_food_match(candidate: Candidate, query: str) -> bool:
 def is_simple_generic_base_match(candidate: Candidate, query: str) -> bool:
     if not looks_like_plain_whole_food_query(query):
         return False
+    if is_plain_coffee_query(query) and is_ambiguous_plain_coffee_candidate(candidate):
+        return False
     if candidate.brand:
+        return False
+    if candidate.source == "open_food_facts" and len(meaningful_tokens(candidate.name)) == 1:
         return False
     query_tokens = {singularize(token) for token in identity_tokens(query)}
     candidate_tokens = {singularize(token) for token in meaningful_tokens(candidate.name)}
@@ -169,12 +277,82 @@ def search_variants(query: str) -> list[str]:
         base = singular or core_tokens
         if base:
             variants.append(" ".join(base) + " raw")
+    if len(core_tokens) >= 3:
+        variants.append(" ".join(core_tokens[1:]))
+    if len(core_tokens) >= 2:
+        for index in range(len(core_tokens)):
+            reduced = [token for idx, token in enumerate(core_tokens) if idx != index]
+            if reduced:
+                variants.append(" ".join(reduced))
+    variants.extend(food_family_search_variants(core_tokens))
     unique: list[str] = []
     for variant in variants:
         variant = variant.strip()
         if variant and variant not in unique:
             unique.append(variant)
     return unique
+
+
+def food_family_search_variants(tokens: list[str]) -> list[str]:
+    singular_tokens = {singularize(token) for token in tokens}
+    variants: list[str] = []
+
+    mentions_chickfila = "chick" in singular_tokens and "fil" in singular_tokens
+    mentions_chicken = "chicken" in singular_tokens or mentions_chickfila
+    mentions_nuggets = "nugget" in singular_tokens
+    mentions_fries = "fry" in singular_tokens or "frie" in singular_tokens
+    mentions_waffle = "waffle" in singular_tokens or mentions_chickfila
+
+    if mentions_nuggets and mentions_chicken:
+        variants.append("chicken nuggets")
+    elif mentions_nuggets and len(tokens) == 1:
+        variants.append("chicken nuggets")
+
+    if mentions_fries and mentions_waffle:
+        variants.append("waffle fries")
+    elif mentions_fries and len(tokens) <= 2:
+        variants.append("french fries")
+
+    if "egg" in singular_tokens:
+        variants.append("whole egg")
+
+    if "spinach" in singular_tokens:
+        variants.append("spinach raw")
+
+    if "coffee" in singular_tokens:
+        variants.append("black coffee")
+
+    return variants
+
+
+def calorie_density(candidate: Candidate) -> float | None:
+    if candidate.portion_basis != "grams" or not candidate.serving_g or candidate.serving_g <= 0 or candidate.calories <= 0:
+        return None
+    return candidate.calories / candidate.serving_g * 100.0
+
+
+def median(values: list[float]) -> float:
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2 == 0:
+        return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+    return ordered[midpoint]
+
+
+def should_apply_density_penalty(query: str) -> bool:
+    return not any(token in NUTRITION_MODIFIER_WORDS for token in meaningful_tokens(query))
+
+
+def serving_quality(candidate: Candidate) -> int:
+    if candidate.serving_source == "explicit_serving":
+        return 3
+    if candidate.serving_source == "parsed_serving":
+        return 2
+    if candidate.serving_source == "fallback_raw":
+        if (candidate.serving_desc or "").strip().lower() == "100g":
+            return 0
+        return 1
+    return 0
 
 
 def build_match_query(query: str) -> str:
@@ -195,7 +373,7 @@ def strict_search(conn: sqlite3.Connection, query: str, limit: int = 15) -> list
     sql = """
         SELECT f.id, f.fdc_id, f.name, f.brand, f.source, f.serving_g, f.serving_desc,
                f.calories, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g,
-               f.sugar_g, f.sodium_mg, f.barcode
+               f.sugar_g, f.sodium_mg, f.barcode, f.portion_basis, f.serving_source
         FROM foods f
         JOIN foods_fts ON foods_fts.rowid = f.id
         WHERE foods_fts MATCH ?
@@ -213,7 +391,7 @@ def loose_search(conn: sqlite3.Connection, query: str, limit: int = 15) -> list[
     sql = f"""
         SELECT f.id, f.fdc_id, f.name, f.brand, f.source, f.serving_g, f.serving_desc,
                f.calories, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g,
-               f.sugar_g, f.sodium_mg, f.barcode
+               f.sugar_g, f.sodium_mg, f.barcode, f.portion_basis, f.serving_source
         FROM foods f
         WHERE {where_clause}
         ORDER BY CASE WHEN f.brand IS NULL OR f.brand = '' THEN 0 ELSE 1 END ASC, LENGTH(f.name) ASC
@@ -237,6 +415,13 @@ def score_candidate(candidate: Candidate, query: str) -> Candidate:
     plain_whole_query = looks_like_plain_whole_food_query(query)
     query_has_prep = any(token in PREPARATION_WORDS for token in tokens)
     count_based = is_count_based(query)
+    query_singular_tokens = {singularize(token) for token in identity_tokens(query)}
+    candidate_singular_tokens = {singularize(token) for token in meaningful_tokens(candidate.name)}
+    brand_singular_tokens = {singularize(token) for token in meaningful_tokens(candidate.brand or "")}
+    mentions_chickfila = "chick" in query_singular_tokens and "fil" in query_singular_tokens
+    has_unstated_menu_size = bool(candidate_singular_tokens.intersection({"small", "medium", "large"})) and not bool(
+        query_singular_tokens.intersection({"small", "medium", "large"})
+    )
 
     if name == normalized_query:
         candidate.score += 80
@@ -250,6 +435,11 @@ def score_candidate(candidate: Candidate, query: str) -> Candidate:
     if overlap:
         candidate.notes.append(f"token overlap {overlap}")
 
+    fuzzy_overlap = fuzzy_query_overlap_score(query_singular_tokens, candidate_singular_tokens.union(brand_singular_tokens))
+    candidate.score += fuzzy_overlap * 30
+    if fuzzy_overlap:
+        candidate.notes.append(f"fuzzy token overlap {fuzzy_overlap}")
+
     if generic_query and not candidate.brand:
         candidate.score += 18
         candidate.notes.append("generic match for generic request")
@@ -258,16 +448,96 @@ def score_candidate(candidate: Candidate, query: str) -> Candidate:
         candidate.score += 14
         candidate.notes.append("whole-food source")
 
+    if generic_query and candidate.portion_basis == "fixed_serving":
+        candidate.score -= 36
+        candidate.notes.append("fixed serving penalized for generic request")
+
+    if candidate.source == "open_food_facts" and not candidate.brand and len(meaningful_tokens(candidate.name)) == 1:
+        candidate.score -= 160
+        candidate.notes.append("anonymous one-word OFF row penalized")
+
     if generic_query and " raw" in name:
         candidate.score += 16
         candidate.notes.append("plain/raw form")
 
+    if "coffee" in query_singular_tokens and "coffee" in candidate_singular_tokens:
+        if "black" in candidate_singular_tokens:
+            candidate.score += 60
+            candidate.notes.append("black coffee default")
+        for bad in {"candy", "honey", "nut", "cashew"}:
+            if bad in candidate_singular_tokens and bad not in query_singular_tokens:
+                candidate.score -= 50
+                candidate.notes.append(f"coffee extra concept {bad}")
+
+    if is_plain_coffee_query(query) and is_ambiguous_plain_coffee_candidate(candidate):
+        candidate.score -= 220
+        candidate.notes.append("ambiguous caloric coffee penalized")
+
+    if mentions_chickfila and brand_singular_tokens and brand_singular_tokens.issubset(query_singular_tokens):
+        food_tokens = query_singular_tokens - brand_singular_tokens
+        food_token_matched = not food_tokens or any(
+            token in candidate_singular_tokens
+            or any(edit_distance_limited(token, candidate_token, 1) <= 1 for candidate_token in candidate_singular_tokens)
+            for token in food_tokens
+        )
+        if food_token_matched:
+            candidate.score += 70 if has_unstated_menu_size and count_based else 500
+        else:
+            candidate.score -= 250
+        candidate.notes.append("brand and food identity matched" if food_token_matched else "brand matched wrong food identity")
+
+    if (
+        mentions_chickfila
+        and "nugget" in query_singular_tokens
+        and "chicken" in candidate_singular_tokens
+        and "nugget" in candidate_singular_tokens
+    ):
+        candidate.score += 48
+        candidate.notes.append("restaurant nugget family match")
+
+    if (
+        mentions_chickfila
+        and "fry" in query_singular_tokens
+        and "waffle" in candidate_singular_tokens
+        and "fry" in candidate_singular_tokens
+    ):
+        candidate.score += 48
+        candidate.notes.append("restaurant fries family match")
+
+    if (
+        mentions_chickfila
+        and "fry" in query_singular_tokens
+        and any(token in {"small", "medium", "large"} for token in candidate_singular_tokens)
+        and not any(token in {"small", "medium", "large"} for token in query_singular_tokens)
+    ):
+        candidate.score -= 48
+        candidate.notes.append("unstated menu size penalized")
+
     if count_based and candidate.serving_g is not None:
+        if "100g" in (candidate.serving_desc or "").lower():
+            candidate.score -= 36
+            candidate.notes.append("100g serving penalized for count request")
         if candidate.serving_g < 15:
             candidate.score -= 28
             candidate.notes.append("tiny serving penalized for count-based request")
         elif candidate.serving_g >= 40:
             candidate.score += 8
+
+    if count_based and candidate.portion_basis == "fixed_serving":
+        requested_unit = inferred_serving_unit(query)
+        represented_count = count_represented_by_fixed_serving(candidate, requested_unit)
+        if represented_count is not None:
+            candidate.score += 140
+            if (count := requested_count(query)) is not None:
+                candidate.score -= min(int(abs(represented_count - count) * 16), 160)
+            candidate.notes.append("fixed serving count matches request")
+        else:
+            candidate.score -= 180
+            candidate.notes.append("uncounted fixed serving penalized for count request")
+
+    if count_based and has_unstated_menu_size and candidate.portion_basis == "fixed_serving":
+        candidate.score -= 320
+        candidate.notes.append("unstated fixed menu size penalized for count request")
 
     if not query_has_prep:
         for word in SUSPICIOUS_FORM_WORDS:
@@ -277,6 +547,17 @@ def score_candidate(candidate: Candidate, query: str) -> Candidate:
     if not generic_query and brand and brand in normalized_query:
         candidate.score += 18
         candidate.notes.append("brand referenced")
+
+    if generic_query or count_based:
+        extras = extra_concept_tokens(candidate.name, query)
+        variant_extras = [token for token in extras if token in VARIANT_QUALIFIER_WORDS]
+        other_extras = [token for token in extras if token not in VARIANT_QUALIFIER_WORDS and token not in BASE_DESCRIPTOR_WORDS]
+        if variant_extras:
+            candidate.score -= min(len(variant_extras) * 22, 110)
+            candidate.notes.append("generic variant extras: " + ",".join(variant_extras))
+        if other_extras:
+            candidate.score -= min(len(other_extras) * 14, 84)
+            candidate.notes.append("generic extra concepts: " + ",".join(other_extras))
 
     if plain_whole_query:
         extras = extra_concept_tokens(candidate.name, query)
@@ -307,7 +588,23 @@ def search_candidates(conn: sqlite3.Connection, query: str) -> list[Candidate]:
         for candidate in strict_search(conn, variant) + loose_search(conn, variant):
             merged.setdefault(candidate.row_id, candidate)
     scored = [score_candidate(candidate, query) for candidate in merged.values()]
-    scored.sort(key=lambda candidate: (-candidate.score, candidate.name))
+    if should_apply_density_penalty(query):
+        densities = [value for candidate in scored if (value := calorie_density(candidate)) is not None and 20 <= value <= 900]
+        if len(densities) >= 4:
+            baseline = median(densities)
+            if baseline > 0:
+                for candidate in scored:
+                    density = calorie_density(candidate)
+                    if density is None:
+                        continue
+                    is_low_outlier = density < baseline * 0.45
+                    is_high_outlier = density > baseline * 2.2
+                    if not (is_low_outlier or is_high_outlier):
+                        continue
+                    if not candidate.brand and candidate.source != "open_food_facts":
+                        continue
+                    candidate.score -= 48 if is_low_outlier else 28
+    scored.sort(key=lambda candidate: (-candidate.score, -serving_quality(candidate), candidate.name))
     if scored:
         for index, candidate in enumerate(scored):
             next_score = scored[index + 1].score if index + 1 < len(scored) else max(candidate.score - 12, 0)
@@ -331,6 +628,15 @@ def contains_any(text: str, patterns: list[str]) -> bool:
 
 def contains_digit(text: str) -> bool:
     return any(character.isdigit() for character in text)
+
+
+def numeric_matches(expected: object, actual: object, tolerance: float = 0.1) -> bool:
+    try:
+        expected_number = float(expected)
+        actual_number = float(actual)
+    except (TypeError, ValueError):
+        return False
+    return abs(actual_number - expected_number) <= tolerance
 
 
 def classify_intent(text: str) -> str:
@@ -416,6 +722,29 @@ def run_retrieval_cases(conn: sqlite3.Connection, cases: list[dict[str, object]]
         for token in case.get("forbidden_top_contains", []):
             if str(token).lower() in top_name:
                 failures.append(f"Retrieval failed: {case['utterance']!r} -> forbidden token {token!r} present in top candidate {top.name!r}")
+        for forbidden_name in case.get("forbidden_top_equals", []):
+            if top.name.lower() == str(forbidden_name).lower():
+                failures.append(f"Retrieval failed: {case['utterance']!r} -> forbidden top candidate {top.name!r}")
+        expected_top_source = case.get("expected_top_source")
+        if expected_top_source and top.source != expected_top_source:
+            failures.append(
+                f"Retrieval failed: {case['utterance']!r} -> top source {top.source!r}, expected {expected_top_source!r}"
+            )
+        expected_top_brand_absent = case.get("expected_top_brand_absent")
+        if expected_top_brand_absent and top.brand:
+            failures.append(
+                f"Retrieval failed: {case['utterance']!r} -> expected no top brand, got {top.brand!r}"
+            )
+        for token in case.get("forbidden_top_brand_contains", []):
+            if str(token).lower() in str(top.brand or "").lower():
+                failures.append(
+                    f"Retrieval failed: {case['utterance']!r} -> forbidden brand token {token!r} present in top brand {top.brand!r}"
+                )
+        expected_top_portion_basis = case.get("expected_top_portion_basis")
+        if expected_top_portion_basis and top.portion_basis != expected_top_portion_basis:
+            failures.append(
+                f"Retrieval failed: {case['utterance']!r} -> top portion basis {top.portion_basis!r}, expected {expected_top_portion_basis!r}"
+            )
     return failures
 
 
@@ -440,6 +769,61 @@ def run_session_cases(cases: list[dict[str, object]]) -> list[str]:
             failures.append(
                 f"Session intent failed: {utterance!r} -> {actual_intent}, expected {expected_intent}"
             )
+    return failures
+
+
+def run_database_row_cases(conn: sqlite3.Connection, cases: list[dict[str, object]]) -> list[str]:
+    failures: list[str] = []
+    for case in cases:
+        name = str(case["name"])
+        row = conn.execute(
+            """
+            SELECT name, source, calories, serving_desc, portion_basis, serving_source
+            FROM foods
+            WHERE lower(name) = lower(?)
+            LIMIT 1
+            """,
+            (name,),
+        ).fetchone()
+        if row is None:
+            failures.append(f"Database row failed: {name!r} not found")
+            continue
+
+        actual_name, actual_source, actual_calories, actual_serving_desc, actual_portion_basis, actual_serving_source = row
+
+        expected_source = case.get("expected_source")
+        if expected_source and actual_source != expected_source:
+            failures.append(f"Database row failed: {actual_name!r} source {actual_source!r}, expected {expected_source!r}")
+
+        expected_portion_basis = case.get("expected_portion_basis")
+        if expected_portion_basis and actual_portion_basis != expected_portion_basis:
+            failures.append(
+                f"Database row failed: {actual_name!r} portion basis {actual_portion_basis!r}, expected {expected_portion_basis!r}"
+            )
+
+        expected_serving_source = case.get("expected_serving_source")
+        if expected_serving_source and actual_serving_source != expected_serving_source:
+            failures.append(
+                f"Database row failed: {actual_name!r} serving source {actual_serving_source!r}, expected {expected_serving_source!r}"
+            )
+
+        expected_calories = case.get("expected_calories")
+        if expected_calories is not None and not numeric_matches(expected_calories, actual_calories, case.get("calorie_tolerance", 1.0)):
+            failures.append(
+                f"Database row failed: {actual_name!r} calories {actual_calories!r}, expected {expected_calories!r}"
+            )
+
+        for token in case.get("expected_serving_desc_contains", []):
+            if str(token).lower() not in str(actual_serving_desc or "").lower():
+                failures.append(
+                    f"Database row failed: {actual_name!r} serving description {actual_serving_desc!r} missing expected token {token!r}"
+                )
+
+        for token in case.get("forbidden_serving_desc_contains", []):
+            if str(token).lower() in str(actual_serving_desc or "").lower():
+                failures.append(
+                    f"Database row failed: {actual_name!r} serving description {actual_serving_desc!r} contains forbidden token {token!r}"
+                )
     return failures
 
 
@@ -468,13 +852,15 @@ def main() -> int:
         failures.extend(run_intent_cases(payload.get("intent_cases", [])))
         failures.extend(run_session_cases(payload.get("session_cases", [])))
         failures.extend(run_retrieval_cases(conn, payload.get("retrieval_cases", [])))
+        failures.extend(run_database_row_cases(conn, payload.get("database_row_cases", [])))
     finally:
         conn.close()
 
     intent_count = len(payload.get("intent_cases", []))
     session_count = len(payload.get("session_cases", []))
     retrieval_count = len(payload.get("retrieval_cases", []))
-    total = intent_count + session_count + retrieval_count
+    database_row_count = len(payload.get("database_row_cases", []))
+    total = intent_count + session_count + retrieval_count + database_row_count
     passed = total - len(failures)
 
     print(f"Evaluated {total} cases: {passed} passed, {len(failures)} failed")

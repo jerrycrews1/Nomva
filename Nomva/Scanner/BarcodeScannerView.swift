@@ -1,5 +1,5 @@
 import SwiftUI
-import AVFoundation
+@preconcurrency import AVFoundation
 
 private let cameraQueue = DispatchQueue(label: "Nomva.BarcodeScanner.camera", qos: .userInitiated)
 

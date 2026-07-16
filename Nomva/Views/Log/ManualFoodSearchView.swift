@@ -129,7 +129,7 @@ struct ManualFoodSearchView: View {
                     found = []
                 }
             } else {
-                found = await db.search(query: trimmed, limit: 30)
+                found = await FoodLoggingService.shared.searchFoodsForManualEntry(query: trimmed, limit: 30)
             }
 
             await MainActor.run {
@@ -149,10 +149,10 @@ struct ManualFoodSearchView: View {
                 case let .found(match, _):
                     selectedFood = match
                 case .notFound:
-                    scannerAlertText = "No food matched barcode \(barcode) in Nomva or Open Food Facts. Try typing the food name instead."
+                    scannerAlertText = "No food matched barcode \(barcode) in Nomva’s local food database yet. Try typing the food name instead."
                     showScannerAlert = true
                 case .unavailable:
-                    scannerAlertText = "Couldn’t look up barcode \(barcode) right now. Check your connection or type the food name instead."
+                    scannerAlertText = "Couldn’t look up barcode \(barcode) from the local food database right now. Try typing the food name instead."
                     showScannerAlert = true
                 }
             }
@@ -173,13 +173,46 @@ struct ManualFoodSearchView: View {
             fiberG: food.fiberG,
             sugarG: food.sugarG,
             sodiumMg: food.sodiumMg,
+            saturatedFatG: food.saturatedFatG,
+            transFatG: food.transFatG,
+            cholesterolMg: food.cholesterolMg,
+            addedSugarG: food.addedSugarG,
+            vitaminDMcg: food.vitaminDMcg,
+            calciumMg: food.calciumMg,
+            ironMg: food.ironMg,
+            potassiumMg: food.potassiumMg,
+            vitaminAMcgRAE: food.vitaminAMcgRAE,
+            vitaminCMg: food.vitaminCMg,
+            vitaminB12Mcg: food.vitaminB12Mcg,
+            folateMcgDFE: food.folateMcgDFE,
+            magnesiumMg: food.magnesiumMg,
+            zincMg: food.zincMg,
             caloriesPer100g: food.per100g.calories,
             proteinPer100g: food.per100g.protein,
             carbsPer100g: food.per100g.carbs,
             fatPer100g: food.per100g.fat,
             fiberPer100g: food.per100g.fiber,
+            sugarPer100g: food.per100g.sugar,
+            sodiumPer100g: food.per100g.sodium,
+            saturatedFatPer100g: food.per100g.saturatedFat,
+            transFatPer100g: food.per100g.transFat,
+            cholesterolPer100g: food.per100g.cholesterol,
+            addedSugarPer100g: food.per100g.addedSugar,
+            vitaminDPer100g: food.per100g.vitaminD,
+            calciumPer100g: food.per100g.calcium,
+            ironPer100g: food.per100g.iron,
+            potassiumPer100g: food.per100g.potassium,
+            vitaminAPer100g: food.per100g.vitaminA,
+            vitaminCPer100g: food.per100g.vitaminC,
+            vitaminB12Per100g: food.per100g.vitaminB12,
+            folatePer100g: food.per100g.folate,
+            magnesiumPer100g: food.per100g.magnesium,
+            zincPer100g: food.per100g.zinc,
             rawUserInput: "Manual entry",
-            fdcId: food.fdcId
+            fdcId: food.fdcId,
+            foodDatabaseId: food.id,
+            source: food.source,
+            barcode: food.barcode
         )
         modelContext.insert(entry)
         dismiss()

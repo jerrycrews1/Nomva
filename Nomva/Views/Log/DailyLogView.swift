@@ -5,7 +5,9 @@ struct DailyLogView: View {
     @Query(sort: \FoodEntry.date) private var allEntries: [FoodEntry]
     @Query                        private var goals: [DailyGoal]
     @Environment(\.modelContext)  private var modelContext
+    @Environment(\.undoManager)   private var undoManager
     @EnvironmentObject private var garminManager: GarminManager
+    @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @AppStorage("goal_activity_reference_active_calories") private var activityReferenceActiveCalories = 0.0
 
@@ -14,6 +16,10 @@ struct DailyLogView: View {
     @State private var showCustomFoodCreate = false
     @State private var showManualSearch     = false
     @State private var selectedMealForSearch: String? = nil
+    @State private var showHydrationSheet      = false
+    @State private var deleteFoodEntry: FoodEntry? = nil
+    @State private var showDeleteFoodConfirm  = false
+    @State private var showNutritionDetail    = false
 
     private var cal: Calendar { Calendar.current }
     private var isToday: Bool { cal.isDateInToday(selectedDate) }
@@ -88,7 +94,17 @@ struct DailyLogView: View {
 
                 List {
                     Section {
-                        MacroRingsView(consumed: dayTotals, goal: displayGoal)
+                        Button {
+                            showNutritionDetail = true
+                        } label: {
+                            MacroRingsView(
+                                consumed: dayTotals,
+                                goal: displayGoal,
+                                showsDetailCue: true
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows detailed nutrition, Daily Value context, and trends")
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: NomvaTheme.topCardGap, leading: contentInset, bottom: 8, trailing: contentInset))
                             .listRowSeparator(.hidden)
@@ -104,9 +120,10 @@ struct DailyLogView: View {
                                     .listRowSeparator(.hidden)
                                     .contentShape(Rectangle())
                                     .onTapGesture { selectedEntry = entry }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
-                                            modelContext.delete(entry)
+                                            deleteFoodEntry = entry
+                                            showDeleteFoodConfirm = true
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
@@ -154,10 +171,13 @@ struct DailyLogView: View {
 
                     if isToday {
                         Section {
-                            WaterTrackerSection()
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: hydrationTopInset, leading: contentInset, bottom: NomvaTheme.sectionGap, trailing: contentInset))
-                                .listRowSeparator(.hidden)
+                            Button { showHydrationSheet = true } label: {
+                                WaterTrackerSection()
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: hydrationTopInset, leading: contentInset, bottom: NomvaTheme.sectionGap, trailing: contentInset))
+                            .listRowSeparator(.hidden)
                         }
                         .listSectionSeparator(.hidden)
                     }
@@ -211,8 +231,51 @@ struct DailyLogView: View {
             .sheet(isPresented: $showManualSearch) {
                 ManualFoodSearchView(isPresented: $showManualSearch)
             }
+            .sheet(isPresented: $showHydrationSheet) {
+                HydrationSheetView(date: selectedDate)
+            }
+            .sheet(isPresented: $showNutritionDetail) {
+                NutritionDetailView(
+                    selectedDate: selectedDate,
+                    entries: selectedDayEntries,
+                    allEntries: allEntries,
+                    goal: displayGoal
+                )
+            }
+            .alert("Delete this entry?", isPresented: $showDeleteFoodConfirm) {
+                Button("Delete", role: .destructive) {
+                    if let entry = deleteFoodEntry { modelContext.delete(entry) }
+                    deleteFoodEntry = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    deleteFoodEntry = nil
+                }
+            } message: {
+                if let entry = deleteFoodEntry {
+                    Text("\(entry.name) — \(Int(entry.calories)) cal")
+                }
+            }
+            .onAppear { modelContext.undoManager = undoManager }
             .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
                 if isToday { selectedDate = .now }
+            }
+            .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
+                switch route {
+                case .todayLog:
+                    selectedDate = .now
+                    routeCenter.clear(route)
+                case .manualSearch:
+                    selectedDate = .now
+                    selectedMealForSearch = nil
+                    showManualSearch = true
+                    routeCenter.clear(route)
+                case .hydration:
+                    selectedDate = .now
+                    showHydrationSheet = true
+                    routeCenter.clear(route)
+                default:
+                    break
+                }
             }
             .task {
                 await garminManager.refreshIfNeeded()
@@ -273,10 +336,10 @@ struct DailyLogView: View {
             Image(systemName: "fork.knife")
                 .font(.system(size: 34))
                 .foregroundColor(.secondary.opacity(0.4))
-            Text("Nothing logged yet")
+            Text("No food logged yet")
                 .font(.headline)
             if isToday {
-                Text("Start with Add food, then review meals here as the day fills in.")
+                Text("Tap Add Food to log your first meal.")
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
@@ -341,7 +404,7 @@ struct DailyLogView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Garmin is connected, but your calorie goal is still using \(selectedActivitySource.displayName.lowercased()). Switch the goal source in Settings > Goals to make this day adjust automatically.")
+                    Text("Garmin is connected, but your goal is still using \(selectedActivitySource.displayName.lowercased()). Change it in Settings > Goals if you want daily adjustments.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -395,11 +458,11 @@ struct DailyLogView: View {
             ) - base
             let rounded = Int(delta.rounded())
             if rounded == 0 {
-                return "Your calorie goal matched your Garmin activity baseline for this day."
+                return "Your calorie goal matched your Garmin baseline for this day."
             } else if rounded > 0 {
-                return "Garmin activity added \(rounded) kcal to your base goal for this day."
+                return "Garmin activity added \(rounded) kcal to your base goal."
             } else {
-                return "Garmin activity trimmed \(abs(rounded)) kcal from your base goal for this day."
+                return "Garmin activity trimmed \(abs(rounded)) kcal from your base goal."
             }
         }
 
@@ -413,11 +476,11 @@ struct DailyLogView: View {
             let rounded = Int(delta.rounded())
             let avgRounded = Int(avg.rounded())
             if rounded == 0 {
-                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day) — right on your baseline."
+                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day)."
             } else if rounded > 0 {
-                return "Your calorie goal is based on your recent Garmin average (\(avgRounded) active kcal/day), adding \(rounded) kcal to your base goal."
+                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day), adding \(rounded) kcal."
             } else {
-                return "Your calorie goal is based on your recent Garmin average (\(avgRounded) active kcal/day), trimming \(abs(rounded)) kcal from your base goal."
+                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day), trimming \(abs(rounded)) kcal."
             }
         }
 
@@ -481,4 +544,5 @@ private struct GarminLogStat: View {
 #Preview {
     DailyLogView()
         .environmentObject(GarminManager.shared)
+        .environmentObject(NomvaRouteCenter.shared)
 }

@@ -71,6 +71,23 @@ WEAK_SERVING_DESCRIPTIONS = {
     "g", "gram", "grams", "gr", "ml", "serving", "100g", "100ml", "oz", "fl oz"
 }
 
+MICRONUTRIENT_COLUMNS = (
+    "saturated_fat_g",
+    "trans_fat_g",
+    "cholesterol_mg",
+    "added_sugar_g",
+    "vitamin_d_mcg",
+    "calcium_mg",
+    "iron_mg",
+    "potassium_mg",
+    "vitamin_a_mcg_rae",
+    "vitamin_c_mg",
+    "vitamin_b12_mcg",
+    "folate_mcg_dfe",
+    "magnesium_mg",
+    "zinc_mg",
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  UTILITY FUNCTIONS
@@ -167,6 +184,98 @@ def format_serving_description(serving_g):
     return f"{grams:.1f} g"
 
 
+USDA_PORTION_TEXT_WEIGHTS = [
+    ("cup", 9),
+    ("large", 9),
+    ("medium", 8),
+    ("small", 8),
+    ("extra large", 8),
+    ("jumbo", 8),
+    ("tablespoon", 7),
+    ("tbsp", 7),
+    ("teaspoon", 6),
+    ("tsp", 6),
+    ("slice", 7),
+    ("piece", 7),
+    ("leaf", 5),
+    ("clove", 6),
+    ("stalk", 6),
+    ("spear", 6),
+    ("spears", 6),
+    ("wedge", 6),
+    ("fillet", 6),
+    ("patty", 6),
+]
+USDA_PORTION_AVOID_WORDS = {
+    "bunch", "package", "packages", "pkg", "bag", "box", "carton",
+    "container", "loaf", "bottle", "can", "jar", "tray",
+}
+
+
+def build_usda_portion_description(portion):
+    portion_desc = normalize_whitespace(portion.get("portionDescription"))
+    modifier = normalize_whitespace(portion.get("modifier"))
+    measure_name = normalize_whitespace((portion.get("measureUnit") or {}).get("name"))
+    raw = portion_desc or modifier or measure_name
+    if not raw:
+        return None
+    raw = re.sub(r"^[\s,;:()]+|[\s,;:()]+$", "", raw)
+    if not raw:
+        return None
+    if re.match(r"^\d", raw):
+        return raw
+    return f"1 {raw.lower()}"
+
+
+def choose_usda_serving(portions):
+    best = None
+    best_score = None
+
+    for portion in portions or []:
+        grams = safe_float(portion.get("gramWeight"))
+        if grams is None or grams <= 0:
+            continue
+
+        desc = build_usda_portion_description(portion)
+        if not desc:
+            continue
+
+        key = normalize_lookup_key(desc) or ""
+        score = 0
+
+        if 20 <= grams <= 120:
+            score += 8
+        elif 5 <= grams <= 180:
+            score += 5
+        elif grams <= 300:
+            score += 2
+        else:
+            score -= 2
+
+        if "(" in desc or ")" in desc:
+            score -= 4
+
+        matched_weights = [
+            weight for token, weight in USDA_PORTION_TEXT_WEIGHTS
+            if re.search(rf"\b{re.escape(token)}\b", key)
+        ]
+        if matched_weights:
+            score += max(matched_weights)
+
+        for token in USDA_PORTION_AVOID_WORDS:
+            if token in key:
+                score -= 10
+
+        if best is None or score > best_score or (score == best_score and grams < best[0]):
+            best = (grams, desc)
+            best_score = score
+
+    if best is not None and best_score is not None and best_score >= 8:
+        return best[0], best[1], "explicit_serving"
+
+    return 100.0, "100g", "fallback_raw"
+
+
 def nutrient_value(nutrients, nutrient_id):
     for nutrient in nutrients:
         if nutrient.get("nutrient", {}).get("id") == nutrient_id:
@@ -222,25 +331,118 @@ def convert_unit(value, source_unit, target_unit):
         if unit == "kg":
             return amount * 1_000_000.0
         return amount
+    if target == "mcg":
+        if unit in ("", "mcg", "µg", "ug"):
+            return amount
+        if unit == "mg":
+            return amount * 1000.0
+        if unit == "g":
+            return amount * 1_000_000.0
+        if unit == "kg":
+            return amount * 1_000_000_000.0
+        return amount
     return amount
 
 
 def off_nutrient_per_serving(nutriments, keys, serving_g, target_unit):
+    info = off_nutrient_value_info(nutriments, keys, serving_g, target_unit)
+    return info["value"]
+
+
+def off_nutrient_value_info(nutriments, keys, serving_g, target_unit):
     for key in keys:
         value = safe_float(nutriments.get(f"{key}_serving"))
         if value is not None:
-            return convert_unit(value, nutriments.get(f"{key}_unit"), target_unit)
+            return {
+                "value": convert_unit(value, nutriments.get(f"{key}_unit"), target_unit),
+                "source": "serving",
+            }
     for key in keys:
         value = safe_float(nutriments.get(f"{key}_100g"))
         if value is not None:
             grams = safe_float(serving_g)
-            scaled = value * (grams / 100.0) if grams and grams > 0 else value
-            return convert_unit(scaled, nutriments.get(f"{key}_unit"), target_unit)
+            if grams and grams > 0:
+                scaled = value * (grams / 100.0)
+                return {
+                    "value": convert_unit(scaled, nutriments.get(f"{key}_unit"), target_unit),
+                    "source": "100g_scaled",
+                }
+            return {
+                "value": convert_unit(value, nutriments.get(f"{key}_unit"), target_unit),
+                "source": "100g_raw",
+            }
     for key in keys:
         value = safe_float(nutriments.get(key))
         if value is not None:
-            return convert_unit(value, nutriments.get(f"{key}_unit"), target_unit)
+            return {
+                "value": convert_unit(value, nutriments.get(f"{key}_unit"), target_unit),
+                "source": "raw",
+            }
+    return {"value": None, "source": None}
+
+
+def normalize_off_source(source):
+    if source is None:
+        return None
+    if source.startswith("100g"):
+        return "100g"
+    return source
+
+
+def vitamin_d_mcg_from_usda(nutrients):
+    """Prefer USDA's mcg Vitamin D field; fall back from IU when needed."""
+    vitamin_d_mcg = nutrient_value(nutrients, 1114)
+    if vitamin_d_mcg is not None:
+        return vitamin_d_mcg
+
+    vitamin_d_iu = nutrient_value(nutrients, 1110)
+    if vitamin_d_iu is not None:
+        return vitamin_d_iu / 40.0
+
     return None
+
+
+def nutrient_tuple(values):
+    return tuple(values.get(column) for column in MICRONUTRIENT_COLUMNS)
+
+
+def usda_micronutrients(nutrients, serving_g, label_nutrients=None):
+    label_nutrients = label_nutrients or {}
+    return {
+        "saturated_fat_g": label_nutrient_value(label_nutrients, "saturatedFat", per_serving(nutrient_value(nutrients, 1258), serving_g)),
+        "trans_fat_g": label_nutrient_value(label_nutrients, "transFat", per_serving(nutrient_value(nutrients, 1257), serving_g)),
+        "cholesterol_mg": label_nutrient_value(label_nutrients, "cholesterol", per_serving(nutrient_value(nutrients, 1253), serving_g)),
+        "added_sugar_g": label_nutrient_value(label_nutrients, "addedSugar", per_serving(nutrient_value(nutrients, 1235), serving_g)),
+        "vitamin_d_mcg": label_nutrient_value(label_nutrients, "vitaminD", per_serving(vitamin_d_mcg_from_usda(nutrients), serving_g)),
+        "calcium_mg": label_nutrient_value(label_nutrients, "calcium", per_serving(nutrient_value(nutrients, 1087), serving_g)),
+        "iron_mg": label_nutrient_value(label_nutrients, "iron", per_serving(nutrient_value(nutrients, 1089), serving_g)),
+        "potassium_mg": label_nutrient_value(label_nutrients, "potassium", per_serving(nutrient_value(nutrients, 1092), serving_g)),
+        "vitamin_a_mcg_rae": per_serving(nutrient_value(nutrients, 1106), serving_g),
+        "vitamin_c_mg": label_nutrient_value(label_nutrients, "vitaminC", per_serving(nutrient_value(nutrients, 1162), serving_g)),
+        "vitamin_b12_mcg": per_serving(nutrient_value(nutrients, 1178), serving_g),
+        "folate_mcg_dfe": per_serving(nutrient_value(nutrients, 1190), serving_g),
+        "magnesium_mg": per_serving(nutrient_value(nutrients, 1090), serving_g),
+        "zinc_mg": per_serving(nutrient_value(nutrients, 1095), serving_g),
+    }
+
+
+def off_micronutrients(nutriments, serving_g):
+    return {
+        "saturated_fat_g": off_nutrient_per_serving(nutriments, ["saturated-fat"], serving_g, "g"),
+        "trans_fat_g": off_nutrient_per_serving(nutriments, ["trans-fat"], serving_g, "g"),
+        "cholesterol_mg": off_nutrient_per_serving(nutriments, ["cholesterol"], serving_g, "mg"),
+        "added_sugar_g": off_nutrient_per_serving(nutriments, ["added-sugars", "added-sugar"], serving_g, "g"),
+        "vitamin_d_mcg": off_nutrient_per_serving(nutriments, ["vitamin-d"], serving_g, "mcg"),
+        "calcium_mg": off_nutrient_per_serving(nutriments, ["calcium"], serving_g, "mg"),
+        "iron_mg": off_nutrient_per_serving(nutriments, ["iron"], serving_g, "mg"),
+        "potassium_mg": off_nutrient_per_serving(nutriments, ["potassium"], serving_g, "mg"),
+        "vitamin_a_mcg_rae": off_nutrient_per_serving(nutriments, ["vitamin-a"], serving_g, "mcg"),
+        "vitamin_c_mg": off_nutrient_per_serving(nutriments, ["vitamin-c"], serving_g, "mg"),
+        "vitamin_b12_mcg": off_nutrient_per_serving(nutriments, ["vitamin-b12"], serving_g, "mcg"),
+        "folate_mcg_dfe": off_nutrient_per_serving(nutriments, ["vitamin-b9", "folates"], serving_g, "mcg"),
+        "magnesium_mg": off_nutrient_per_serving(nutriments, ["magnesium"], serving_g, "mg"),
+        "zinc_mg": off_nutrient_per_serving(nutriments, ["zinc"], serving_g, "mg"),
+    }
 
 
 def parse_serving_quantity_from_text(serving_size):
@@ -357,6 +559,8 @@ def create_schema(conn):
             source          TEXT NOT NULL,
             serving_g       REAL,
             serving_desc    TEXT,
+            portion_basis   TEXT NOT NULL DEFAULT 'grams',
+            serving_source  TEXT,
             calories        REAL,
             protein_g       REAL,
             carbs_g         REAL,
@@ -364,6 +568,20 @@ def create_schema(conn):
             fiber_g         REAL,
             sugar_g         REAL,
             sodium_mg       REAL,
+            saturated_fat_g REAL,
+            trans_fat_g     REAL,
+            cholesterol_mg  REAL,
+            added_sugar_g   REAL,
+            vitamin_d_mcg   REAL,
+            calcium_mg      REAL,
+            iron_mg         REAL,
+            potassium_mg    REAL,
+            vitamin_a_mcg_rae REAL,
+            vitamin_c_mg    REAL,
+            vitamin_b12_mcg REAL,
+            folate_mcg_dfe  REAL,
+            magnesium_mg    REAL,
+            zinc_mg         REAL,
             barcode         TEXT
         )
     """)
@@ -409,15 +627,19 @@ def insert_sr_legacy(conn, sr_dir):
         for food in foods:
             nutrients = food.get("foodNutrients", [])
             portions = food.get("foodPortions", [])
-            primary_portion = portions[0] if portions else {}
-            serving_g = safe_float(primary_portion.get("gramWeight")) or 100.0
-            serving_desc = normalize_whitespace(primary_portion.get("portionDescription")) or "100g"
+            portion_basis = "grams"
+            serving_g, serving_desc, serving_source = choose_usda_serving(portions)
+            micros = usda_micronutrients(nutrients, serving_g)
 
             cursor.execute("""
                 INSERT OR IGNORE INTO foods
-                    (fdc_id, name, brand, source, serving_g, serving_desc,
-                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
+                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
+                     saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
+                     vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
+                     vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
+                     folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 food.get("fdcId"),
                 prettify_label(food.get("description")) or "Unknown Food",
@@ -425,6 +647,8 @@ def insert_sr_legacy(conn, sr_dir):
                 "sr_legacy",
                 serving_g,
                 serving_desc,
+                portion_basis,
+                serving_source,
                 per_serving(nutrient_value(nutrients, 1008), serving_g),
                 per_serving(nutrient_value(nutrients, 1003), serving_g),
                 per_serving(nutrient_value(nutrients, 1005), serving_g),
@@ -432,6 +656,7 @@ def insert_sr_legacy(conn, sr_dir):
                 per_serving(nutrient_value(nutrients, 1079), serving_g),
                 per_serving(nutrient_value(nutrients, 2000), serving_g),
                 per_serving(nutrient_value(nutrients, 1093), serving_g),
+                *nutrient_tuple(micros),
                 None,
             ))
             count += 1
@@ -541,7 +766,20 @@ def insert_branded(conn, branded_dir):
         for food in iter_branded_foods(filepath):
             nutrients = food.get("foodNutrients", [])
             label_nutrients = food.get("labelNutrients", {})
-            serving_g = safe_float(food.get("servingSize"))
+            explicit_serving_g = safe_float(food.get("servingSize"))
+            label_calories = safe_float((label_nutrients.get("calories") or {}).get("value"))
+            if explicit_serving_g and explicit_serving_g > 0:
+                serving_g = explicit_serving_g
+                portion_basis = "grams"
+                serving_source = "explicit_serving"
+            elif label_calories is not None:
+                serving_g = None
+                portion_basis = "fixed_serving"
+                serving_source = "fallback_raw"
+            else:
+                serving_g = 100.0
+                portion_basis = "grams"
+                serving_source = "fallback_raw"
 
             calories = label_nutrient_value(
                 label_nutrients, "calories",
@@ -557,12 +795,17 @@ def insert_branded(conn, branded_dir):
             fiber = label_nutrient_value(label_nutrients, "fiber", per_serving(nutrient_value(nutrients, 1079), serving_g))
             sugar = label_nutrient_value(label_nutrients, "sugars", per_serving(nutrient_value(nutrients, 2000), serving_g))
             sodium = label_nutrient_value(label_nutrients, "sodium", per_serving(nutrient_value(nutrients, 1093), serving_g))
+            micros = usda_micronutrients(nutrients, serving_g, label_nutrients)
 
             cursor.execute("""
                 INSERT OR IGNORE INTO foods
-                    (fdc_id, name, brand, source, serving_g, serving_desc,
-                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
+                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
+                     saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
+                     vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
+                     vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
+                     folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 food.get("fdcId"),
                 prettify_label(food.get("description")) or "Unknown Food",
@@ -571,8 +814,11 @@ def insert_branded(conn, branded_dir):
                 serving_g,
                 normalize_whitespace(food.get("householdServingFullText"))
                     or normalize_whitespace(food.get("servingSizeUnit"))
-                    or format_serving_description(serving_g),
+                    or (format_serving_description(serving_g) if portion_basis == "grams" else "1 serving"),
+                portion_basis,
+                serving_source,
                 calories, protein, carbs, fat, fiber, sugar, sodium,
+                *nutrient_tuple(micros),
                 normalize_barcode(food.get("gtinUpc") or food.get("gtin")),
             ))
             count += 1
@@ -598,12 +844,16 @@ def build_match_indexes(conn):
     brand_name_serving_index = {}
     unbranded_name_index = {}
 
-    cursor = conn.execute("""
-        SELECT id, name, brand, source, serving_g, serving_desc, barcode
+    cursor = conn.execute(f"""
+        SELECT id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
+               {", ".join(MICRONUTRIENT_COLUMNS)}, barcode
         FROM foods
     """)
 
-    for row_id, name, brand, source, serving_g, serving_desc, barcode in cursor:
+    for row in cursor:
+        row_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source = row[:8]
+        micronutrient_values = row[8:8 + len(MICRONUTRIENT_COLUMNS)]
+        barcode = row[-1]
         name_key = normalize_lookup_key(name)
         brand_key = normalize_lookup_key(brand)
         barcode_key = normalize_barcode(barcode)
@@ -613,8 +863,10 @@ def build_match_indexes(conn):
             "name": name, "name_key": name_key,
             "brand": brand, "brand_key": brand_key,
             "source": source, "serving_g": safe_float(serving_g),
-            "serving_desc": serving_desc, "barcode": barcode_key,
+            "serving_desc": serving_desc, "portion_basis": portion_basis,
+            "serving_source": serving_source, "barcode": barcode_key,
         }
+        records[row_id].update(dict(zip(MICRONUTRIENT_COLUMNS, micronutrient_values)))
 
         if barcode_key:
             barcode_index.setdefault(barcode_key, row_id)
@@ -688,28 +940,74 @@ def off_brand_name(product):
     return prettify_label(product.get("brand_owner"))
 
 
+def looks_like_menu_item_name(name):
+    lower = (name or "").lower()
+    size_words = ("small", "medium", "large", "kids")
+    piece_words = ("piece", "pieces", "nugget", "nuggets", "strip", "strips", "fries")
+    if any(word in lower for word in size_words) and "," in lower:
+        return True
+    if re.search(r"\b\d+\s*(piece|pieces|pc|pcs|count|ct|nugget|nuggets|strip|strips)\b", lower):
+        return True
+    if any(word in lower for word in ("combo", "meal", "value meal", "kids meal")):
+        return True
+    return any(word in lower for word in piece_words) and lower.count(",") >= 1
+
+
 def off_food_from_product(product):
     nutriments = product.get("nutriments", {})
     serving_desc = normalize_whitespace(product.get("serving_size"))
-    serving_g = safe_float(product.get("serving_quantity")) or parse_serving_quantity_from_text(serving_desc)
+    explicit_serving_g = safe_float(product.get("serving_quantity"))
+    parsed_serving_g = parse_serving_quantity_from_text(serving_desc) if explicit_serving_g is None else None
+    serving_g = explicit_serving_g or parsed_serving_g
+    if serving_g is not None and serving_g <= 0:
+        serving_g = None
 
-    if serving_g is None or serving_g <= 0:
-        serving_g = 100.0
-        if not serving_desc:
-            serving_desc = "100g"
-    elif not serving_desc:
-        serving_desc = format_serving_description(serving_g)
+    calorie_info = off_nutrient_value_info(nutriments, ["energy-kcal", "energy"], serving_g, "kcal")
+    protein_info = off_nutrient_value_info(nutriments, ["proteins"], serving_g, "g")
+    carbs_info = off_nutrient_value_info(nutriments, ["carbohydrates"], serving_g, "g")
+    fat_info = off_nutrient_value_info(nutriments, ["fat"], serving_g, "g")
+    fiber_info = off_nutrient_value_info(nutriments, ["fiber"], serving_g, "g")
+    sugar_info = off_nutrient_value_info(nutriments, ["sugars"], serving_g, "g")
+    sodium_info = off_nutrient_value_info(nutriments, ["sodium"], serving_g, "mg")
 
-    calories = off_nutrient_per_serving(nutriments, ["energy-kcal", "energy"], serving_g, "kcal")
-    protein = off_nutrient_per_serving(nutriments, ["proteins"], serving_g, "g")
-    carbs = off_nutrient_per_serving(nutriments, ["carbohydrates"], serving_g, "g")
-    fat = off_nutrient_per_serving(nutriments, ["fat"], serving_g, "g")
-    fiber = off_nutrient_per_serving(nutriments, ["fiber"], serving_g, "g")
-    sugar = off_nutrient_per_serving(nutriments, ["sugars"], serving_g, "g")
-    sodium = off_nutrient_per_serving(nutriments, ["sodium"], serving_g, "mg")
+    calories = calorie_info["value"]
+    protein = protein_info["value"]
+    carbs = carbs_info["value"]
+    fat = fat_info["value"]
+    fiber = fiber_info["value"]
+    sugar = sugar_info["value"]
+    sodium = sodium_info["value"]
     if sodium is None:
         salt_g = off_nutrient_per_serving(nutriments, ["salt"], serving_g, "g")
         sodium = salt_g * 393.4 if salt_g is not None else None
+    micros = off_micronutrients(nutriments, serving_g)
+
+    nutrient_sources = {
+        normalize_off_source(info["source"])
+        for info in (calorie_info, protein_info, carbs_info, fat_info)
+        if info["source"] is not None
+    }
+    if explicit_serving_g and explicit_serving_g > 0:
+        portion_basis = "grams"
+        serving_source = "explicit_serving"
+    elif parsed_serving_g and parsed_serving_g > 0:
+        portion_basis = "grams"
+        serving_source = "parsed_serving"
+    elif nutrient_sources and nutrient_sources.issubset({"100g"}):
+        portion_basis = "grams"
+        serving_source = "fallback_raw"
+        serving_g = 100.0
+        if not serving_desc:
+            serving_desc = "100g"
+    else:
+        portion_basis = "fixed_serving"
+        serving_source = "fallback_raw"
+        serving_g = None
+        if not serving_desc:
+            serving_desc = "1 serving"
+
+    if portion_basis == "grams" and serving_g and not serving_desc:
+        serving_desc = format_serving_description(serving_g)
 
     name = (
         prettify_label(product.get("product_name"))
@@ -721,13 +1019,28 @@ def off_food_from_product(product):
 
     brand = off_brand_name(product)
     barcode = normalize_barcode(product.get("code"))
+    weak_explicit_hundred_grams = (
+        explicit_serving_g is not None
+        and abs(explicit_serving_g - 100.0) < 0.01
+        and is_weak_serving_desc(serving_desc)
+        and looks_like_menu_item_name(name)
+        and ("raw" in nutrient_sources or "serving" in nutrient_sources)
+    )
+
+    if weak_explicit_hundred_grams:
+        portion_basis = "fixed_serving"
+        serving_source = "fallback_raw"
+        serving_g = None
+        serving_desc = "1 serving"
 
     return {
         "name": name, "name_key": normalize_lookup_key(name),
         "brand": brand, "brand_key": normalize_lookup_key(brand),
         "barcode": barcode, "serving_g": serving_g, "serving_desc": serving_desc,
+        "portion_basis": portion_basis, "serving_source": serving_source,
         "calories": calories, "protein_g": protein, "carbs_g": carbs,
         "fat_g": fat, "fiber_g": fiber, "sugar_g": sugar, "sodium_mg": sodium,
+        **micros,
     }
 
 
@@ -789,6 +1102,14 @@ def merge_open_food_facts(conn, off_path):
                     updates["serving_g"] = candidate["serving_g"]
                 if should_replace_serving_desc(record["serving_desc"], candidate["serving_desc"]):
                     updates["serving_desc"] = candidate["serving_desc"]
+                if ("serving_g" in updates or "serving_desc" in updates) and candidate["portion_basis"]:
+                    updates["portion_basis"] = candidate["portion_basis"]
+                    updates["serving_source"] = candidate["serving_source"]
+                elif record.get("serving_source") is None and candidate["serving_source"]:
+                    updates["serving_source"] = candidate["serving_source"]
+                for column in MICRONUTRIENT_COLUMNS:
+                    if record.get(column) is None and candidate.get(column) is not None:
+                        updates[column] = candidate[column]
 
                 if updates:
                     set_clause = ", ".join(f"{col} = ?" for col in updates)
@@ -806,6 +1127,12 @@ def merge_open_food_facts(conn, off_path):
                             record["serving_g"] = safe_float(v)
                         elif k == "serving_desc":
                             record["serving_desc"] = v
+                        elif k == "portion_basis":
+                            record["portion_basis"] = v
+                        elif k == "serving_source":
+                            record["serving_source"] = v
+                        elif k in MICRONUTRIENT_COLUMNS:
+                            record[k] = v
                     index_food_record(indexes, match_row_id)
                     stats["merged"] += 1
                 else:
@@ -819,16 +1146,21 @@ def merge_open_food_facts(conn, off_path):
 
             cursor.execute("""
                 INSERT INTO foods
-                    (fdc_id, name, brand, source, serving_g, serving_desc,
-                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
+                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
+                     saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
+                     vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
+                     vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
+                     folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 None,
                 candidate["name"], candidate["brand"], "open_food_facts",
                 candidate["serving_g"], candidate["serving_desc"],
+                candidate["portion_basis"], candidate["serving_source"],
                 candidate["calories"], candidate["protein_g"], candidate["carbs_g"],
                 candidate["fat_g"], candidate["fiber_g"], candidate["sugar_g"],
-                candidate["sodium_mg"], candidate["barcode"],
+                candidate["sodium_mg"], *nutrient_tuple(candidate), candidate["barcode"],
             ))
 
             row_id = cursor.lastrowid
@@ -836,7 +1168,8 @@ def merge_open_food_facts(conn, off_path):
                 "name": candidate["name"], "name_key": candidate["name_key"],
                 "brand": candidate["brand"], "brand_key": candidate["brand_key"],
                 "source": "open_food_facts", "serving_g": candidate["serving_g"],
-                "serving_desc": candidate["serving_desc"], "barcode": candidate["barcode"],
+                "serving_desc": candidate["serving_desc"], "portion_basis": candidate["portion_basis"],
+                "serving_source": candidate["serving_source"], "barcode": candidate["barcode"],
             }
             index_food_record(indexes, row_id)
             stats["inserted"] += 1

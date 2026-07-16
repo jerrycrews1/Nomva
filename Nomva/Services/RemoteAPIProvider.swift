@@ -1,9 +1,12 @@
 import Foundation
 import AuthenticationServices
 import Combine
+import CryptoKit
+import DeviceCheck
+import Security
 import UIKit
 
-/// Calls the Nomva API server (Node.js on Lightsail) which proxies to GPT-4o-mini.
+/// Calls the Nomva API server (Node.js on Lightsail) which proxies to the configured OpenAI model.
 /// Each method mirrors the focused LLMProvider protocol — one tiny call per step.
 /// Used as a fallback when Apple Foundation Models aren't available or misbehave.
 struct RemoteAPIProvider: LLMProvider {
@@ -13,14 +16,9 @@ struct RemoteAPIProvider: LLMProvider {
     /// Base URL of the Nomva API server (no trailing slash).
     /// In production: "https://nomva.nerdquad.com"
     private let baseURL: String
-    private let apiSecret: String?
 
-    init(
-        baseURL: String = "https://nomva.nerdquad.com",
-        apiSecret: String? = nil
-    ) {
+    init(baseURL: String = "https://nomva.nerdquad.com") {
         self.baseURL = baseURL
-        self.apiSecret = apiSecret
     }
 
     // MARK: - LLMProvider Conformance
@@ -65,6 +63,144 @@ struct RemoteAPIProvider: LLMProvider {
         return result["foods"] ?? [userMessage]
     }
 
+    func buildFoodSearchQuery(
+        userMessage: String,
+        foodMention: String
+    ) async throws -> String {
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "foodMention": foodMention
+        ]
+        let result: [String: String] = try await post("/v1/build-food-search-query", body: body)
+        let query = result["query"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (query?.isEmpty == false) ? query! : foodMention
+    }
+
+    func resolveFoodCandidate(
+        userMessage: String,
+        foodMention: String
+    ) async throws -> ResolvedFoodCandidate {
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "foodMention": foodMention,
+        ]
+        let data = try await postRaw("/v1/resolve-food-candidate", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let candidateId = (json["candidateId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let name = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty,
+              !candidateId.isEmpty else {
+            throw ResolveFoodCandidateError.invalidResponse
+        }
+
+        let servings = max(0.1, json["servings"] as? Double ?? 1)
+        let portionDescription = (json["portionDescription"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let servingUnit = (json["servingUnit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return ResolvedFoodCandidate(
+            candidateId: candidateId,
+            name: name,
+            brand: {
+                let trimmed = (json["brand"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }(),
+            source: {
+                let trimmed = (json["source"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }(),
+            servings: servings,
+            portionDescription: (portionDescription?.isEmpty == false) ? portionDescription! : "1 serving",
+            servingUnit: (servingUnit?.isEmpty == false) ? servingUnit! : "serving",
+            confident: json["confident"] as? Bool ?? false,
+            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false
+        )
+    }
+
+    func chooseFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        candidates: [FoodChoiceOption]
+    ) async throws -> Int? {
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "foodMention": foodMention,
+            "candidates": candidates.enumerated().map { index, candidate in
+                var json: [String: Any] = [
+                    "index": index,
+                    "name": candidate.name,
+                    "caloriesPerServing": candidate.caloriesPerServing,
+                    "portionBasis": candidate.portionBasis
+                ]
+                if let brand = candidate.brand {
+                    json["brand"] = brand
+                }
+                if let servingDescription = candidate.servingDescription {
+                    json["servingDescription"] = servingDescription
+                }
+                if let source = candidate.source {
+                    json["source"] = source
+                }
+                return json
+            }
+        ]
+        let data = try await postRaw("/v1/choose-food-candidate", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return json["candidateIndex"] as? Int
+    }
+
+    func validateFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        searchQuery: String,
+        candidate: FoodChoiceOption,
+        servingsInfo: ServingsInfo
+    ) async throws -> FoodCandidateValidation {
+        var body: [String: Any] = [
+            "userMessage": userMessage,
+            "foodMention": foodMention,
+            "searchQuery": searchQuery,
+            "candidate": [
+                "name": candidate.name,
+                "caloriesPerServing": candidate.caloriesPerServing,
+                "portionBasis": candidate.portionBasis,
+            ],
+            "servingsInfo": [
+                "servings": servingsInfo.servings,
+                "portionDescription": servingsInfo.portionDescription,
+                "servingUnit": servingsInfo.servingUnit,
+                "confident": servingsInfo.confident,
+                "hasExplicitPortion": servingsInfo.hasExplicitPortion,
+            ]
+        ]
+        if let brand = candidate.brand {
+            var candidateJSON = body["candidate"] as? [String: Any] ?? [:]
+            candidateJSON["brand"] = brand
+            body["candidate"] = candidateJSON
+        }
+        if let servingDescription = candidate.servingDescription {
+            var candidateJSON = body["candidate"] as? [String: Any] ?? [:]
+            candidateJSON["servingDescription"] = servingDescription
+            body["candidate"] = candidateJSON
+        }
+        if let source = candidate.source {
+            var candidateJSON = body["candidate"] as? [String: Any] ?? [:]
+            candidateJSON["source"] = source
+            body["candidate"] = candidateJSON
+        }
+
+        let data = try await postRaw("/v1/validate-food-candidate", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return FoodCandidateValidation(
+            keepCurrentCandidate: json["keepCurrentCandidate"] as? Bool ?? true,
+            servings: json["servings"] as? Double ?? servingsInfo.servings,
+            portionDescription: json["portionDescription"] as? String ?? servingsInfo.portionDescription,
+            servingUnit: json["servingUnit"] as? String ?? servingsInfo.servingUnit,
+            confident: json["confident"] as? Bool ?? servingsInfo.confident,
+            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? servingsInfo.hasExplicitPortion,
+            replacementSearchQuery: json["replacementSearchQuery"] as? String
+        )
+    }
+
     func confirmFoodMatch(
         userMessage: String,
         foodMention: String,
@@ -99,7 +235,9 @@ struct RemoteAPIProvider: LLMProvider {
         return ServingsInfo(
             servings: json["servings"] as? Double ?? 1,
             portionDescription: json["portionDescription"] as? String ?? "1 serving",
-            confident: json["confident"] as? Bool ?? false
+            servingUnit: json["servingUnit"] as? String ?? "serving",
+            confident: json["confident"] as? Bool ?? false,
+            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false
         )
     }
 
@@ -109,32 +247,168 @@ struct RemoteAPIProvider: LLMProvider {
         return result["meal"] ?? nil
     }
 
+    func extractWaterMutation(userMessage: String) async throws -> WaterMutation {
+        let body: [String: Any] = ["userMessage": userMessage]
+        let data = try await postRaw("/v1/extract-water-mutation", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return WaterMutation(
+            action: (json["action"] as? String) ?? "reply",
+            amountOz: json["amountOz"] as? Double
+        )
+    }
+
+    func extractWeightMutation(userMessage: String) async throws -> WeightMutation {
+        let body: [String: Any] = ["userMessage": userMessage]
+        let data = try await postRaw("/v1/extract-weight-mutation", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return WeightMutation(
+            action: (json["action"] as? String) ?? "reply",
+            weightLbs: json["weightLbs"] as? Double,
+            dateHint: json["dateHint"] as? String
+        )
+    }
+
     func pickDeleteTargets(
         userMessage: String,
-        logSummary: String
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
     ) async throws -> [String] {
         let body: [String: Any] = [
             "userMessage": userMessage,
-            "logSummary": logSummary
+            "logSummary": logSummary,
+            "recentMessages": recentMessages.map { ["role": $0.role, "content": $0.content] }
         ]
         let result: [String: [String]] = try await post("/v1/pick-delete-targets", body: body)
         return result["foodNames"] ?? []
     }
 
+    func pickEditTarget(
+        userMessage: String,
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
+    ) async throws -> EditTargetSelection {
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "logSummary": logSummary,
+            "recentMessages": recentMessages.map { ["role": $0.role, "content": $0.content] }
+        ]
+        let data = try await postRaw("/v1/pick-edit-target", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return EditTargetSelection(
+            foodName: json["foodName"] as? String,
+            clarificationQuestion: json["clarificationQuestion"] as? String
+        )
+    }
+
+    func resolveEditRequest(
+        userMessage: String,
+        currentEntryName: String,
+        currentEntryBrand: String?,
+        currentPortionDescription: String
+    ) async throws -> EditResolution {
+        var body: [String: Any] = [
+            "userMessage": userMessage,
+            "currentEntryName": currentEntryName,
+            "currentPortionDescription": currentPortionDescription
+        ]
+        if let currentEntryBrand {
+            body["currentEntryBrand"] = currentEntryBrand
+        }
+
+        let data = try await postRaw("/v1/resolve-edit-request", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return EditResolution(
+            servings: json["servings"] as? Double ?? 1,
+            portionDescription: json["portionDescription"] as? String ?? "1 serving",
+            servingUnit: json["servingUnit"] as? String ?? "serving",
+            confident: json["confident"] as? Bool ?? false,
+            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false,
+            clarificationQuestion: json["clarificationQuestion"] as? String,
+            replacementSearchQuery: json["replacementSearchQuery"] as? String
+        )
+    }
+
     func estimateGrams(
         foodName: String,
-        portionDescription: String
+        portionDescription: String,
+        referenceServingDescription: String?,
+        referenceServingGrams: Double?
     ) async throws -> Double {
         let body: [String: Any] = [
             "foodName": foodName,
             "portionDescription": portionDescription
         ]
-        let data = try await postRaw("/v1/estimate-grams", body: body)
+        var mutableBody = body
+        if let referenceServingDescription {
+            mutableBody["referenceServingDescription"] = referenceServingDescription
+        }
+        if let referenceServingGrams {
+            mutableBody["referenceServingGrams"] = referenceServingGrams
+        }
+        let data = try await postRaw("/v1/estimate-grams", body: mutableBody)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let grams = json["grams"] as? Double, grams > 0 else {
             throw RemoteError.invalidResponse
         }
         return grams
+    }
+
+    func findFoodStep(
+        userMessage: String,
+        foodMention: String,
+        history: [FindFoodHistoryRound]
+    ) async throws -> FindFoodStep {
+        let historyJSON: [[String: Any]] = history.map { round in
+            let candidates: [[String: Any]] = round.candidates.enumerated().map { index, candidate in
+                var json: [String: Any] = [
+                    "index": index,
+                    "name": candidate.name,
+                    "caloriesPerServing": candidate.caloriesPerServing,
+                    "portionBasis": candidate.portionBasis,
+                ]
+                if let brand = candidate.brand { json["brand"] = brand }
+                if let servingDescription = candidate.servingDescription { json["servingDescription"] = servingDescription }
+                if let source = candidate.source { json["source"] = source }
+                return json
+            }
+            return [
+                "query": round.query,
+                "candidates": candidates,
+            ]
+        }
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "foodMention": foodMention,
+            "history": historyJSON,
+        ]
+        let data = try await postRaw("/v1/find-food-step", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let action = (json["action"] as? String)?.lowercased() ?? ""
+        switch action {
+        case "search":
+            guard let query = (json["query"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else {
+                throw FindFoodStepError.invalidResponse
+            }
+            return .search(query: query)
+        case "pick":
+            guard let round = json["round"] as? Int,
+                  let candidateIndex = json["candidateIndex"] as? Int else {
+                throw FindFoodStepError.invalidResponse
+            }
+            let servingsInfo = ServingsInfo(
+                servings: max(0.1, json["servings"] as? Double ?? 1),
+                portionDescription: (json["portionDescription"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "1 serving",
+                servingUnit: (json["servingUnit"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "serving",
+                confident: json["confident"] as? Bool ?? false,
+                hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false
+            )
+            return .pick(round: round, candidateIndex: candidateIndex, servingsInfo: servingsInfo)
+        case "give_up":
+            return .giveUp
+        default:
+            throw FindFoodStepError.invalidResponse
+        }
     }
 
     func generalReply(
@@ -164,26 +438,55 @@ struct RemoteAPIProvider: LLMProvider {
         )
     }
 
+    // MARK: - Photo Analysis
+
+    struct PhotoFoodItem: Codable {
+        let name: String
+        let portion: String
+        let grams: Double
+        let calories: Double
+        let protein: Double
+        let carbs: Double
+        let fat: Double
+        let fiber: Double?
+    }
+
+    struct PhotoAnalysisResult: Codable {
+        let notFood: Bool?
+        let foods: [PhotoFoodItem]
+    }
+
+    func analyzePhoto(imageBase64: String, userMessage: String = "") async throws -> PhotoAnalysisResult {
+        let body: [String: Any] = [
+            "imageBase64": imageBase64,
+            "userMessage": userMessage,
+        ]
+        let data = try await postRaw("/v1/analyze-photo", body: body, timeout: 30)
+        return try JSONDecoder().decode(PhotoAnalysisResult.self, from: data)
+    }
+
     // MARK: - Networking
 
-    private func postRaw(_ path: String, body: [String: Any]) async throws -> Data {
+    private func postRaw(_ path: String, body: [String: Any], timeout: TimeInterval = 15) async throws -> Data {
         guard let url = URL(string: baseURL + path) else { throw RemoteError.badURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let secret = apiSecret {
-            request.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        let identity = NomvaCloudIdentity.current()
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = timeout
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            return request
         }
-        request.timeoutInterval = 15
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw RemoteError.invalidResponse }
 
-        if http.statusCode == 401 { throw RemoteError.unauthorized }
+        if http.statusCode == 401 {
+            throw errorForAuthResponse(http.statusCode, data: data)
+        }
         guard (200...299).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "unknown"
-            print("⚠️ Remote API \(path) returned \(http.statusCode): \(msg)")
             throw RemoteError.serverError(http.statusCode)
         }
         return data
@@ -249,6 +552,745 @@ struct NomvaCloudIdentity: Sendable {
         }
 
         return NomvaCloudIdentity(userId: userId, deviceToken: deviceToken)
+    }
+
+    var accountKey: String {
+        [userId, deviceToken].joined(separator: ":").sha256Hex
+    }
+}
+
+private struct NomvaCloudSessionPayload: Codable {
+    let token: String
+    let expiresAt: String
+}
+
+private struct NomvaCloudAttestationChallengePayload: Codable {
+    let challenge: String
+    let expiresAt: String
+}
+
+private struct NomvaCloudAppAttestEnvelope: Codable {
+    let keyId: String
+    let assertion: String
+    let timestamp: String
+}
+
+private struct NomvaCloudServerErrorPayload: Codable {
+    let error: String
+    let message: String?
+}
+
+private enum NomvaCloudAuthError: LocalizedError {
+    case badURL
+    case invalidResponse
+    case unauthorized
+    case serverError(Int)
+    case appAttestUnavailable
+    case appAttestFailed
+    case simulatorAuthDisabled
+
+    var errorDescription: String? {
+        switch self {
+        case .badURL:
+            return "Nomva Cloud auth URL is invalid."
+        case .invalidResponse:
+            return "Nomva Cloud auth returned an unexpected response."
+        case .unauthorized:
+            return "Nomva Cloud rejected the session request."
+        case .serverError(let code):
+            return "Nomva Cloud auth failed (HTTP \(code))."
+        case .appAttestUnavailable:
+            return "This device doesn't support Nomva Cloud's security requirements."
+        case .appAttestFailed:
+            return "Nomva Cloud couldn't verify this app installation."
+        case .simulatorAuthDisabled:
+            return "Nomva Cloud simulator access is disabled on this server."
+        }
+    }
+}
+
+private enum NomvaCloudKeychain {
+    static func load<T: Decodable>(service: String, account: String, as type: T.Type) -> T? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    static func save<T: Encodable>(_ payload: T, service: String, account: String) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        let attributes: [CFString: Any] = [
+            kSecValueData: data,
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData] = data
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+
+    static func loadString(service: String, account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func saveString(_ value: String, service: String, account: String) {
+        guard let data = value.data(using: .utf8) else { return }
+
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        let attributes: [CFString: Any] = [
+            kSecValueData: data,
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData] = data
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+
+    static func delete(service: String, account: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+private actor NomvaCloudAppAttestManager {
+    static let shared = NomvaCloudAppAttestManager()
+
+    private let keyService = "com.nomva.cloud.appattest.key"
+    private let iso8601 = ISO8601DateFormatter()
+
+    func applyHeaders(
+        to request: inout URLRequest,
+        baseURL: String,
+        identity: NomvaCloudIdentity,
+        forceReattestation: Bool = false
+    ) async throws {
+        request.setValue(identity.userId, forHTTPHeaderField: "X-Nomva-User-ID")
+        request.setValue(identity.deviceToken, forHTTPHeaderField: "X-Nomva-Device-Token")
+
+        #if targetEnvironment(simulator)
+        request.setValue("simulator", forHTTPHeaderField: "X-Nomva-App-Attest-Mode")
+        #else
+        var keyId = try await ensureAttestedKey(
+            baseURL: baseURL,
+            identity: identity,
+            forceRefresh: forceReattestation
+        )
+        let timestamp = iso8601.string(from: Date())
+        let payload = assertionPayload(
+            for: request,
+            timestamp: timestamp,
+            identity: identity
+        )
+        let assertion: Data
+        do {
+            assertion = try await DCAppAttestService.shared.generateAssertionAsync(
+                keyId: keyId,
+                clientDataHash: payload.sha256Data
+            )
+        } catch {
+            reset(identity: identity)
+            keyId = try await ensureAttestedKey(
+                baseURL: baseURL,
+                identity: identity,
+                forceRefresh: true
+            )
+            assertion = try await DCAppAttestService.shared.generateAssertionAsync(
+                keyId: keyId,
+                clientDataHash: payload.sha256Data
+            )
+        }
+        let envelope = NomvaCloudAppAttestEnvelope(
+            keyId: keyId,
+            assertion: assertion.base64EncodedString(),
+            timestamp: timestamp
+        )
+        let envelopeData = try JSONEncoder().encode(envelope)
+        request.setValue(envelopeData.base64EncodedString(), forHTTPHeaderField: "X-Nomva-App-Attest")
+        #endif
+    }
+
+    func reset(identity: NomvaCloudIdentity) {
+        NomvaCloudKeychain.delete(service: keyService, account: identity.accountKey)
+    }
+
+    private func ensureAttestedKey(
+        baseURL: String,
+        identity: NomvaCloudIdentity,
+        forceRefresh: Bool
+    ) async throws -> String {
+        guard DCAppAttestService.shared.isSupported else {
+            throw NomvaCloudAuthError.appAttestUnavailable
+        }
+
+        if forceRefresh {
+            reset(identity: identity)
+        }
+
+        if let existing = NomvaCloudKeychain.loadString(
+            service: keyService,
+            account: identity.accountKey
+        ), !existing.isEmpty {
+            return existing
+        }
+
+        let challengePayload = try await requestChallenge(baseURL: baseURL, identity: identity)
+        let keyId = try await DCAppAttestService.shared.generateKeyAsync()
+        let clientDataHash = Data(SHA256.hash(data: Data(challengePayload.challenge.utf8)))
+        let attestation = try await DCAppAttestService.shared.attestKeyAsync(
+            keyId: keyId,
+            clientDataHash: clientDataHash
+        )
+        try await verifyAttestation(
+            baseURL: baseURL,
+            identity: identity,
+            keyId: keyId,
+            challenge: challengePayload.challenge,
+            attestation: attestation
+        )
+
+        NomvaCloudKeychain.saveString(keyId, service: keyService, account: identity.accountKey)
+        return keyId
+    }
+
+    private func requestChallenge(
+        baseURL: String,
+        identity: NomvaCloudIdentity
+    ) async throws -> NomvaCloudAttestationChallengePayload {
+        guard let url = URL(string: baseURL + "/v1/auth/challenge") else {
+            throw NomvaCloudAuthError.badURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(identity.userId, forHTTPHeaderField: "X-Nomva-User-ID")
+        request.setValue(identity.deviceToken, forHTTPHeaderField: "X-Nomva-Device-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NomvaCloudAuthError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw errorForAuthResponse(http.statusCode, data: data)
+        }
+        guard let payload = try? JSONDecoder().decode(NomvaCloudAttestationChallengePayload.self, from: data) else {
+            throw NomvaCloudAuthError.invalidResponse
+        }
+        return payload
+    }
+
+    private func verifyAttestation(
+        baseURL: String,
+        identity: NomvaCloudIdentity,
+        keyId: String,
+        challenge: String,
+        attestation: Data
+    ) async throws {
+        guard let url = URL(string: baseURL + "/v1/auth/verify") else {
+            throw NomvaCloudAuthError.badURL
+        }
+
+        let body: [String: Any] = [
+            "challenge": challenge,
+            "keyId": keyId,
+            "attestation": attestation.base64EncodedString(),
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(identity.userId, forHTTPHeaderField: "X-Nomva-User-ID")
+        request.setValue(identity.deviceToken, forHTTPHeaderField: "X-Nomva-Device-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NomvaCloudAuthError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw errorForAuthResponse(http.statusCode, data: data)
+        }
+    }
+
+    private func assertionPayload(
+        for request: URLRequest,
+        timestamp: String,
+        identity: NomvaCloudIdentity
+    ) -> Data {
+        let body = request.httpBody ?? Data()
+        let bodyHash = body.sha256Hex
+        var route = request.url?.path ?? "/"
+        if let query = request.url?.query, !query.isEmpty {
+            route += "?\(query)"
+        }
+
+        let payload = [
+            request.httpMethod ?? "GET",
+            route,
+            timestamp,
+            identity.userId,
+            identity.deviceToken.sha256Hex,
+            bodyHash,
+        ].joined(separator: "\n")
+
+        return Data(payload.utf8)
+    }
+}
+
+private actor NomvaCloudAuthManager {
+    static let shared = NomvaCloudAuthManager()
+
+    private let iso8601 = ISO8601DateFormatter()
+    private let sessionService = "com.nomva.cloud.session"
+
+    func sessionToken(
+        baseURL: String,
+        identity: NomvaCloudIdentity,
+        forceRefresh: Bool = false
+    ) async throws -> String {
+        let account = identity.accountKey
+        if !forceRefresh,
+           let cached = NomvaCloudKeychain.load(
+            service: sessionService,
+            account: account,
+            as: NomvaCloudSessionPayload.self
+           ),
+           !isExpired(cached.expiresAt) {
+            return cached.token
+        }
+
+        let payload = try await registerSession(baseURL: baseURL, identity: identity)
+        NomvaCloudKeychain.save(payload, service: sessionService, account: account)
+        return payload.token
+    }
+
+    private func isExpired(_ expiresAt: String) -> Bool {
+        guard let expiration = iso8601.date(from: expiresAt) else { return true }
+        return expiration <= Date().addingTimeInterval(60)
+    }
+
+    private func registerSession(
+        baseURL: String,
+        identity: NomvaCloudIdentity
+    ) async throws -> NomvaCloudSessionPayload {
+        guard let url = URL(string: baseURL + "/v1/auth/register") else {
+            throw NomvaCloudAuthError.badURL
+        }
+
+        func perform(forceReattestation: Bool) async throws -> (Data, HTTPURLResponse) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 15
+            request.httpBody = Data("{}".utf8)
+            try await NomvaCloudAppAttestManager.shared.applyHeaders(
+                to: &request,
+                baseURL: baseURL,
+                identity: identity,
+                forceReattestation: forceReattestation
+            )
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw NomvaCloudAuthError.invalidResponse
+            }
+            return (data, http)
+        }
+
+        let initial = try await perform(forceReattestation: false)
+        let errorCode = serverErrorCode(from: initial.0)
+        let finalResponse: (Data, HTTPURLResponse)
+
+        if initial.1.statusCode == 401,
+           errorCode == "invalid_app_attest" || errorCode == "app_attest_required" || errorCode == "stale_app_attest" {
+            NomvaCloudKeychain.delete(service: sessionService, account: identity.accountKey)
+            finalResponse = try await perform(forceReattestation: true)
+        } else {
+            finalResponse = initial
+        }
+
+        if finalResponse.1.statusCode == 401 {
+            throw errorForAuthResponse(finalResponse.1.statusCode, data: finalResponse.0)
+        }
+        guard (200...299).contains(finalResponse.1.statusCode) else {
+            throw errorForAuthResponse(finalResponse.1.statusCode, data: finalResponse.0)
+        }
+        guard let payload = try? JSONDecoder().decode(NomvaCloudSessionPayload.self, from: finalResponse.0) else {
+            throw NomvaCloudAuthError.invalidResponse
+        }
+        return payload
+    }
+}
+
+// MARK: - Nomva Cloud Network Analytics
+
+private struct NomvaNetworkAnalyticsEvent: Encodable, Sendable {
+    let id: String
+    let eventTime: String
+    let eventType: String
+    let route: String
+    let method: String
+    let status: Int?
+    let durationMs: Double
+    let bytesIn: Int?
+    let bytesOut: Int?
+    let success: Bool
+    let errorCode: String?
+    let properties: [String: String]?
+}
+
+private struct NomvaNetworkAnalyticsEnvelope: Encodable {
+    let events: [NomvaNetworkAnalyticsEvent]
+}
+
+private actor NomvaNetworkAnalytics {
+    static let shared = NomvaNetworkAnalytics()
+
+    private let encoder = JSONEncoder()
+    private var queue: [NomvaNetworkAnalyticsEvent] = []
+    private var isFlushing = false
+    private var scheduledFlush: Task<Void, Never>?
+
+    func enqueue(
+        _ event: NomvaNetworkAnalyticsEvent,
+        baseURL: String,
+        identity: NomvaCloudIdentity
+    ) {
+        queue.append(event)
+        if queue.count > 100 {
+            queue.removeFirst(queue.count - 100)
+        }
+
+        let shouldFlushSoon = queue.count >= 5 || !event.success
+        scheduleFlush(baseURL: baseURL, identity: identity, delay: shouldFlushSoon ? 0.1 : 3.0)
+    }
+
+    private func scheduleFlush(
+        baseURL: String,
+        identity: NomvaCloudIdentity,
+        delay: TimeInterval
+    ) {
+        if delay > 0, scheduledFlush != nil {
+            return
+        }
+
+        scheduledFlush?.cancel()
+        scheduledFlush = Task(priority: .utility) { [weak self] in
+            let nanoseconds = UInt64(delay * 1_000_000_000)
+            if nanoseconds > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+            }
+            await self?.flush(baseURL: baseURL, identity: identity)
+        }
+    }
+
+    private func flush(baseURL: String, identity: NomvaCloudIdentity) async {
+        guard !isFlushing, !queue.isEmpty else { return }
+        guard let url = URL(string: baseURL + "/v1/analytics/events") else { return }
+
+        scheduledFlush = nil
+        isFlushing = true
+        let batch = Array(queue.prefix(20))
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 10
+            request.httpBody = try encoder.encode(NomvaNetworkAnalyticsEnvelope(events: batch))
+
+            try await NomvaCloudAppAttestManager.shared.applyHeaders(
+                to: &request,
+                baseURL: baseURL,
+                identity: identity
+            )
+            let token = try await NomvaCloudAuthManager.shared.sessionToken(
+                baseURL: baseURL,
+                identity: identity
+            )
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+
+            queue.removeFirst(min(batch.count, queue.count))
+        } catch {
+            if queue.count > 100 {
+                queue.removeFirst(queue.count - 100)
+            }
+        }
+
+        isFlushing = false
+        if !queue.isEmpty {
+            scheduleFlush(baseURL: baseURL, identity: identity, delay: 10.0)
+        }
+    }
+}
+
+private func enqueueNomvaNetworkAnalytics(
+    baseURL: String,
+    identity: NomvaCloudIdentity,
+    request: URLRequest?,
+    response: URLResponse?,
+    responseData: Data?,
+    startedAt: Date,
+    errorCode: String?
+) {
+    guard request?.url?.path != "/v1/analytics/events" else { return }
+
+    let http = response as? HTTPURLResponse
+    let status = http?.statusCode
+    let resolvedErrorCode = errorCode ?? status.flatMap { (200...399).contains($0) ? nil : "http_\($0)" }
+    let success = resolvedErrorCode == nil && status.map { (200...399).contains($0) } != false
+    let event = NomvaNetworkAnalyticsEvent(
+        id: UUID().uuidString.lowercased(),
+        eventTime: ISO8601DateFormatter().string(from: Date()),
+        eventType: "client_network",
+        route: request?.url?.path ?? "unknown",
+        method: request?.httpMethod ?? "GET",
+        status: status,
+        durationMs: Date().timeIntervalSince(startedAt) * 1000,
+        bytesIn: request?.httpBody?.count,
+        bytesOut: responseData?.count,
+        success: success,
+        errorCode: resolvedErrorCode,
+        properties: [
+            "host": request?.url?.host ?? "",
+            "transport": "urlsession",
+        ]
+    )
+
+    Task(priority: .utility) {
+        await NomvaNetworkAnalytics.shared.enqueue(event, baseURL: baseURL, identity: identity)
+    }
+}
+
+private func analyticsErrorCode(for error: Error) -> String {
+    switch error {
+    case NomvaCloudAuthError.simulatorAuthDisabled:
+        return "simulator_auth_disabled"
+    case NomvaCloudAuthError.appAttestUnavailable:
+        return "app_attest_unavailable"
+    case NomvaCloudAuthError.appAttestFailed:
+        return "app_attest_failed"
+    case NomvaCloudAuthError.unauthorized:
+        return "unauthorized"
+    case NomvaCloudAuthError.serverError(let statusCode):
+        return "auth_http_\(statusCode)"
+    default:
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return "url_\(nsError.code)"
+        }
+        return String(describing: type(of: error))
+    }
+}
+
+private func sendNomvaCloudRequest(
+    baseURL: String,
+    identity: NomvaCloudIdentity,
+    retryOnUnauthorized: Bool = true,
+    buildRequest: @escaping () throws -> URLRequest
+) async throws -> (Data, URLResponse) {
+    func perform(forceSessionRefresh: Bool, forceAttestationRefresh: Bool) async throws -> (Data, URLResponse, URLRequest) {
+        var request = try buildRequest()
+        try await NomvaCloudAppAttestManager.shared.applyHeaders(
+            to: &request,
+            baseURL: baseURL,
+            identity: identity,
+            forceReattestation: forceAttestationRefresh
+        )
+        let token = try await NomvaCloudAuthManager.shared.sessionToken(
+            baseURL: baseURL,
+            identity: identity,
+            forceRefresh: forceSessionRefresh
+        )
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return (data, response, request)
+    }
+
+    let startedAt = Date()
+    var analyticsRequest: URLRequest?
+
+    do {
+        let initial = try await perform(forceSessionRefresh: false, forceAttestationRefresh: false)
+        analyticsRequest = initial.2
+        guard retryOnUnauthorized,
+              let http = initial.1 as? HTTPURLResponse,
+              http.statusCode == 401 else {
+            enqueueNomvaNetworkAnalytics(
+                baseURL: baseURL,
+                identity: identity,
+                request: analyticsRequest,
+                response: initial.1,
+                responseData: initial.0,
+                startedAt: startedAt,
+                errorCode: nil
+            )
+            return (initial.0, initial.1)
+        }
+
+        let final: (Data, URLResponse, URLRequest)
+        switch serverErrorCode(from: initial.0) {
+        case "invalid_session":
+            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: false)
+        case "invalid_app_attest", "app_attest_required", "stale_app_attest":
+            await NomvaCloudAppAttestManager.shared.reset(identity: identity)
+            NomvaCloudKeychain.delete(service: "com.nomva.cloud.session", account: identity.accountKey)
+            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: true)
+        case "simulator_auth_disabled":
+            throw NomvaCloudAuthError.simulatorAuthDisabled
+        default:
+            final = initial
+        }
+
+        analyticsRequest = final.2
+        enqueueNomvaNetworkAnalytics(
+            baseURL: baseURL,
+            identity: identity,
+            request: analyticsRequest,
+            response: final.1,
+            responseData: final.0,
+            startedAt: startedAt,
+            errorCode: nil
+        )
+        return (final.0, final.1)
+    } catch {
+        let fallbackRequest = analyticsRequest ?? (try? buildRequest())
+        enqueueNomvaNetworkAnalytics(
+            baseURL: baseURL,
+            identity: identity,
+            request: fallbackRequest,
+            response: nil,
+            responseData: nil,
+            startedAt: startedAt,
+            errorCode: analyticsErrorCode(for: error)
+        )
+        throw error
+    }
+}
+
+private func serverErrorCode(from data: Data) -> String? {
+    (try? JSONDecoder().decode(NomvaCloudServerErrorPayload.self, from: data))?.error
+}
+
+private func errorForAuthResponse(_ statusCode: Int, data: Data) -> Error {
+    let errorPayload = try? JSONDecoder().decode(NomvaCloudServerErrorPayload.self, from: data)
+    switch errorPayload?.error {
+    case "simulator_auth_disabled":
+        return NomvaCloudAuthError.simulatorAuthDisabled
+    case "invalid_attestation", "invalid_app_attest", "app_attest_required", "stale_app_attest":
+        return NomvaCloudAuthError.appAttestFailed
+    case "invalid_session", "unauthorized":
+        return NomvaCloudAuthError.unauthorized
+    default:
+        if statusCode == 401 {
+            return NomvaCloudAuthError.unauthorized
+        }
+        return NomvaCloudAuthError.serverError(statusCode)
+    }
+}
+
+private extension Data {
+    var sha256Data: Data {
+        Data(SHA256.hash(data: self))
+    }
+
+    var sha256Hex: String {
+        SHA256.hash(data: self).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private extension String {
+    var sha256Hex: String {
+        Data(utf8).sha256Hex
+    }
+}
+
+private extension DCAppAttestService {
+    func generateKeyAsync() async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            generateKey { keyId, error in
+                if let keyId {
+                    continuation.resume(returning: keyId)
+                } else {
+                    continuation.resume(throwing: error ?? NomvaCloudAuthError.appAttestFailed)
+                }
+            }
+        }
+    }
+
+    func attestKeyAsync(keyId: String, clientDataHash: Data) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            attestKey(keyId, clientDataHash: clientDataHash) { attestation, error in
+                if let attestation {
+                    continuation.resume(returning: attestation)
+                } else {
+                    continuation.resume(throwing: error ?? NomvaCloudAuthError.appAttestFailed)
+                }
+            }
+        }
+    }
+
+    func generateAssertionAsync(keyId: String, clientDataHash: Data) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            generateAssertion(keyId, clientDataHash: clientDataHash) { assertion, error in
+                if let assertion {
+                    continuation.resume(returning: assertion)
+                } else {
+                    continuation.resume(throwing: error ?? NomvaCloudAuthError.appAttestFailed)
+                }
+            }
+        }
     }
 }
 
@@ -340,35 +1382,44 @@ struct GarminCloudService {
     static let callbackScheme = "nomva"
 
     private let baseURL: String
-    private let apiSecret: String
     private let identity: NomvaCloudIdentity
 
     init(
         baseURL: String = NomvaAPI.baseURL,
-        apiSecret: String = UserDefaults.standard.bool(forKey: "is_premium_dev_override")
-            ? NomvaAPI.devSecret
-            : NomvaAPI.appSecret,
         identity: NomvaCloudIdentity = .current()
     ) {
         self.baseURL = baseURL
-        self.apiSecret = apiSecret
         self.identity = identity
     }
 
-    func authorizationStartURL() throws -> URL {
-        guard var components = URLComponents(string: baseURL + "/garmin/oauth/start") else {
+    func authorizationStartURL() async throws -> URL {
+        guard let url = URL(string: baseURL + "/v1/garmin/oauth/start") else {
             throw GarminCloudError.badURL
         }
-        components.queryItems = [
-            URLQueryItem(name: "nomvaUserId", value: identity.userId),
-            URLQueryItem(name: "deviceToken", value: identity.deviceToken),
-            URLQueryItem(name: "returnScheme", value: Self.callbackScheme),
-        ]
 
-        guard let url = components.url else {
-            throw GarminCloudError.badURL
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 20
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "returnScheme": Self.callbackScheme
+            ])
+            return request
         }
-        return url
+        try validateResponse(response, data: data)
+
+        guard
+            let payload = try? JSONDecoder().decode([String: String].self, from: data),
+            let raw = payload["url"],
+            let authorizationURL = URL(string: raw)
+        else {
+            throw GarminCloudError.invalidResponse
+        }
+        return authorizationURL
     }
 
     func fetchStatus(days: Int = 45) async throws -> GarminConnectionStatusPayload {
@@ -377,11 +1428,15 @@ struct GarminCloudService {
         }
         components.queryItems = [URLQueryItem(name: "days", value: String(days))]
 
-        var request = URLRequest(url: try validatedURL(from: components))
-        request.httpMethod = "GET"
-        configureHeaders(&request)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: try validatedURL(from: components))
+            request.httpMethod = "GET"
+            request.timeoutInterval = 20
+            return request
+        }
         return try decodeStatus(from: data, response: response)
     }
 
@@ -392,13 +1447,17 @@ struct GarminCloudService {
             throw GarminCloudError.badURL
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        configureHeaders(&request)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("{}".utf8)
+            request.timeoutInterval = 20
+            return request
+        }
         try validateResponse(response, data: data)
 
         // The sync endpoint returns latestSummary + recentSummaries but not the
@@ -411,19 +1470,16 @@ struct GarminCloudService {
             throw GarminCloudError.badURL
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        configureHeaders(&request)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 20
+            return request
+        }
         try validateResponse(response, data: nil)
-    }
-
-    private func configureHeaders(_ request: inout URLRequest) {
-        request.setValue("Bearer \(apiSecret)", forHTTPHeaderField: "Authorization")
-        request.setValue(identity.userId, forHTTPHeaderField: "X-Nomva-User-ID")
-        request.setValue(identity.deviceToken, forHTTPHeaderField: "X-Nomva-Device-Token")
-        request.timeoutInterval = 20
     }
 
     private func validatedURL(from components: URLComponents) throws -> URL {
@@ -444,7 +1500,7 @@ struct GarminCloudService {
         }
 
         if http.statusCode == 401 {
-            throw GarminCloudError.unauthorized
+            throw errorForAuthResponse(http.statusCode, data: data ?? Data())
         }
 
         guard (200...299).contains(http.statusCode) else {
@@ -489,22 +1545,17 @@ final class GarminManager: NSObject, ObservableObject {
     }
 
     func refresh(forceSync: Bool = false) async {
-        print("🌐 Garmin refresh() called | isLoading=\(isLoading) | forceSync=\(forceSync)")
         guard !isLoading else {
-            print("🌐 Garmin refresh() SKIPPED — isLoading is true")
             return
         }
         isLoading = true
         defer {
             isLoading = false
-            print("🌐 Garmin refresh() done | isLoading=false")
         }
 
         do {
             let service = GarminCloudService()
-            print("🌐 Garmin refresh() → fetchStatus...")
             var fetched = try await service.fetchStatus()
-            print("🌐 Garmin refresh() fetchStatus ✅ connected=\(fetched.connected) latest=\(fetched.latestSummary?.date ?? "nil") recentCount=\(fetched.recentSummaries.count)")
 
             // If connected, decide if we should trigger a fresh sync pull from the Garmin API.
             // We sync if forced (e.g. pull-to-refresh) OR if we haven't synced in the last 5 minutes.
@@ -514,16 +1565,10 @@ final class GarminManager: NSObject, ObservableObject {
                 let shouldSync = forceSync || timeSinceLastSync > cooldown
 
                 if shouldSync {
-                    print("🌐 Garmin refresh() → triggering sync pull (forceSync=\(forceSync), lastSync=\(Int(timeSinceLastSync))s ago)...")
                     lastSyncAttempt = Date()
                     if let synced = try? await service.sync() {
-                        print("🌐 Garmin refresh() sync ✅")
                         fetched = synced
-                    } else {
-                        print("🌐 Garmin refresh() sync failed (silent)")
                     }
-                } else {
-                    print("🌐 Garmin refresh() → skipping sync pull (cooldown active, lastSync=\(Int(timeSinceLastSync))s ago)")
                 }
             }
 
@@ -531,7 +1576,6 @@ final class GarminManager: NSObject, ObservableObject {
             hasLoadedOnce = true
             lastErrorMessage = nil
         } catch {
-            print("🌐 Garmin refresh() ❌ error: \(error)")
             lastErrorMessage = error.localizedDescription
         }
     }
@@ -557,7 +1601,7 @@ final class GarminManager: NSObject, ObservableObject {
             }
 
             let callbackURL = try await startAuthenticationSession(
-                url: try service.authorizationStartURL(),
+                url: try await service.authorizationStartURL(),
                 callbackScheme: GarminCloudService.callbackScheme
             )
             let callback = GarminAuthCallback(url: callbackURL)

@@ -20,7 +20,6 @@ final class SubscriptionManager: ObservableObject {
 
     @AppStorage("is_premium") var isPremium: Bool = false
     @AppStorage("free_messages_used") var freeMessagesUsed: Int = 0
-    @AppStorage("is_premium_dev_override") private var isDevOverride: Bool = false
 
     @Published var product: Product?
     @Published var purchaseState: PurchaseState = .idle
@@ -40,8 +39,11 @@ final class SubscriptionManager: ObservableObject {
     // MARK: - Transaction listener task
 
     private var transactionListenerTask: Task<Void, Never>?
+    private let legacyDevOverrideKey = "is_premium_dev_override"
 
     private init() {
+        UserDefaults.standard.removeObject(forKey: legacyDevOverrideKey)
+
         // Start listening for transactions immediately
         transactionListenerTask = listenForTransactions()
 
@@ -59,7 +61,7 @@ final class SubscriptionManager: ObservableObject {
     // MARK: - Public API
 
     var canUseAI: Bool {
-        isPremium || isDevOverride || freeMessagesUsed < freeTrialLimit
+        isPremium || freeMessagesUsed < freeTrialLimit
     }
 
     var remainingFreeMessages: Int {
@@ -67,7 +69,7 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func recordAIMessage() {
-        if !isPremium && !isDevOverride {
+        if !isPremium {
             freeMessagesUsed += 1
         }
     }
@@ -120,6 +122,12 @@ final class SubscriptionManager: ObservableObject {
     /// Restore purchases — checks all current entitlements.
     func restore() async {
         purchaseState = .restoring
+        do {
+            try await AppStore.sync()
+        } catch {
+            purchaseState = .error(error.localizedDescription)
+            return
+        }
         await checkEntitlements()
         purchaseState = .idle
     }
@@ -128,12 +136,6 @@ final class SubscriptionManager: ObservableObject {
 
     /// Walk through all current entitlements and update premium status.
     func checkEntitlements() async {
-        // Dev override always wins
-        if isDevOverride {
-            isPremium = true
-            return
-        }
-
         var foundActive = false
 
         for await result in Transaction.currentEntitlements {

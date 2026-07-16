@@ -27,7 +27,7 @@ struct OnboardingBasicsView: View {
                 tone: .hero
             ) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("We use this to estimate calorie needs and make your daily targets feel less generic.")
+                    Text("We use this to set a better starting point for your daily goals.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
@@ -55,7 +55,7 @@ struct OnboardingBasicsView: View {
                         }
                         .pickerStyle(.segmented)
 
-                        Text("Optional. This only helps estimate calorie needs more accurately.")
+                        Text("Optional. This can help fine-tune your starting calories.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -113,7 +113,7 @@ struct OnboardingBasicsView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Text("Decimals are fine if you want to be precise.")
+                        Text("Use decimals if you want.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -122,7 +122,7 @@ struct OnboardingBasicsView: View {
 
             OnboardingSectionCard(
                 title: "How active are you?",
-                subtitle: "Choose the option that best matches most days. You can replace this estimate with Apple Health activity later."
+                subtitle: "Pick what matches most days. You can change this later or use Apple Health instead."
             ) {
                 ActivityLevelPicker(selection: $activityLevel)
             }

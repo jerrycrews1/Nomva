@@ -6,6 +6,17 @@ private let sqliteTransient = unsafeBitCast(
     to: sqlite3_destructor_type.self
 )
 
+private let foodSelectColumns = """
+    f.id, f.fdc_id, f.name, f.brand, f.source, f.serving_g, f.serving_desc,
+    f.calories, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g,
+    f.sugar_g, f.sodium_mg,
+    f.saturated_fat_g, f.trans_fat_g, f.cholesterol_mg, f.added_sugar_g,
+    f.vitamin_d_mcg, f.calcium_mg, f.iron_mg, f.potassium_mg,
+    f.vitamin_a_mcg_rae, f.vitamin_c_mg, f.vitamin_b12_mcg,
+    f.folate_mcg_dfe, f.magnesium_mg, f.zinc_mg, f.barcode,
+    f.portion_basis, f.serving_source
+"""
+
 actor DatabaseManager {
     static let shared = DatabaseManager()
     private var db: OpaquePointer?
@@ -59,9 +70,7 @@ actor DatabaseManager {
         let lowerQuery = query.lowercased()
 
         let sql = """
-            SELECT f.id, f.fdc_id, f.name, f.brand, f.source, f.serving_g, f.serving_desc,
-                   f.calories, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g,
-                   f.sugar_g, f.sodium_mg, f.barcode
+            SELECT \(foodSelectColumns)
             FROM foods f
             JOIN foods_fts ON foods_fts.rowid = f.id
             WHERE foods_fts MATCH ?
@@ -109,9 +118,7 @@ actor DatabaseManager {
             .joined(separator: " AND ")
 
         let sql = """
-            SELECT f.id, f.fdc_id, f.name, f.brand, f.source, f.serving_g, f.serving_desc,
-                   f.calories, f.protein_g, f.carbs_g, f.fat_g, f.fiber_g,
-                   f.sugar_g, f.sodium_mg, f.barcode
+            SELECT \(foodSelectColumns)
             FROM foods f
             WHERE \(whereClause)
             ORDER BY
@@ -170,9 +177,8 @@ actor DatabaseManager {
         guard let db = db else { return nil }
 
         let sql = """
-            SELECT id, fdc_id, name, brand, source, serving_g, serving_desc,
-                   calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode
-            FROM foods WHERE fdc_id = ?
+            SELECT \(foodSelectColumns)
+            FROM foods f WHERE f.fdc_id = ?
         """
 
         var stmt: OpaquePointer?
@@ -194,9 +200,8 @@ actor DatabaseManager {
         guard let db = db else { return nil }
 
         let sql = """
-            SELECT id, fdc_id, name, brand, source, serving_g, serving_desc,
-                   calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode
-            FROM foods WHERE id = ?
+            SELECT \(foodSelectColumns)
+            FROM foods f WHERE f.id = ?
         """
 
         var stmt: OpaquePointer?
@@ -222,15 +227,14 @@ actor DatabaseManager {
 
         let normalizedBarcode = normalizedBarcode(rawBarcode) ?? rawBarcode
         let sql = """
-            SELECT id, fdc_id, name, brand, source, serving_g, serving_desc,
-                   calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, barcode
-            FROM foods
-            WHERE barcode = ?
-               OR barcode = ?
-               OR ltrim(replace(replace(IFNULL(barcode, ''), ' ', ''), '-', ''), '0') = ?
+            SELECT \(foodSelectColumns)
+            FROM foods f
+            WHERE f.barcode = ?
+               OR f.barcode = ?
+               OR ltrim(replace(replace(IFNULL(f.barcode, ''), ' ', ''), '-', ''), '0') = ?
             ORDER BY
-                CASE WHEN source = 'open_food_facts' THEN 1 ELSE 0 END ASC,
-                CASE WHEN barcode = ? THEN 0 ELSE 1 END ASC
+                CASE WHEN f.source = 'open_food_facts' THEN 1 ELSE 0 END ASC,
+                CASE WHEN f.barcode = ? THEN 0 ELSE 1 END ASC
             LIMIT 1
         """
 
@@ -277,7 +281,6 @@ actor DatabaseManager {
 
 enum BarcodeLookupSource {
     case bundledDatabase
-    case openFoodFactsAPI
 }
 
 enum BarcodeLookupOutcome {
@@ -290,8 +293,6 @@ actor BarcodeLookupService {
     static let shared = BarcodeLookupService()
 
     private let database = DatabaseManager.shared
-    private let session = URLSession.shared
-    private let endpointBase = "https://world.openfoodfacts.org/api/v2/product/"
 
     func lookup(barcode: String) async -> BarcodeLookupOutcome {
         let digits = barcode.filter(\.isNumber)
@@ -301,92 +302,7 @@ actor BarcodeLookupService {
             return .found(localMatch, .bundledDatabase)
         }
 
-        do {
-            guard let remoteMatch = try await fetchFromOpenFoodFacts(barcode: digits) else {
-                return .notFound
-            }
-            return .found(remoteMatch, .openFoodFactsAPI)
-        } catch {
-            print("BarcodeLookupService: OFF lookup failed for \(digits): \(error)")
-            return .unavailable
-        }
-    }
-
-    private func fetchFromOpenFoodFacts(barcode: String) async throws -> FoodItem? {
-        let fields = "code,product_name,product_name_en,abbreviated_product_name,generic_name,generic_name_en,brands,serving_size,serving_quantity,nutriments"
-        guard let url = URL(string: "\(endpointBase)\(barcode)?fields=\(fields)") else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        request.setValue("Nomva/1.0 (barcode lookup)", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            return nil
-        }
-
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard (json["status"] as? Int) == 1,
-              let product = json["product"] as? [String: Any] else {
-            return nil
-        }
-
-        let name = firstNonEmptyString(
-            product["product_name"],
-            product["product_name_en"],
-            product["abbreviated_product_name"],
-            product["generic_name"],
-            product["generic_name_en"]
-        )
-        guard let name else { return nil }
-
-        let servingDesc = stringValue(product["serving_size"])
-        let servingGrams = positiveDouble(product["serving_quantity"]) ?? parseServingQuantity(from: servingDesc) ?? 100
-        let nutriments = product["nutriments"] as? [String: Any] ?? [:]
-
-        let calories = nutrientPerServing(nutriments, keys: ["energy-kcal", "energy"], servingGrams: servingGrams, targetUnit: "kcal") ?? 0
-        let protein = nutrientPerServing(nutriments, keys: ["proteins"], servingGrams: servingGrams, targetUnit: "g") ?? 0
-        let carbs = nutrientPerServing(nutriments, keys: ["carbohydrates"], servingGrams: servingGrams, targetUnit: "g") ?? 0
-        let fat = nutrientPerServing(nutriments, keys: ["fat"], servingGrams: servingGrams, targetUnit: "g") ?? 0
-        let fiber = nutrientPerServing(nutriments, keys: ["fiber"], servingGrams: servingGrams, targetUnit: "g") ?? 0
-        let sugar = nutrientPerServing(nutriments, keys: ["sugars"], servingGrams: servingGrams, targetUnit: "g") ?? 0
-
-        var sodium = nutrientPerServing(nutriments, keys: ["sodium"], servingGrams: servingGrams, targetUnit: "mg")
-        if sodium == nil,
-           let salt = nutrientPerServing(nutriments, keys: ["salt"], servingGrams: servingGrams, targetUnit: "g") {
-            sodium = salt * 393.4
-        }
-
-        let servingLabel = servingDesc ?? formattedServing(servingGrams)
-        let brand = firstBrand(from: stringValue(product["brands"]))
-
-        return FoodItem(
-            id: remoteFoodID(for: barcode),
-            fdcId: nil,
-            name: name,
-            brand: brand,
-            source: "open_food_facts_api",
-            servingGrams: servingGrams,
-            servingDesc: servingLabel,
-            caloriesPerServing: calories,
-            proteinG: protein,
-            carbsG: carbs,
-            fatG: fat,
-            fiberG: fiber,
-            sugarG: sugar,
-            sodiumMg: sodium ?? 0,
-            barcode: barcode
-        )
-    }
-
-    private func remoteFoodID(for barcode: String) -> Int {
-        let digits = barcode.filter(\.isNumber)
-        if let suffixValue = Int(digits.suffix(9)) {
-            return -suffixValue
-        }
-        return -(abs(digits.hashValue))
+        return .notFound
     }
 
     private func firstBrand(from brands: String?) -> String? {

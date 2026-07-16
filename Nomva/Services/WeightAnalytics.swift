@@ -299,7 +299,7 @@ struct WeightAnalytics {
         if consecutiveDays >= decelerationWarningDays {
             let verb = signal == .losingSlowing ? "weight loss" : "weight gain"
             return PlateauWarning(
-                message: "Your \(verb) velocity is decelerating. Based on current trends, your progress may plateau on the scale within 7 to 10 days.",
+                message: "Your \(verb) is slowing down. Based on current trends, you may hit a plateau within 7 to 10 days.",
                 daysUntilPlateau: 7...10,
                 severity: .warning
             )
