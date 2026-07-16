@@ -43,8 +43,8 @@ branded/
 sr_legacy/
 *.zip
 
-# SQLite database is generated — committed via GitHub Actions only
-# Resources/foods.sqlite   ← this IS committed by the CI pipeline
+# SQLite databases are generated artifacts. Xcode Cloud restores the production
+# database from the release pinned in ci_scripts/food-database.env.
 
 # SPM
 .swiftpm/

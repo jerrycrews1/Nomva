@@ -1,5 +1,8 @@
 name: Rebuild Food Database
 
+permissions:
+  contents: write
+
 on:
   schedule:
     # Runs quarterly: Jan 1, Apr 1, Jul 1, Oct 1 at 9am UTC
@@ -46,16 +49,39 @@ jobs:
           OPEN_FOOD_FACTS_PATH: open_food_facts/openfoodfacts-products.jsonl.gz
         run: python scripts/build_db.py
 
-      - name: Generate changelog summary
-        id: changelog
-        run: echo "summary=$(python scripts/changelog.py)" >> $GITHUB_OUTPUT
+      - name: Package and publish database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gzip -9 -c Nomva/Resources/foods.sqlite > /tmp/foods.sqlite.gz
 
-      - name: Commit new database to repo
+          database_sha="$(sha256sum Nomva/Resources/foods.sqlite | awk '{print $1}')"
+          archive_sha="$(sha256sum /tmp/foods.sqlite.gz | awk '{print $1}')"
+          release_tag="food-db-${database_sha:0:8}"
+
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" /tmp/foods.sqlite.gz --clobber
+          else
+            gh release create "$release_tag" /tmp/foods.sqlite.gz \
+              --target "$GITHUB_SHA" \
+              --title "Nomva food database ${database_sha:0:8}" \
+              --notes "Production food database restored by Xcode Cloud during post-clone."
+          fi
+
+          mkdir -p ci_scripts
+          printf '%s\n' \
+            "NOMVA_FOOD_DB_RELEASE=$release_tag" \
+            "NOMVA_FOOD_DB_ASSET=foods.sqlite.gz" \
+            "NOMVA_FOOD_DB_ARCHIVE_SHA256=$archive_sha" \
+            "NOMVA_FOOD_DB_SHA256=$database_sha" \
+            > ci_scripts/food-database.env
+
+      - name: Commit database release manifest
         run: |
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
-          git add Nomva/Resources/foods.sqlite
-          # Only commit if the file actually changed
+          git add ci_scripts/food-database.env
           git diff --cached --quiet || \
-            git commit -m "DB rebuild $(date +'%Y-%m-%d'): ${{ steps.changelog.outputs.summary }}"
+            git commit -m "Update food database release $(date +'%Y-%m-%d')"
           git push
