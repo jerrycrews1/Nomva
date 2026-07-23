@@ -12,7 +12,7 @@ struct LLMProviderSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Nomva Cloud")
                             .font(.subheadline.weight(.medium))
-                        Text("Powered by GPT-4o-mini")
+                        Text("Powered by GPT-5 models")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

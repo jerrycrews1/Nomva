@@ -256,7 +256,7 @@ struct SettingsView: View {
                 Text("Nomva Cloud")
                     .font(.title3.weight(.semibold))
 
-                Text("Some AI features run through Nomva Cloud with GPT-4o-mini. These tools need an internet connection.")
+                Text("Some AI features run through Nomva Cloud with task-specific GPT-5 models. These tools need an internet connection.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -271,7 +271,7 @@ struct SettingsView: View {
                     .background(NomvaTheme.accentGradient)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                Text("GPT-4o-mini")
+                Text("GPT-5")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }

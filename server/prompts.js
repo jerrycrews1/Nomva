@@ -73,7 +73,8 @@ const SPLIT_FOODS = `Identify each DISTINCT food or drink the user said they con
 Treat compound foods like "peanut butter and jelly sandwich" or "mac and cheese" as a single food.
 Also keep common compound names such as "fish and chips", "bacon egg and cheese sandwich", and "cookies and cream yogurt" together.
 Split "X and Y" or "X, Y" into separate items when they are truly separate foods.
-Return just the food phrases — no quantities, no meal names.
+Treat main-dish/side constructions such as "X with a side of Y" as separate foods when X and Y can be logged independently.
+Keep each food's quantity, size, preparation, flavor, restaurant, and brand attached to that food. Remove only meal labels and conversational wording.
 
 Respond with ONLY a JSON object: {"foods": ["food1", "food2"]}`;
 
@@ -347,10 +348,11 @@ You drive a loop. Each turn the caller sends:
 - any row inspections you have already requested
 - any verifier feedback from rejected picks
 
+The caller has already run the food mention itself as the seeded first search. Pick from that round when it contains a realistic match; request a new search only when it does not.
+
 You respond with ONLY ONE of these JSON shapes:
 
 { "action": "search", "query": "<short search query>", "offset": <integer>=0 }
-{ "action": "inspect", "rowId": <integer> }
 { "action": "pick", "rowId": <integer>, "servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <bool>, "hasExplicitPortion": <bool> }
 { "action": "give_up" }
 
@@ -366,17 +368,20 @@ SEARCH
   - "some spinach" -> "spinach raw"
 - If results are close but not good enough, reformulate based on what came back.
 - Use offset to see more results for the SAME query when the first page is plausible but incomplete.
-
-INSPECT
-- Inspect before you pick when a row is branded, fixed_serving, unusually specific, or otherwise ambiguous.
-- Inspect when multiple candidates look plausible and you need more detail to choose.
+- After two materially different reformulations, stop searching. Choose the best realistic row already returned or give up.
+- Do not require the row name to repeat serving or preparation wording when the base food and nutrition basis are already appropriate.
 
 PICK
 - Pick only a row that is a realistic nutrition basis for what the user actually said.
+- A row may omit a flavor or style word when the omitted detail does not materially change nutrition and no closer row exists. Never drop nutrition-critical modifiers such as sugar-free, zero-sugar, diet, low-fat, or nonalcoholic.
+- Nutrition-critical modifiers outrank flavor and brand. If an exact flavored diet/zero-sugar product is absent, prefer the same base diet/zero-sugar product over a regular-sugar flavored product or a different branded drink.
 - "grams" basis means scalable and is usually better for loose partial counts.
 - "fixed_serving" basis means the row represents one whole menu item or fixed serving. Only pick it when the user's amount actually matches that whole item.
 - Reject rows that add concepts the user did not mention, such as bacon, salad, dressing, kids meal, egg white, medium, large, combo meal, sandwich, or wrap.
 - Do not multiply a whole branded menu serving to represent a smaller count unless the row itself is clearly per-piece or otherwise scales naturally.
+- servings always means the number of DATABASE servings, not the number of pieces the user named. If the row serving says "3 pieces" and the user ate 3 pieces, servings must be 1. If a row is per 100 g, estimate the consumed grams and divide by 100.
+- A close branded row is acceptable as a nutrition proxy for an unbranded food when the underlying food, preparation, and serving basis match and no better generic row is available.
+- For diet, zero-sugar, or sugar-free soft drinks, calculate the calories implied by the proposed servings before picking. Never pick a row that exceeds 10 calories for the user's actual drink portion unless caloric add-ins were named.
 - servingUnit should be a reusable singular base unit such as "nugget", "fry", "egg", "cup", "slice", or "serving".
 - For vague amounts like "some spinach", choose a natural everyday portion such as "1 cup" and set hasExplicitPortion to false.
 
@@ -397,6 +402,14 @@ Reject if:
 - the row is a fixed whole serving being misused for a smaller loose partial amount
 - the proposed portion lost the user's explicit count or otherwise mismatches the mention
 - the calories implied by the row and portion are obviously inconsistent with the mentioned amount
+- a diet, zero-sugar, or sugar-free soft drink exceeds 10 calories for the user's actual portion without caloric add-ins. Values from 0 through 10 calories per portion are normal rounding and must be accepted.
+
+Verification rules:
+- When the user omitted an amount, it is expected to use one database serving or a reasonable everyday default. Keep hasExplicitPortion false. Do not reject solely because the default was inferred.
+- Standard size descriptions may map to a realistic gram serving even when the row name is generic. For example, a generic fruit row with a normal single-fruit serving can represent one medium fruit.
+- A branded row may be accepted as a nutritional proxy when it is the same underlying food and preparation. Do not reject solely because the user did not name the brand.
+- If the selected row is suitable but the proposed number of database servings is wrong, correct servings and accept. A row serving of "3 pieces" represents all 3 pieces at servings = 1.
+- Favor a useful, realistic log over demanding precision the user did not provide. Reject only material food-identity, portion-scale, or nutrition errors.
 
 If you reject, provide a short feedback note and a better retryQuery when possible.
 If you accept but the portion wording should be cleaned up, you may correct the portion fields.

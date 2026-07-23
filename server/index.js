@@ -12,12 +12,14 @@ const prompts = require("./prompts");
 const { loadServerState } = require("./stateStore");
 const { loadAnalyticsStore } = require("./analyticsStore");
 const { createFoodSearchStore } = require("./foodSearchStore");
+const { resolveFoodCandidate: runFoodResolver } = require("./foodResolver");
 const { deterministicDeleteTargets } = require("./deleteTargetGuard");
 const { deterministicEditTarget } = require("./editTargetGuard");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+const FOOD_RESOLUTION_MODEL = process.env.NOMVA_FOOD_RESOLUTION_MODEL || "gpt-5.6-luna";
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const garminStorePath = path.join(dataDir, "garmin-store.json");
@@ -1247,22 +1249,23 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function ask(systemPrompt, userMessage, opts = {}) {
   const maxTokens = opts.maxTokens || 256;
-  const completionBudget = /^gpt-5/i.test(MODEL)
+  const requestModel = opts.model || MODEL;
+  const completionBudget = /^gpt-5/i.test(requestModel)
     ? Math.max(maxTokens * 4, 512)
     : maxTokens;
   const startedAt = Date.now();
   const llmTask = opts.task || "unknown";
-  console.log(`  → OpenAI call (${MODEL}) | promptChars=${userMessage.length} | maxTokens=${completionBudget}`);
+  console.log(`  → OpenAI call (${requestModel}) | promptChars=${userMessage.length} | maxTokens=${completionBudget}`);
   try {
     const request = {
-      model: MODEL,
+      model: requestModel,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
     };
-    if (/^gpt-5/i.test(MODEL)) {
+    if (/^gpt-5/i.test(requestModel)) {
       request.max_completion_tokens = completionBudget;
     } else {
       request.temperature = 0.1;
@@ -1282,7 +1285,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       userHash: opts.userHash || null,
       sessionHash: opts.sessionHash || null,
       route: opts.route || null,
-      model: MODEL,
+      model: requestModel,
       llmTask,
       durationMs: Date.now() - startedAt,
       promptChars: userMessage.length,
@@ -1302,7 +1305,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       userHash: opts.userHash || null,
       sessionHash: opts.sessionHash || null,
       route: opts.route || null,
-      model: MODEL,
+      model: requestModel,
       llmTask,
       durationMs: Date.now() - startedAt,
       promptChars: userMessage.length,
@@ -1328,60 +1331,6 @@ function llmAnalyticsOptions(req, task, extra = {}) {
     userHash: analyticsUserHash(req.nomvaUserId),
     sessionHash: analyticsSessionHash(req),
   };
-}
-
-function renderFoodSearchRounds(rounds) {
-  if (!rounds.length) {
-    return "(no search rounds yet)";
-  }
-
-  return rounds.map((round, roundIdx) => {
-    const header = `Round ${roundIdx} — query "${round.query}" (offset ${round.offset}):`;
-    if (!round.candidates.length) {
-      return `${header}\n  (no candidates returned)`;
-    }
-    const candidateLines = round.candidates.map((candidate) => {
-      const brand = candidate.brand ? ` | brand: ${candidate.brand}` : "";
-      const serving = candidate.servingDescription ? ` | serving: ${candidate.servingDescription}` : "";
-      const grams = typeof candidate.servingGrams === "number" ? ` | serving_g: ${Math.round(candidate.servingGrams)}` : "";
-      const source = candidate.source ? ` | source: ${candidate.source}` : "";
-      const basis = candidate.portionBasis ? ` | basis: ${candidate.portionBasis}` : "";
-      const calories = typeof candidate.caloriesPerServing === "number"
-        ? ` | calories: ${Math.round(candidate.caloriesPerServing)}`
-        : "";
-      return `  rowId ${candidate.rowId}: ${candidate.name}${brand}${serving}${grams}${source}${basis}${calories}`;
-    });
-    return `${header}\n${candidateLines.join("\n")}`;
-  }).join("\n\n");
-}
-
-function renderFoodInspections(inspections) {
-  if (!inspections.length) {
-    return "(no inspections yet)";
-  }
-
-  return inspections.map((food) => {
-    const brand = food.brand ? `\n  brand: ${food.brand}` : "";
-    const serving = food.servingDescription ? `\n  serving: ${food.servingDescription}` : "";
-    const grams = typeof food.servingGrams === "number" ? `\n  serving_g: ${Math.round(food.servingGrams)}` : "";
-    const source = food.source ? `\n  source: ${food.source}` : "";
-    const basis = food.portionBasis ? `\n  basis: ${food.portionBasis}` : "";
-    const calories = typeof food.caloriesPerServing === "number" ? `\n  calories_per_serving: ${Math.round(food.caloriesPerServing)}` : "";
-    const macros = [
-      typeof food.proteinG === "number" ? `${Math.round(food.proteinG)}g protein` : null,
-      typeof food.carbsG === "number" ? `${Math.round(food.carbsG)}g carbs` : null,
-      typeof food.fatG === "number" ? `${Math.round(food.fatG)}g fat` : null,
-    ].filter(Boolean).join(", ");
-    const macroLine = macros ? `\n  macros: ${macros}` : "";
-    return `rowId ${food.rowId}: ${food.name}${brand}${serving}${grams}${source}${basis}${calories}${macroLine}`;
-  }).join("\n\n");
-}
-
-function renderFoodVerifierFeedback(notes) {
-  if (!notes.length) {
-    return "(no verifier feedback yet)";
-  }
-  return notes.map((note, index) => `${index + 1}. ${note}`).join("\n");
 }
 
 async function verifyResolvedFoodPick(req, {
@@ -1414,7 +1363,10 @@ async function verifyResolvedFoodPick(req, {
   const result = await ask(
     prompts.VERIFY_RESOLVED_FOOD_PICK,
     userPrompt,
-    llmAnalyticsOptions(req, "verify_resolved_food_pick", { maxTokens: 220 })
+    llmAnalyticsOptions(req, "verify_resolved_food_pick", {
+      maxTokens: 220,
+      model: FOOD_RESOLUTION_MODEL,
+    })
   );
 
   return {
@@ -1868,160 +1820,21 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       return res.status(400).json({ error: "missing_food_mention" });
     }
 
-    const searchRounds = [];
-    const inspections = [];
-    const inspectedRows = new Map();
-    const verifierFeedback = [];
-    const seenSearches = new Set();
-    const maxTurns = 6;
-
-    for (let turn = 0; turn < maxTurns; turn += 1) {
-      const userPrompt = [
-        `User said: "${userMessage}"`,
-        `Food mention: "${trimmedMention}"`,
-        "",
-        "Search rounds:",
-        renderFoodSearchRounds(searchRounds),
-        "",
-        "Inspections:",
-        renderFoodInspections(inspections),
-        "",
-        "Verifier feedback:",
-        renderFoodVerifierFeedback(verifierFeedback),
-      ].join("\n");
-
-      const result = await ask(
+    const outcome = await runFoodResolver({
+      userMessage,
+      foodMention: trimmedMention,
+      foodSearchStore,
+      askAgent: (userPrompt) => ask(
         prompts.RESOLVE_FOOD_CANDIDATE_AGENT,
         userPrompt,
-        llmAnalyticsOptions(req, "resolve_food_candidate", { maxTokens: 360 })
-      );
-
-      const action = String(result?.action || "").toLowerCase();
-
-      if (action === "search") {
-        const query = typeof result.query === "string" ? result.query.trim() : "";
-        const offset = Number.isInteger(result.offset) && result.offset >= 0 ? result.offset : 0;
-        if (!query) {
-          verifierFeedback.push("Invalid search action: query was missing.");
-          continue;
-        }
-
-        const searchKey = `${query.toLowerCase()}::${offset}`;
-        if (seenSearches.has(searchKey)) {
-          verifierFeedback.push(`Search "${query}" with offset ${offset} was already tried.`);
-          continue;
-        }
-
-        seenSearches.add(searchKey);
-        searchRounds.push({
-          query,
-          offset,
-          candidates: foodSearchStore.search(query, { limit: 20, offset }),
-        });
-        continue;
-      }
-
-      if (action === "inspect") {
-        const rowId = Number.isInteger(result.rowId) ? result.rowId : null;
-        if (!rowId) {
-          verifierFeedback.push("Invalid inspect action: rowId was missing.");
-          continue;
-        }
-
-        const seenInSearch = searchRounds.some((round) => round.candidates.some((candidate) => candidate.rowId === rowId));
-        if (!seenInSearch && !inspectedRows.has(rowId)) {
-          verifierFeedback.push(`Inspect rowId ${rowId} failed: use a rowId that appeared in the search results.`);
-          continue;
-        }
-
-        if (!inspectedRows.has(rowId)) {
-          const inspected = foodSearchStore.inspect(rowId);
-          if (!inspected) {
-            verifierFeedback.push(`Inspect rowId ${rowId} failed: row not found.`);
-            continue;
-          }
-          inspectedRows.set(rowId, inspected);
-          inspections.push(inspected);
-        }
-        continue;
-      }
-
-      if (action === "pick") {
-        const rowId = Number.isInteger(result.rowId) ? result.rowId : null;
-        const servings = typeof result.servings === "number" && result.servings > 0 ? result.servings : 1;
-        const portionDescription = typeof result.portionDescription === "string" && result.portionDescription.trim()
-          ? result.portionDescription.trim()
-          : "1 serving";
-        const servingUnit = typeof result.servingUnit === "string" && result.servingUnit.trim()
-          ? result.servingUnit.trim()
-          : "serving";
-        const confident = result.confident === true;
-        const hasExplicitPortion = result.hasExplicitPortion === true;
-
-        if (!rowId) {
-          verifierFeedback.push("Invalid pick action: rowId was missing.");
-          continue;
-        }
-
-        const seenInSearch = searchRounds.some((round) => round.candidates.some((candidate) => candidate.rowId === rowId));
-        if (!seenInSearch && !inspectedRows.has(rowId)) {
-          verifierFeedback.push(`Pick rowId ${rowId} failed: use a rowId that appeared in the search results.`);
-          continue;
-        }
-
-        const selectedFood = inspectedRows.get(rowId) || foodSearchStore.inspect(rowId);
-        if (!selectedFood) {
-          verifierFeedback.push(`Pick rowId ${rowId} failed: row not found.`);
-          continue;
-        }
-
-        const verification = await verifyResolvedFoodPick(req, {
-          userMessage,
-          foodMention: trimmedMention,
-          selectedFood,
-          servings,
-          portionDescription,
-          servingUnit,
-          confident,
-          hasExplicitPortion,
-        });
-
-        if (verification.accept) {
-          return res.json({
-            candidateId: selectedFood.candidateId,
-            rowId: selectedFood.rowId,
-            name: selectedFood.name,
-            brand: selectedFood.brand,
-            source: selectedFood.source,
-            servings: verification.servings,
-            portionDescription: verification.portionDescription,
-            servingUnit: verification.servingUnit,
-            confident: verification.confident,
-            hasExplicitPortion: verification.hasExplicitPortion,
-          });
-        }
-
-        const noteParts = [];
-        if (verification.feedback) {
-          noteParts.push(verification.feedback);
-        } else {
-          noteParts.push(`Row ${rowId} was not a realistic nutrition basis for the mention.`);
-        }
-        if (verification.retryQuery) {
-          noteParts.push(`Suggested retry query: "${verification.retryQuery}".`);
-        }
-        verifierFeedback.push(noteParts.join(" "));
-        continue;
-      }
-
-      if (action === "give_up") {
-        return res.status(422).json({ error: "no_matching_food" });
-      }
-
-      verifierFeedback.push(`Invalid action "${action || "(missing)"}". Use search, inspect, pick, or give_up.`);
-    }
-
-    return res.status(422).json({ error: "food_resolution_failed" });
+        llmAnalyticsOptions(req, "resolve_food_candidate", {
+          maxTokens: 360,
+          model: FOOD_RESOLUTION_MODEL,
+        })
+      ),
+      verifyPick: (payload) => verifyResolvedFoodPick(req, payload),
+    });
+    return res.status(outcome.status).json(outcome.body);
   } catch (err) {
     console.error("resolve-food-candidate error:", err.message);
     res.status(500).json({ error: "food_resolution_failed" });

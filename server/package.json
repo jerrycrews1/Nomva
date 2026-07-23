@@ -1,11 +1,13 @@
 {
   "name": "nomva-api",
   "version": "1.0.0",
-  "description": "Nomva LLM routing server — tiny focused prompts via GPT-4o-mini",
+  "description": "Nomva LLM routing server with task-specific models and focused prompts",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
+    "test": "node --test tests/*.test.js",
+    "smoke:food-resolution": "node scripts/run_food_resolution_smoke.js",
     "baseline:llm": "node scripts/run_llm_baseline.js",
     "eval:chat-crud": "node scripts/run_chat_crud_eval.js"
   },

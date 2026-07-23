@@ -32,42 +32,37 @@ function singularize(token) {
   return token;
 }
 
-function foodFamilySearchVariants(query) {
-  const tokens = tokenize(query).filter((token) => token !== "a" && token !== "about");
-  const singularTokens = new Set(tokens.map(singularize));
-  const variants = [];
+const SEARCH_NOISE_TOKENS = new Set([
+  "a", "an", "the", "some", "about", "approximately", "around",
+  "i", "my", "had", "ate", "drank", "log", "please",
+  "for", "at", "during", "meal", "breakfast", "lunch", "dinner", "snack",
+  "side", "of", "served", "serving",
+  "small", "medium", "large",
+]);
 
-  const mentionsChickFilA = singularTokens.has("chick") && singularTokens.has("fil");
-  const mentionsChicken = singularTokens.has("chicken") || mentionsChickFilA;
-  const mentionsNuggets = singularTokens.has("nugget");
-  const mentionsFries = singularTokens.has("fry") || singularTokens.has("frie");
-  const mentionsWaffle = singularTokens.has("waffle") || mentionsChickFilA;
+function isPortionToken(token) {
+  return /^\d+(?:\.\d+)?$/.test(token)
+    || /^\d+(?:\.\d+)?(?:oz|ounce|ounces|g|gram|grams|kg|ml|l|lb|lbs)$/.test(token);
+}
 
-  if (mentionsNuggets && mentionsChicken) {
-    variants.push("chicken nuggets");
-  } else if (mentionsNuggets && tokens.length === 1) {
-    variants.push("chicken nuggets");
-  }
-
-  if (mentionsFries && mentionsWaffle) {
-    variants.push("waffle fries");
-  } else if (mentionsFries && tokens.length <= 2) {
-    variants.push("french fries");
-  }
-
-  if (singularTokens.has("egg")) {
-    variants.push("whole egg");
-  }
-
-  if (singularTokens.has("spinach")) {
-    variants.push("spinach raw");
-  }
-
-  return variants;
+function meaningfulSearchTokens(query) {
+  return tokenize(query).filter((token) => !SEARCH_NOISE_TOKENS.has(token) && !isPortionToken(token));
 }
 
 function searchVariants(query) {
-  const variants = [String(query || "").trim(), ...foodFamilySearchVariants(query)];
+  const original = String(query || "").trim();
+  const contentTokens = meaningfulSearchTokens(original);
+  const variants = [original, contentTokens.join(" ")];
+
+  // A descriptive modifier may not exist in the database even though the base
+  // food is a valid nutritional equivalent. Search every one-token relaxation
+  // and let the LLM decide which returned row preserves the user's meaning.
+  if (contentTokens.length >= 3 && contentTokens.length <= 8) {
+    for (let omitted = 0; omitted < contentTokens.length; omitted += 1) {
+      variants.push(contentTokens.filter((_, index) => index !== omitted).join(" "));
+    }
+  }
+
   const unique = [];
   const seen = new Set();
   for (const variant of variants) {
@@ -86,74 +81,51 @@ function rowTokens(row) {
 }
 
 function scoreFoodRow(row, originalQuery) {
-  const queryTokens = new Set(tokenize(originalQuery).filter((token) => token !== "a" && token !== "about").map(singularize));
-  const candidateTokens = new Set(rowTokens(row));
-  const name = String(row?.name || "").toLowerCase();
-  const brand = String(row?.brand || "").toLowerCase();
-  const basis = String(row?.portionBasis || row?.portion_basis || "");
-  const hasBrand = Boolean(brand);
+  const queryTokenList = meaningfulSearchTokens(originalQuery).map(singularize);
+  const queryTokens = new Set(queryTokenList);
+  const candidateTokenList = rowTokens(row);
+  const candidateTokens = new Set(candidateTokenList);
+  const nameTokens = tokenize(row?.name || "").map(singularize);
+  const name = String(row?.name || "").toLowerCase().trim();
+  const normalizedQuery = meaningfulSearchTokens(originalQuery).join(" ");
+  const matchedTokens = [...queryTokens].filter((token) => candidateTokens.has(token));
+  const coverage = queryTokens.size ? matchedTokens.length / queryTokens.size : 0;
   let score = 0;
 
-  for (const token of queryTokens) {
-    if (candidateTokens.has(token)) {
-      score += 12;
+  score += matchedTokens.length * 30;
+  score += Math.round(coverage * 140);
+  if (queryTokens.size && matchedTokens.length === queryTokens.size) {
+    score += 80;
+  }
+
+  if (name === normalizedQuery) {
+    score += 240;
+  } else if (normalizedQuery && name.startsWith(`${normalizedQuery} `)) {
+    score += 100;
+  }
+
+  for (let index = 0; index < queryTokenList.length - 1; index += 1) {
+    const left = queryTokenList[index];
+    const right = queryTokenList[index + 1];
+    for (let candidateIndex = 0; candidateIndex < candidateTokenList.length - 1; candidateIndex += 1) {
+      if (candidateTokenList[candidateIndex] === left && candidateTokenList[candidateIndex + 1] === right) {
+        score += 40;
+        break;
+      }
     }
   }
 
-  const mentionsChickFilA = queryTokens.has("chick") && queryTokens.has("fil");
-  if (mentionsChickFilA && brand.includes("chick-fil")) {
-    score += 20;
-  }
+  const unmatchedNameTokens = nameTokens.filter((token) => !queryTokens.has(token));
+  score -= Math.min(unmatchedNameTokens.length * 3, 30);
 
-  if (
-    mentionsChickFilA &&
-    queryTokens.has("nugget") &&
-    candidateTokens.has("chicken") &&
-    candidateTokens.has("nugget")
-  ) {
-    score += basis === "grams" ? 70 : 32;
-    if (!hasBrand && name === "chicken nuggets") {
-      score += 45;
-    } else if (hasBrand && !brand.includes("chick-fil")) {
-      score -= 36;
-    }
+  if (!row?.brand) {
+    score += 8;
   }
-
-  if (
-    mentionsChickFilA &&
-    queryTokens.has("fry") &&
-    candidateTokens.has("waffle") &&
-    candidateTokens.has("fry")
-  ) {
-    score += basis === "grams" ? 70 : 20;
-    if (!hasBrand && name === "waffle fries") {
-      score += 45;
-    } else if (hasBrand && !brand.includes("chick-fil")) {
-      score -= 24;
-    }
+  if (String(row?.source || "").includes("sr_legacy")) {
+    score += 8;
   }
-
-  if (basis === "grams") {
-    score += 14;
-  }
-
-  if (
-    mentionsChickFilA &&
-    queryTokens.has("fry") &&
-    ["small", "medium", "large"].some((token) => candidateTokens.has(token)) &&
-    !["small", "medium", "large"].some((token) => queryTokens.has(token))
-  ) {
-    score -= 80;
-  }
-
-  for (const bad of ["pretzel", "catfish", "salmon", "cereal", "kids", "meal", "salad", "dressing", "seasoned", "sweet"]) {
-    if (candidateTokens.has(bad) && !queryTokens.has(bad)) {
-      score -= 50;
-    }
-  }
-
-  if (name === String(originalQuery || "").toLowerCase()) {
-    score += 30;
+  if (String(row?.portionBasis || row?.portion_basis || "") === "grams") {
+    score += 5;
   }
 
   return score;
@@ -275,7 +247,7 @@ function createFoodSearchStore(options = {}) {
     };
   }
 
-  function searchOne(query, { limit = 20, offset = 0 } = {}) {
+  function searchOne(query, { limit = 120 } = {}) {
     const trimmed = String(query || "").trim();
     const matchQuery = buildMatchQuery(trimmed);
     const tokens = tokenize(trimmed);
@@ -287,58 +259,56 @@ function createFoodSearchStore(options = {}) {
       .map(() => "(lower(f.name) LIKE ? OR lower(IFNULL(f.brand, '')) LIKE ?)")
       .join(" AND ");
 
-    const sql = `
-      WITH strict AS (
-        SELECT ${FOOD_COLUMNS}, bm25(foods_fts, 12.0, 3.0) AS rank_score, 0 AS match_tier
-        FROM foods f
-        JOIN foods_fts ON foods_fts.rowid = f.id
-        WHERE foods_fts MATCH ?
-        LIMIT 120
-      ),
-      loose AS (
-        SELECT ${FOOD_COLUMNS}, NULL AS rank_score, 1 AS match_tier
-        FROM foods f
-        WHERE ${whereClause}
-        LIMIT 120
-      ),
-      merged AS (
-        SELECT * FROM strict
-        UNION ALL
-        SELECT * FROM loose
-        WHERE id NOT IN (SELECT id FROM strict)
-      )
-      SELECT *
-      FROM merged
-      ORDER BY
-        CASE
-          WHEN lower(name) = ? THEN 0
-          WHEN lower(name) LIKE ? THEN 1
-          WHEN lower(name) LIKE ? THEN 2
-          WHEN lower(brand) = ? THEN 3
-          ELSE 4
-        END ASC,
-        match_tier ASC,
-        CASE WHEN rank_score IS NULL THEN 1000000000 ELSE rank_score END ASC,
-        LENGTH(name) ASC,
-        id ASC
-      LIMIT ? OFFSET ?
+    const strictSql = `
+      SELECT ${FOOD_COLUMNS}
+      FROM foods f
+      JOIN foods_fts ON foods_fts.rowid = f.id
+      WHERE foods_fts MATCH ?
+      ORDER BY bm25(foods_fts, 12.0, 3.0) ASC, LENGTH(f.name) ASC, f.id ASC
+      LIMIT ?
     `;
 
-    const params = [matchQuery];
+    const looseSql = `
+      SELECT ${FOOD_COLUMNS}
+      FROM foods f
+      WHERE ${whereClause}
+      ORDER BY
+        CASE
+          WHEN lower(f.name) = ? THEN 0
+          WHEN lower(f.name) LIKE ? THEN 1
+          WHEN lower(f.name) LIKE ? THEN 2
+          WHEN lower(IFNULL(f.brand, '')) = ? THEN 3
+          ELSE 4
+        END ASC,
+        LENGTH(f.name) ASC,
+        f.id ASC
+      LIMIT ?
+    `;
+
+    const maxRows = Math.max(40, Math.min(400, limit));
+    const strictRows = db.prepare(strictSql).all(matchQuery, maxRows);
+    const looseParams = [];
     for (const token of tokens) {
       const like = `%${token}%`;
-      params.push(like, like);
+      looseParams.push(like, like);
     }
 
     const normalized = trimmed.toLowerCase();
-    params.push(normalized, `${normalized}%`, `%${normalized}%`, normalized, limit, offset);
-    return db.prepare(sql).all(...params).map(formatFoodRow);
+    looseParams.push(normalized, `${normalized}%`, `%${normalized}%`, normalized, maxRows);
+    const looseRows = db.prepare(looseSql).all(...looseParams);
+    const merged = new Map();
+    for (const row of [...strictRows, ...looseRows]) {
+      if (!merged.has(row.id)) {
+        merged.set(row.id, formatFoodRow(row));
+      }
+    }
+    return [...merged.values()];
   }
 
   function search(query, { limit = 20, offset = 0 } = {}) {
     const merged = new Map();
     for (const variant of searchVariants(query)) {
-      for (const row of searchOne(variant, { limit: Math.max(limit * 6, 120), offset })) {
+      for (const row of searchOne(variant, { limit: Math.max((limit + offset) * 8, 160) })) {
         if (!merged.has(row.candidateId)) {
           merged.set(row.candidateId, row);
         }
@@ -360,7 +330,7 @@ function createFoodSearchStore(options = {}) {
         }
         return String(a.row.name || "").localeCompare(String(b.row.name || ""));
       })
-      .slice(0, limit)
+      .slice(offset, offset + limit)
       .map((ranked) => ranked.row);
   }
 
@@ -384,6 +354,9 @@ function createFoodSearchStore(options = {}) {
     dbPath,
     search,
     inspect,
+    close() {
+      db.close();
+    },
   };
 }
 

@@ -101,6 +101,12 @@ private struct CandidateResolution {
     let servingsInfo: ServingsInfo
 }
 
+private enum ServerResolutionAttempt {
+    case resolved(CandidateResolution)
+    case noMatch
+    case unavailable
+}
+
 private struct FastFoodMention {
     let text: String
     let servingsInfo: ServingsInfo
@@ -256,7 +262,7 @@ final class FoodLoggingService {
 
     // MARK: - Focused Pipeline
     //
-    // Each step makes ONE small call to GPT-4o-mini via the Nomva Cloud API.
+    // Each step makes one focused call through the Nomva Cloud API.
     // No giant system prompts, no JSON schema guessing — just tiny focused questions.
 
     func process(
@@ -1048,7 +1054,7 @@ final class FoodLoggingService {
     }
 
     private func fastParseFoodLog(_ userMessage: String) -> FastFoodParse? {
-        guard !containsBareAndFoodJoiner(userMessage) else { return nil }
+        guard !requiresSemanticFoodSplit(userMessage) else { return nil }
 
         let meal = fastMeal(in: userMessage)
         var text = userMessage
@@ -1067,6 +1073,14 @@ final class FoodLoggingService {
 
         guard !mentions.isEmpty else { return nil }
         return FastFoodParse(meal: meal, mentions: mentions)
+    }
+
+    private func requiresSemanticFoodSplit(_ text: String) -> Bool {
+        if containsBareAndFoodJoiner(text) {
+            return true
+        }
+        let pattern = #"(?i)\b(?:with\s+(?:a\s+)?side\s+of|served\s+with|along\s+with|alongside|plus)\b"#
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 
     private func fastMeal(in text: String) -> String? {
@@ -1267,15 +1281,21 @@ final class FoodLoggingService {
         // Try the server-side resolver only after the local high-confidence
         // search path. The server can inspect a read-only DB copy, but the
         // on-device DB search is the source of truth for rows the app can save.
-        if let serverResolution = await serverResolveLoggedCandidate(
+        let serverAttempt = await serverResolveLoggedCandidate(
             mention: mention,
             userMessage: userMessage,
             provider: provider,
             recentEntries: recentEntries,
             customFoods: customFoods,
             initialServingsInfo: initialServingsInfo
-        ) {
-            return serverResolution
+        )
+        switch serverAttempt {
+        case .resolved(let resolution):
+            return resolution
+        case .noMatch:
+            return nil
+        case .unavailable:
+            break
         }
 
         // Next try the local agent loop: the LLM drives query construction,
@@ -1451,7 +1471,7 @@ final class FoodLoggingService {
         recentEntries: [FoodEntry],
         customFoods: [CustomFood],
         initialServingsInfo: ServingsInfo
-    ) async -> CandidateResolution? {
+    ) async -> ServerResolutionAttempt {
         let resolved: ResolvedFoodCandidate
         do {
             resolved = try await provider.resolveFoodCandidate(
@@ -1459,9 +1479,11 @@ final class FoodLoggingService {
                 foodMention: mention
             )
         } catch let error as ResolveFoodCandidateError where error == .unsupported {
-            return nil
+            return .unavailable
+        } catch let error as ResolveFoodCandidateError where error == .noMatch {
+            return .noMatch
         } catch {
-            return nil
+            return .unavailable
         }
 
         guard let candidate = await resolveCandidate(
@@ -1469,22 +1491,22 @@ final class FoodLoggingService {
             recentEntries: recentEntries,
             customFoods: customFoods
         ) else {
-            return nil
+            return .unavailable
         }
 
         let localName = normalizedForComparison(candidate.name)
         let remoteName = normalizedForComparison(resolved.name)
         guard !localName.isEmpty, localName == remoteName else {
-            return nil
+            return .unavailable
         }
 
         let localBrand = normalizedForComparison(candidate.brand ?? "")
         let remoteBrand = normalizedForComparison(resolved.brand ?? "")
         if !localBrand.isEmpty || !remoteBrand.isEmpty, localBrand != remoteBrand {
-            return nil
+            return .unavailable
         }
 
-        return CandidateResolution(
+        return .resolved(CandidateResolution(
             candidate: candidate,
             servingsInfo: ServingsInfo(
                 servings: max(0.1, resolved.servings),
@@ -1493,7 +1515,7 @@ final class FoodLoggingService {
                 confident: resolved.confident,
                 hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
             )
-        )
+        ))
     }
 
     /// Run the LLM-driven find-food agent loop. The LLM proposes the search

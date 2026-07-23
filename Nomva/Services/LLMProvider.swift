@@ -114,6 +114,7 @@ enum FindFoodStepError: Error, Equatable, Sendable {
 
 enum ResolveFoodCandidateError: Error, Equatable, Sendable {
     case unsupported
+    case noMatch
     case invalidResponse
 }
 
@@ -295,7 +296,7 @@ enum NomvaAPI {
 // MARK: - Factory
 
 enum LLMProviderFactory {
-    /// Returns the active provider — always Nomva Cloud (GPT-4o-mini).
+    /// Returns the active provider - always Nomva Cloud using task-specific GPT-5 models.
     @MainActor
     static func active() -> any LLMProvider {
         return RemoteAPIProvider(

@@ -16,6 +16,7 @@ FILES=(
   analyticsStore.js
   stateStore.js
   foodSearchStore.js
+  foodResolver.js
   package.json
   package-lock.json
 )

@@ -84,7 +84,14 @@ struct RemoteAPIProvider: LLMProvider {
             "userMessage": userMessage,
             "foodMention": foodMention,
         ]
-        let data = try await postRaw("/v1/resolve-food-candidate", body: body)
+        let data: Data
+        do {
+            data = try await postRaw("/v1/resolve-food-candidate", body: body)
+        } catch RemoteError.serverError(422) {
+            throw ResolveFoodCandidateError.noMatch
+        } catch RemoteError.serverError(501) {
+            throw ResolveFoodCandidateError.unsupported
+        }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let candidateId = (json["candidateId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let name = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
