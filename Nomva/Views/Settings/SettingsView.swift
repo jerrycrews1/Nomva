@@ -111,16 +111,36 @@ struct SettingsView: View {
                                     )
                                 }
 
-                                HStack(spacing: 12) {
-                                    Button("Restore Purchases") {
-                                        Task { await SubscriptionManager.shared.restore() }
-                                    }
-                                    .buttonStyle(NomvaSecondaryButtonStyle())
+                                if subscriptionManager.hasTestFlightAccess {
+                                    Label(
+                                        "Pro is unlocked for this TestFlight build.",
+                                        systemImage: "checkmark.seal.fill"
+                                    )
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.green)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    HStack(spacing: 12) {
+                                        Button("Restore Purchases") {
+                                            Task { await SubscriptionManager.shared.restore() }
+                                        }
+                                        .buttonStyle(NomvaSecondaryButtonStyle())
 
-                                    Button("View Pro Screen") {
-                                        showPaywallPreview = true
+                                        Button("View Pro Screen") {
+                                            showPaywallPreview = true
+                                        }
+                                        .buttonStyle(NomvaSecondaryButtonStyle())
                                     }
-                                    .buttonStyle(NomvaSecondaryButtonStyle())
+                                }
+
+                                if let message = subscriptionManager.purchaseState.feedbackMessage,
+                                   !subscriptionManager.hasTestFlightAccess {
+                                    Text(message)
+                                        .font(.footnote.weight(.medium))
+                                        .foregroundStyle(
+                                            subscriptionManager.purchaseState.isError ? Color.red : Color.secondary
+                                        )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }
@@ -280,6 +300,9 @@ struct SettingsView: View {
     }
 
     private var membershipSubtitle: String {
+        if subscriptionManager.hasTestFlightAccess {
+            return "All Pro features are unlocked for beta testing."
+        }
         if subscriptionManager.isPremium {
             return "Pro features are active on this device."
         }
@@ -287,6 +310,9 @@ struct SettingsView: View {
     }
 
     private var membershipStatus: String {
+        if subscriptionManager.hasTestFlightAccess {
+            return "TestFlight"
+        }
         if subscriptionManager.isPremium {
             return "Active"
         }

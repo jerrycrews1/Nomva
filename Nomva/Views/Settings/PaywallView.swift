@@ -45,28 +45,11 @@ struct PaywallView: View {
             }
 
             VStack(spacing: 12) {
-                Button(action: purchase) {
-                    HStack(spacing: 10) {
-                        switch subManager.purchaseState {
-                        case .purchasing:
-                            ProgressView().tint(.white)
-                            Text("Processing...")
-                        case .error(let msg):
-                            Text(msg)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                        default:
-                            Text(buttonTitle)
-                        }
-                    }
+                if subManager.hasTestFlightAccess {
+                    testFlightAccessControls
+                } else {
+                    purchaseControls
                 }
-                .buttonStyle(NomvaPrimaryButtonStyle())
-                .disabled(subManager.product == nil || !subManager.purchaseState.isIdle)
-
-                Button("Restore Purchases") {
-                    Task { await subManager.restore() }
-                }
-                .buttonStyle(NomvaSecondaryButtonStyle())
 
                 if subManager.remainingFreeMessages > 0 {
                     Text("You still have \(subManager.remainingFreeMessages) free messages.")
@@ -116,13 +99,20 @@ struct PaywallView: View {
 
                 Spacer()
 
-                NomvaTag(text: "Pro", tint: NomvaTheme.accent)
+                NomvaTag(
+                    text: subManager.hasTestFlightAccess ? "TestFlight" : "Pro",
+                    tint: subManager.hasTestFlightAccess ? .green : NomvaTheme.accent
+                )
             }
 
-            Text("Unlock Nomva Pro")
+            Text(subManager.hasTestFlightAccess ? "Nomva Pro is active" : "Unlock Nomva Pro")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
 
-            Text("Get faster logging, easier edits, and premium insights.")
+            Text(
+                subManager.hasTestFlightAccess
+                    ? "This TestFlight build includes Pro access at no charge."
+                    : "Get faster logging, easier edits, and premium insights."
+            )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -137,14 +127,22 @@ struct PaywallView: View {
 
     private var pricingCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Included with Pro")
+            Text(subManager.hasTestFlightAccess ? "Included for beta testing" : "Included with Pro")
                 .font(.headline)
 
-            Text("Unlimited AI logging, easier corrections, and premium insights.")
+            Text(
+                subManager.hasTestFlightAccess
+                    ? "All Pro features are unlocked while you test this build."
+                    : "Unlimited AI logging, easier corrections, and premium insights."
+            )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if let product = subManager.product {
+            if subManager.hasTestFlightAccess {
+                Label("No purchase required", systemImage: "checkmark.seal.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+            } else if let product = subManager.product {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(product.displayPrice)
                         .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -159,6 +157,60 @@ struct PaywallView: View {
             }
         }
         .nomvaCard(.standard, padding: 20)
+    }
+
+    private var purchaseControls: some View {
+        VStack(spacing: 12) {
+            Button(action: purchase) {
+                HStack(spacing: 10) {
+                    if case .purchasing = subManager.purchaseState {
+                        ProgressView().tint(.white)
+                        Text("Processing...")
+                    } else {
+                        Text(buttonTitle)
+                    }
+                }
+            }
+            .buttonStyle(NomvaPrimaryButtonStyle())
+            .disabled(subManager.product == nil || subManager.purchaseState.isBusy)
+
+            Button {
+                Task { await subManager.restore() }
+            } label: {
+                HStack(spacing: 8) {
+                    if case .restoring = subManager.purchaseState {
+                        ProgressView()
+                        Text("Restoring...")
+                    } else {
+                        Text("Restore Purchases")
+                    }
+                }
+            }
+            .buttonStyle(NomvaSecondaryButtonStyle())
+            .disabled(subManager.purchaseState.isBusy)
+
+            if let message = subManager.purchaseState.feedbackMessage {
+                Text(message)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(subManager.purchaseState.isError ? Color.red : Color.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var testFlightAccessControls: some View {
+        VStack(spacing: 12) {
+            Label("Pro is unlocked for this TestFlight build.", systemImage: "checkmark.seal.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.green)
+                .multilineTextAlignment(.center)
+
+            Button("Continue Testing") {
+                dismiss()
+            }
+            .buttonStyle(NomvaPrimaryButtonStyle())
+        }
     }
 
     private func featureCard(icon: String, title: String, desc: String) -> some View {

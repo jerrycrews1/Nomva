@@ -41,6 +41,7 @@
 		AA44444444444444444444AA /* LLMProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA44444444444444444444AA /* LLMProviderSettingsView.swift */; };
 		AA55555555555555555555AA /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA55555555555555555555AA /* OpenAIProvider.swift */; };
 		AA66666666666666666666AA /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA66666666666666666666AA /* SubscriptionManager.swift */; };
+		F5D900000000000000000002 /* SubscriptionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5D900000000000000000001 /* SubscriptionPolicy.swift */; };
 		AA77777777777777777777AA /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA77777777777777777777AA /* PaywallView.swift */; };
 		AA88888888888888888888AA /* ManualFoodSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88888888888888888888AA /* ManualFoodSearchView.swift */; };
 		AA99999999999999999999AA /* ManualFoodDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA99999999999999999999AA /* ManualFoodDetailView.swift */; };
@@ -176,6 +177,7 @@
 		FA44444444444444444444AA /* LLMProviderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProviderSettingsView.swift; sourceTree = "<group>"; };
 		FA55555555555555555555AA /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
 		FA66666666666666666666AA /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		F5D900000000000000000001 /* SubscriptionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionPolicy.swift; sourceTree = "<group>"; };
 		FA77777777777777777777AA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		FA88888888888888888888AA /* ManualFoodSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualFoodSearchView.swift; sourceTree = "<group>"; };
 		FA99999999999999999999AA /* ManualFoodDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualFoodDetailView.swift; sourceTree = "<group>"; };
@@ -280,6 +282,7 @@
 				3D65D9E758F86DAD24CEABD4 /* GoalService.swift */,
 				9BD1642B4F4044AD7A2C6E7A /* SyncManager.swift */,
 				FA66666666666666666666AA /* SubscriptionManager.swift */,
+				F5D900000000000000000001 /* SubscriptionPolicy.swift */,
 				FA22222222222222222222AA /* FoundationModelsProvider.swift */,
 				FA55555555555555555555AA /* OpenAIProvider.swift */,
 				FA33333333333333333333AA /* LlamaCppProvider.swift */,
@@ -558,6 +561,7 @@
 				F0C470422F95B59900AC8FDB /* PhotoFoodReviewView.swift in Sources */,
 				F0C470432F95B59900AC8FDB /* ImagePicker.swift in Sources */,
 				AA66666666666666666666AA /* SubscriptionManager.swift in Sources */,
+				F5D900000000000000000002 /* SubscriptionPolicy.swift in Sources */,
 				F0C4703F2F95A04A00AC8FDB /* NetworkMonitor.swift in Sources */,
 				AA77777777777777777777AA /* PaywallView.swift in Sources */,
 				AA88888888888888888888AA /* ManualFoodSearchView.swift in Sources */,
