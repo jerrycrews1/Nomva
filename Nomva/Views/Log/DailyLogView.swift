@@ -20,6 +20,9 @@ struct DailyLogView: View {
     @State private var deleteFoodEntry: FoodEntry? = nil
     @State private var showDeleteFoodConfirm  = false
     @State private var showNutritionDetail    = false
+    @State private var targetedMeal: MealCategory? = nil
+    @State private var showMoveError = false
+    @State private var moveErrorMessage = ""
 
     private var cal: Calendar { Calendar.current }
     private var isToday: Bool { cal.isDateInToday(selectedDate) }
@@ -76,11 +79,11 @@ struct DailyLogView: View {
     }
     private var dayTotals: NutritionTotals { NutritionTotals.from(entries: selectedDayEntries) }
 
-    private var groupedEntries: [(String, [FoodEntry])] {
-        let order = ["breakfast", "lunch", "dinner", "snack"]
-        let grouped = Dictionary(grouping: selectedDayEntries, by: { $0.meal })
-        return order.compactMap { meal in
-            guard let entries = grouped[meal], !entries.isEmpty else { return nil }
+    private var mealSections: [(MealCategory, [FoodEntry])] {
+        MealCategory.allCases.map { meal in
+            let entries = selectedDayEntries.filter {
+                MealCategory(storedValue: $0.meal) == meal
+            }
             return (meal, entries)
         }
     }
@@ -111,55 +114,77 @@ struct DailyLogView: View {
                     }
                     .listSectionSeparator(.hidden)
 
-                    ForEach(groupedEntries, id: \.0) { meal, mealEntries in
-                        Section {
-                            ForEach(mealEntries) { entry in
-                                FoodEntryRow(entry: entry)
-                                    .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
-                                    .listRowBackground(Color.clear)
-                                    .listRowSeparator(.hidden)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { selectedEntry = entry }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button(role: .destructive) {
-                                            deleteFoodEntry = entry
-                                            showDeleteFoodConfirm = true
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
+                    if !selectedDayEntries.isEmpty {
+                        ForEach(mealSections, id: \.0) { meal, mealEntries in
+                            Section {
+                                if mealEntries.isEmpty {
+                                    EmptyMealDropZone(isTargeted: targetedMeal == meal)
+                                        .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
+                                        .listRowBackground(Color.clear)
+                                        .listRowSeparator(.hidden)
+                                        .dropDestination(
+                                            for: String.self,
+                                            action: { identifiers, _ in
+                                                moveFoodEntries(with: identifiers, to: meal)
+                                            },
+                                            isTargeted: { isTargeted in
+                                                updateDropTarget(meal, isTargeted: isTargeted)
+                                            }
+                                        )
+                                } else {
+                                    ForEach(mealEntries) { entry in
+                                        FoodEntryRow(entry: entry)
+                                            .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
+                                            .listRowBackground(Color.clear)
+                                            .listRowSeparator(.hidden)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture { selectedEntry = entry }
+                                            .draggable(entry.id.uuidString) {
+                                                FoodEntryDragPreview(entry: entry)
+                                            }
+                                            .dropDestination(
+                                                for: String.self,
+                                                action: { identifiers, _ in
+                                                    moveFoodEntries(with: identifiers, to: meal)
+                                                },
+                                                isTargeted: { isTargeted in
+                                                    updateDropTarget(meal, isTargeted: isTargeted)
+                                                }
+                                            )
+                                            .accessibilityHint("Drag to another meal to move this entry")
+                                            .accessibilityActions {
+                                                ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
+                                                    Button("Move to \(destination.title)") {
+                                                        _ = moveFoodEntries(
+                                                            with: [entry.id.uuidString],
+                                                            to: destination
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                Button(role: .destructive) {
+                                                    deleteFoodEntry = entry
+                                                    showDeleteFoodConfirm = true
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                                Button {
+                                                    selectedEntry = entry
+                                                } label: {
+                                                    Label("Edit", systemImage: "pencil")
+                                                }
+                                                .tint(.orange)
+                                            }
                                         }
-                                        Button {
-                                            selectedEntry = entry
-                                        } label: {
-                                            Label("Edit", systemImage: "pencil")
-                                        }
-                                        .tint(.orange)
                                     }
+                            } header: {
+                                mealHeader(meal, entries: mealEntries)
                             }
-                        } header: {
-                            HStack {
-                                NomvaSectionHeaderText(title: meal.capitalized)
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Text("\(Int(mealEntries.reduce(0.0) { $0 + $1.calories })) cal")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .textCase(nil)
-                                
-                                Button {
-                                    selectedMealForSearch = meal
-                                    showManualSearch = true
-                                } label: {
-                                    Image(systemName: "plus.circle.fill")
-                                        .foregroundStyle(.orange)
-                                        .font(.title3)
-                                }
-                                .padding(.leading, 8)
-                            }
-                            .nomvaSectionHeaderPadding()
                         }
                     }
 
-                    if groupedEntries.isEmpty {
+                    if selectedDayEntries.isEmpty {
                         Section {
                             emptyLogView
                                 .listRowBackground(Color.clear)
@@ -255,6 +280,11 @@ struct DailyLogView: View {
                     Text("\(entry.name) — \(Int(entry.calories)) cal")
                 }
             }
+            .alert("Couldn’t Move Food", isPresented: $showMoveError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(moveErrorMessage)
+            }
             .onAppear { modelContext.undoManager = undoManager }
             .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
                 if isToday { selectedDate = .now }
@@ -320,7 +350,92 @@ struct DailyLogView: View {
     }
 
     private var navTitle: String { isToday ? "Today's Log" : "Log" }
-    private var hydrationTopInset: CGFloat { groupedEntries.isEmpty ? 0 : NomvaTheme.sectionGap }
+    private var hydrationTopInset: CGFloat { selectedDayEntries.isEmpty ? 0 : NomvaTheme.sectionGap }
+
+    private func mealHeader(_ meal: MealCategory, entries: [FoodEntry]) -> some View {
+        HStack {
+            NomvaSectionHeaderText(title: meal.title)
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Text("\(Int(entries.reduce(0.0) { $0 + $1.calories })) cal")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .textCase(nil)
+
+            Button {
+                selectedMealForSearch = meal.rawValue
+                showManualSearch = true
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.title3)
+            }
+            .padding(.leading, 8)
+            .accessibilityLabel("Add food to \(meal.title)")
+        }
+        .padding(.horizontal, targetedMeal == meal ? 8 : 0)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(targetedMeal == meal ? NomvaTheme.accent.opacity(0.15) : Color.clear)
+        }
+        .contentShape(Rectangle())
+        .nomvaSectionHeaderPadding()
+        .animation(.easeOut(duration: 0.16), value: targetedMeal)
+        .dropDestination(
+            for: String.self,
+            action: { identifiers, _ in
+                moveFoodEntries(with: identifiers, to: meal)
+            },
+            isTargeted: { isTargeted in
+                updateDropTarget(meal, isTargeted: isTargeted)
+            }
+        )
+    }
+
+    private func updateDropTarget(_ meal: MealCategory, isTargeted: Bool) {
+        withAnimation(.easeOut(duration: 0.16)) {
+            if isTargeted {
+                targetedMeal = meal
+            } else if targetedMeal == meal {
+                targetedMeal = nil
+            }
+        }
+    }
+
+    @discardableResult
+    private func moveFoodEntries(with identifiers: [String], to meal: MealCategory) -> Bool {
+        let ids = Set(identifiers.compactMap(UUID.init(uuidString:)))
+        let entries = selectedDayEntries.filter {
+            ids.contains($0.id) && $0.meal != meal.rawValue
+        }
+        guard !entries.isEmpty else {
+            targetedMeal = nil
+            return false
+        }
+
+        let originalMeals = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.meal) })
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            entries.forEach { $0.meal = meal.rawValue }
+            targetedMeal = nil
+        }
+
+        do {
+            try modelContext.save()
+            return true
+        } catch {
+            entries.forEach { entry in
+                if let originalMeal = originalMeals[entry.id] {
+                    entry.meal = originalMeal
+                }
+            }
+            moveErrorMessage = "Your food stayed in its original meal. Please try again."
+            showMoveError = true
+            return false
+        }
+    }
 
     private var dateLabel: String {
         if isToday { return "Today" }
@@ -507,12 +622,77 @@ struct FoodEntryRow: View {
                     .foregroundColor(.primary)
                 Text("\(Int(entry.proteinG))g P · \(Int(entry.carbsG))g C · \(Int(entry.fatG))g F").font(.caption2).foregroundColor(.secondary)
             }
-            Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary.opacity(0.5))
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary.opacity(0.7))
+                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.5))
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color(UIColor.secondarySystemBackground).opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct EmptyMealDropZone: View {
+    let isTargeted: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isTargeted ? "tray.and.arrow.down.fill" : "tray")
+                .foregroundStyle(isTargeted ? NomvaTheme.accent : Color.secondary)
+            Text("No entries")
+                .font(.subheadline)
+                .foregroundStyle(isTargeted ? NomvaTheme.accent : Color.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 44)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isTargeted ? NomvaTheme.accent.opacity(0.14) : Color.clear)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(
+                    isTargeted ? NomvaTheme.accent : NomvaTheme.line,
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 5])
+                )
+        }
+        .animation(.easeOut(duration: 0.16), value: isTargeted)
+        .accessibilityLabel("Empty meal")
+    }
+}
+
+private struct FoodEntryDragPreview: View {
+    let entry: FoodEntry
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "fork.knife")
+                .foregroundStyle(NomvaTheme.accent)
+            Text(entry.name)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text("\(Int(entry.calories)) cal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 260)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(NomvaTheme.line, lineWidth: 1)
+        }
     }
 }
 

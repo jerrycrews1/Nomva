@@ -16,6 +16,7 @@
 		2349DFFF2C4D893DC9322C09 /* foods.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = 0153052C61D6303447B320A6 /* foods.sqlite */; };
 		235D4A1D84B14D79A4A6F0C1 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 235D4A1D84B14D79A4A6F0C0 /* libsqlite3.tbd */; };
 		28597F722B77FCDFB65562FC /* DataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53847504AFD3A1B007B4E7F2 /* DataModels.swift */; };
+		F6A100000000000000000002 /* MealCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A100000000000000000001 /* MealCategory.swift */; };
 		3846F3EFF47B573F924AED0B /* GoalsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75ECD5BE45AA618D17D1BFBA /* GoalsSettingsView.swift */; };
 		38952EE74AEC35C8E79A95A1 /* DailyLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BF792375E80D6487D1C0093 /* DailyLogView.swift */; };
 		48E01AFBC559B9C4ED3BCE19 /* iCloudSyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32B79C9E69055E44D7E28724 /* iCloudSyncSettingsView.swift */; };
@@ -121,6 +122,7 @@
 		4A25CE4AB92DE28F42DED44D /* OnboardingCoordinatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCoordinatorView.swift; sourceTree = "<group>"; };
 		4F09D9048042E3F2105536D7 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		53847504AFD3A1B007B4E7F2 /* DataModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataModels.swift; sourceTree = "<group>"; };
+		F6A100000000000000000001 /* MealCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealCategory.swift; sourceTree = "<group>"; };
 		544FBF42A6590351FC089966 /* FoodEntryEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodEntryEditView.swift; sourceTree = "<group>"; };
 		5CAD2D89E86F5A1758AC0660 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		6684D3B11094742B16CC0AC0 /* CustomFoodCreateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomFoodCreateView.swift; sourceTree = "<group>"; };
@@ -206,6 +208,7 @@
 			isa = PBXGroup;
 			children = (
 				53847504AFD3A1B007B4E7F2 /* DataModels.swift */,
+				F6A100000000000000000001 /* MealCategory.swift */,
 				F966C75C27458886DE760BB0 /* FoodItem.swift */,
 			);
 			path = Models;
@@ -536,6 +539,7 @@
 				217DC6E3502D9340D1917D49 /* NomvaApp.swift in Sources */,
 				90ADE7D28C771DA5EFF380D6 /* ContentView.swift in Sources */,
 				28597F722B77FCDFB65562FC /* DataModels.swift in Sources */,
+				F6A100000000000000000002 /* MealCategory.swift in Sources */,
 				146E1B9EED5AA441E3D1E40C /* FoodItem.swift in Sources */,
 				B6C432A10F1DDD4FF3858F3C /* DatabaseManager.swift in Sources */,
 				2188888888888888888888AA /* AppleHealthService.swift in Sources */,
