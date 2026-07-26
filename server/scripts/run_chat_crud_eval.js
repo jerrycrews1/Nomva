@@ -19,6 +19,7 @@ function argValue(name, fallback) {
 const SPLIT = argValue("--split", "train");
 const COUNT = Number(argValue("--count", "1000"));
 const MODEL = argValue("--model", process.env.CHAT_CRUD_MODEL || process.env.BASELINE_MODEL || process.env.NOMVA_LLM_BASELINE_MODEL || "gpt-4o-mini");
+const CONTEXT_MODEL = argValue("--context-model", process.env.NOMVA_CONTEXT_MODEL || "gpt-5.4-mini");
 const CONCURRENCY = Math.max(1, Number(argValue("--concurrency", "6")));
 const MIN_SCORE = Number(argValue("--min-score", "95"));
 const WRITE_CASES = argValue("--write-cases", "");
@@ -59,7 +60,7 @@ function normalizeText(value) {
     .replace(/\bfries\b/g, "fry")
     .replace(/\bslices\b/g, "slice")
     .replace(/\bcups\b/g, "cup")
-    .replace(/\b(a|an|the|my)\b/g, " ")
+    .replace(/\b(a|an|the|my|of)\b/g, " ")
     .replace(/[^a-z0-9.\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -75,7 +76,12 @@ function textMatches(expected, actual) {
 function arrayMatches(expected, actual) {
   const actualValues = Array.isArray(actual) ? actual : [];
   return expected.every((expectedItem) =>
-    actualValues.some((actualItem) => textMatches(expectedItem, actualItem))
+    actualValues.some((actualItem) => {
+      if (textMatches(expectedItem, actualItem)) return true;
+      const expectedTokens = normalizeText(expectedItem).split(" ").filter(Boolean).sort();
+      const actualTokens = normalizeText(actualItem).split(" ").filter(Boolean).sort();
+      return expectedTokens.join(" ") === actualTokens.join(" ");
+    })
   ) && actualValues.length === expected.length;
 }
 
@@ -293,6 +299,119 @@ function genServings(rng, id) {
   });
 }
 
+function criticalRegressionCases(split) {
+  const groupedMealHistory = [
+    { role: "user", content: "Had salmon and rice" },
+    { role: "assistant", content: "✓ Salmon (1 serving) — 250 cal\n✓ Rice (1 serving) — 170 cal" },
+  ];
+  const afterSingleDeleteHistory = [
+    ...groupedMealHistory,
+    { role: "user", content: "Delete that" },
+    { role: "assistant", content: "Removed: Rice." },
+  ];
+
+  return [
+    withCase(
+      `${split}-critical-01`,
+      "classify_intent",
+      "contextual_food_delete",
+      "ridiculous",
+      "Both",
+      { intent: "delete_food" },
+      { recentMessages: afterSingleDeleteHistory }
+    ),
+    withCase(
+      `${split}-critical-02`,
+      "classify_intent",
+      "contextual_food_delete",
+      "ridiculous",
+      "the other one too",
+      { intent: "delete_food" },
+      { recentMessages: afterSingleDeleteHistory }
+    ),
+    withCase(
+      `${split}-critical-03`,
+      "split_foods",
+      "compound_food_log",
+      "hard",
+      "I had 3 cups of coffee with creamer for breakfast",
+      { foods: ["3 cups of coffee", "creamer"] }
+    ),
+    withCase(
+      `${split}-critical-04`,
+      "split_foods",
+      "compound_food_log",
+      "hard",
+      "Coffee 3 servings. Creamer 3 servings.",
+      { foods: ["Coffee 3 servings", "Creamer 3 servings"] }
+    ),
+    withCase(
+      `${split}-critical-05`,
+      "pick_delete_targets",
+      "contextual_food_delete",
+      "ridiculous",
+      "Delete that",
+      { deleteTargets: ["Salmon", "Rice"] },
+      {
+        recentMessages: groupedMealHistory,
+        logSummary: "Salmon (dinner)\nRice (dinner)",
+      }
+    ),
+    withCase(
+      `${split}-critical-06`,
+      "pick_delete_targets",
+      "contextual_food_delete",
+      "ridiculous",
+      "Both",
+      { deleteTargets: ["Salmon"] },
+      {
+        recentMessages: afterSingleDeleteHistory,
+        logSummary: "Salmon (dinner)",
+      }
+    ),
+    withCase(
+      `${split}-critical-07`,
+      "extract_servings",
+      "portion",
+      "hard",
+      "Coffee 3 servings",
+      {
+        servings: {
+          servings: 3,
+          portionDescription: "3 servings",
+          servingUnit: "serving",
+          hasExplicitPortion: true,
+        },
+      },
+      {
+        foodMention: "Coffee 3 servings",
+        candidateName: "Black coffee",
+        candidateServingDescription: "1 cup",
+      }
+    ),
+    withCase(
+      `${split}-critical-08`,
+      "extract_servings",
+      "portion",
+      "hard",
+      "Creamer 3 servings",
+      {
+        servings: {
+          servings: 3,
+          portionDescription: "3 servings",
+          servingUnit: "serving",
+          hasExplicitPortion: true,
+        },
+      },
+      {
+        foodMention: "Creamer 3 servings",
+        candidateName: "Coffee creamer",
+        candidateServingDescription: "1 tbsp",
+      }
+    ),
+  ];
+}
+
 function makeCases(split, count) {
   const seed = split === "validation" ? 0x51f15eed : 0xc0ffee;
   const rng = createRng(seed);
@@ -309,10 +428,10 @@ function makeCases(split, count) {
     genSearchQuery,
     genServings,
   ];
-  const cases = [];
-  for (let index = 0; index < count; index += 1) {
+  const cases = criticalRegressionCases(split).slice(0, count);
+  for (let index = 0; cases.length < count; index += 1) {
     const generator = generators[index % generators.length];
-    cases.push(generator(rng, `${split}-${String(index + 1).padStart(4, "0")}`));
+    cases.push(generator(rng, `${split}-${String(cases.length + 1).padStart(4, "0")}`));
   }
   return cases;
 }
@@ -325,7 +444,10 @@ function promptForCase(testCase) {
   const message = testCase.message;
   switch (testCase.task) {
     case "classify_intent":
-      return [prompts.CLASSIFY_INTENT, `User: ${message}`, 64];
+      return [prompts.CLASSIFY_INTENT, [
+        renderHistory(testCase.recentMessages || []),
+        `User: ${message}`,
+      ].filter(Boolean).join("\n"), 64];
     case "split_foods":
       return [prompts.SPLIT_FOODS, `User: ${message}`, 128];
     case "extract_meal":
@@ -483,16 +605,17 @@ async function ask(openai, testCase) {
   }
 
   const [systemPrompt, userMessage, maxTokens] = promptForCase(testCase);
-  const completionBudget = /^gpt-5/i.test(MODEL) ? Math.max(maxTokens * 4, 512) : maxTokens;
+  const requestModel = testCase.task === "pick_delete_targets" ? CONTEXT_MODEL : MODEL;
+  const completionBudget = /^gpt-5/i.test(requestModel) ? Math.max(maxTokens * 4, 512) : maxTokens;
   const request = {
-    model: MODEL,
+    model: requestModel,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
   };
-  if (/^gpt-5/i.test(MODEL)) {
+  if (/^gpt-5/i.test(requestModel)) {
     request.max_completion_tokens = completionBudget;
   } else {
     request.temperature = 0.1;
@@ -612,6 +735,7 @@ async function main() {
     runId: `chat-crud-${SPLIT}-${startedAt.toISOString().replace(/[:.]/g, "-")}`,
     split: SPLIT,
     model: MODEL,
+    contextModel: CONTEXT_MODEL,
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     summary,

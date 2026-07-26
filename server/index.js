@@ -20,6 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const FOOD_RESOLUTION_MODEL = process.env.NOMVA_FOOD_RESOLUTION_MODEL || "gpt-5.6-luna";
+const CONTEXT_MODEL = process.env.NOMVA_CONTEXT_MODEL || "gpt-5.4-mini";
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const garminStorePath = path.join(dataDir, "garmin-store.json");
@@ -2018,7 +2019,11 @@ app.post("/v1/pick-delete-targets", async (req, res) => {
       `Food log:\n${logSummary}`,
       `User said: ${userMessage}`,
     ].filter(Boolean).join("\n\n");
-    const result = await ask(prompts.PICK_DELETE_TARGETS, userPrompt, llmAnalyticsOptions(req, "pick_delete_targets"));
+    const result = await ask(
+      prompts.PICK_DELETE_TARGETS,
+      userPrompt,
+      llmAnalyticsOptions(req, "pick_delete_targets", { model: CONTEXT_MODEL })
+    );
     res.json({ foodNames: result.foodNames || [] });
   } catch (err) {
     console.error("pick-delete-targets error:", err.message);

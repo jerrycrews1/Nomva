@@ -309,6 +309,7 @@ struct FoundationModelsProvider: LLMProvider {
           "delete the bacon"        → delete_food
           "remove lunch"            → delete_food
           after a recent correction, requests to remove an old/original/previous item → delete_food
+          short referential follow-ups such as "both", "all of them", "the other one", "those too", or "them too" after a delete request or a recently logged group → delete_food
           "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
 
         edit_food — user wants to change a portion they already logged.
@@ -393,7 +394,10 @@ struct FoundationModelsProvider: LLMProvider {
         Identify each DISTINCT food or drink the user said they consumed.
         Treat compound foods like "peanut butter and jelly sandwich" or "mac and cheese" as a single food.
         Split "X and Y" or "X, Y" into separate items when they are truly separate foods.
-        Return just the food phrases — no quantities, no meal names.
+        Split a base food or drink from independently measurable add-ins, toppings, or accompaniments so each can receive its own portion and nutrition.
+        For example, "3 cups of coffee with creamer" is "3 cups of coffee" plus "creamer".
+        Do not copy a quantity onto an add-in unless the user explicitly gave that add-in its own quantity.
+        Keep each item's quantity attached to that item, but remove meal names and conversational wording.
         """
 
         let result = try await respond(
@@ -562,12 +566,13 @@ struct FoundationModelsProvider: LLMProvider {
 
         let instructions = """
         Figure out how many servings of the food the user ate, and a short human description.
-        Focus only on the named food mention. Do not borrow quantities from other foods in the same message.
+        Focus only on the named food mention. The amount can appear before or after the food name. Do not borrow quantities from other foods in the same message.
         Do not invent a replacement amount when the user is only objecting or saying the previous amount was wrong.
         Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
         Examples:
         - "I had three Chick-fil-A nuggets, one egg, and about 5 Chick-fil-A fries", for the nuggets mention return portionDescription "3 nuggets" and servingUnit "nugget"
         - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", servingUnit: "slice", confident: true, hasExplicitPortion: true
+        - "Coffee 3 servings" → servings: 3, portionDescription: "3 servings", servingUnit: "serving", confident: true, hasExplicitPortion: true
         - "a cup of rice" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
         - "some chicken" → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
         - "some spinach" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: false, hasExplicitPortion: false
@@ -675,7 +680,11 @@ struct FoundationModelsProvider: LLMProvider {
         The user wants to delete entries from their food log. Return the EXACT food names from the log
         that should be deleted. If the user says "delete breakfast", return every breakfast entry's name.
         If the user says "remove the bacon", return only the bacon entry (or all bacon entries).
-        If the user says "remove that" or "delete it", use recent conversation context and delete only the most recently logged referenced food.
+        For "remove that", "delete that", "remove it", or "delete it", resolve the reference to the most recent logging action in the conversation.
+        If the latest assistant confirmation contains multiple food lines created from one request, delete every still-present food from that grouped action. If the latest context singles out one food, delete only that food.
+        Short follow-ups such as "both", "all of them", "the other one", "those too", or "them too" continue the immediately preceding delete request or grouped logging action. Return matching names that are still in the log.
+        If some members of that referenced group were already deleted, return every referenced member that is still present rather than returning an empty list.
+        Example: a grouped action logged A and B, a later delete removed B, and the user follows with "both"; if the current log still contains A, return A.
         If the user says "keep X", do not delete X.
         If the user asks to remove a modifier, topping, add-on, or included component while keeping the main item, delete only that component and not unrelated sides.
         If the user uses relative position language such as "before the last", "previous", "middle", or "between X and Y", use the order in the current food log and recent conversation.

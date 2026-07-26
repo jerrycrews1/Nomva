@@ -308,13 +308,6 @@ final class FoodLoggingService {
             return deletion
         }
 
-        if let deletion = handleFastContextualDelete(
-            userMessage: userMessage,
-            dayEntries: dayEntries
-        ) {
-            return deletion
-        }
-
         if let correction = await handleImplicitFoodIdentityCorrection(
             userMessage: userMessage,
             provider: provider,
@@ -424,42 +417,6 @@ final class FoodLoggingService {
                 recentMessages: recentMessages
             )
         }
-    }
-
-    private func handleFastContextualDelete(
-        userMessage: String,
-        dayEntries: [FoodEntry]
-    ) -> LoggingResult? {
-        guard !dayEntries.isEmpty else { return nil }
-        let tokens = tokenize(userMessage).map(singularized)
-        let tokenSet = Set(tokens)
-        let deleteWords: Set<String> = ["delete", "remove", "clear"]
-        guard !tokenSet.intersection(deleteWords).isEmpty else { return nil }
-        guard !tokenSet.contains("water"), !tokenSet.contains("weight"), !tokenSet.contains("goal") else { return nil }
-        guard !tokenSet.contains("all"), !tokenSet.contains("everything") else { return nil }
-
-        let contextualWords: Set<String> = ["that", "it", "this", "last", "latest", "previous"]
-        guard !tokenSet.intersection(contextualWords).isEmpty else { return nil }
-
-        let commandNoise = deleteWords.union(contextualWords).union(["no", "not", "please", "added", "entry"])
-        let requestedFoodTokens = Set(identityTokens(in: userMessage).map(singularized)).subtracting(commandNoise)
-        let target: FoodEntry?
-        let sortedEntries = dayEntries.sorted { $0.date > $1.date }
-
-        if requestedFoodTokens.isEmpty {
-            target = sortedEntries.first
-        } else {
-            target = sortedEntries.first { entry in
-                let entryTokens = Set(identityTokens(in: "\(entry.brand ?? "") \(entry.name)").map(singularized))
-                return !entryTokens.intersection(requestedFoodTokens).isEmpty
-            }
-        }
-
-        guard let target else { return nil }
-        return LoggingResult(
-            action: .deleteEntries(ids: [target.id]),
-            reply: "✓ Removed: \(target.name)"
-        )
     }
 
     private func handleFastScopedFoodDelete(userMessage: String) -> LoggingResult? {
@@ -692,7 +649,7 @@ final class FoodLoggingService {
         for parsedMention in foodMentions {
             let mention = parsedMention.text
             let initialServings: ServingsInfo
-            if usedFastParse || parsedMention.servingsInfo.confident || parsedMention.servingsInfo.hasExplicitPortion {
+            if parsedMention.servingsInfo.confident || parsedMention.servingsInfo.hasExplicitPortion {
                 initialServings = parsedMention.servingsInfo
             } else {
                 initialServings = await initialServingsInfo(
@@ -1079,7 +1036,7 @@ final class FoodLoggingService {
         if containsBareAndFoodJoiner(text) {
             return true
         }
-        let pattern = #"(?i)\b(?:with\s+(?:a\s+)?side\s+of|served\s+with|along\s+with|alongside|plus)\b"#
+        let pattern = #"(?i)\b(?:with|alongside|plus)\b"#
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 

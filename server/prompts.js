@@ -15,6 +15,7 @@ delete_food — user wants to remove something from their log.
   "delete the bacon"        → delete_food
   "remove lunch"            → delete_food
   after a recent correction, requests to remove an old/original/previous item → delete_food
+  short referential follow-ups such as "both", "all of them", "the other one", "those too", or "them too" after a delete request or a recently logged group → delete_food
   "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
 
 edit_food — user wants to change a portion they already logged.
@@ -74,6 +75,8 @@ Treat compound foods like "peanut butter and jelly sandwich" or "mac and cheese"
 Also keep common compound names such as "fish and chips", "bacon egg and cheese sandwich", and "cookies and cream yogurt" together.
 Split "X and Y" or "X, Y" into separate items when they are truly separate foods.
 Treat main-dish/side constructions such as "X with a side of Y" as separate foods when X and Y can be logged independently.
+Split a base food or drink from independently measurable add-ins, toppings, or accompaniments so each can receive its own portion and nutrition. For example, "3 cups of coffee with creamer" is "3 cups of coffee" plus "creamer".
+Do not copy a quantity onto an add-in unless the user explicitly gave that add-in its own quantity.
 Keep each food's quantity, size, preparation, flavor, restaurant, and brand attached to that food. Remove only meal labels and conversational wording.
 
 Respond with ONLY a JSON object: {"foods": ["food1", "food2"]}`;
@@ -142,7 +145,7 @@ Return true if it's a reasonable match. Return false if it's clearly wrong (e.g.
 Respond with ONLY a JSON object: {"isMatch": true} or {"isMatch": false}`;
 
 const EXTRACT_SERVINGS = `Extract the number of servings, a portion description, a reusable servingUnit, confidence, and whether the user explicitly stated a usable portion.
-Focus ONLY on the named food mention. Do not borrow quantities from other foods in the same message.
+Focus ONLY on the named food mention. The amount can appear before or after the food name. Do not borrow quantities from other foods in the same message.
 Do NOT invent a replacement amount when the user is only objecting or saying the previous log was wrong.
 Return servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
 When the user uses a vague amount like "some spinach", prefer a natural everyday portion such as "1 cup" instead of the abstract phrase "1 serving".
@@ -151,6 +154,7 @@ Natural portion phrases such as "small handful", "handful", "bite", "sip", "scoo
 
 Examples:
 - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", servingUnit: "slice", confident: true, hasExplicitPortion: true
+- "Coffee 3 servings" → servings: 3, portionDescription: "3 servings", servingUnit: "serving", confident: true, hasExplicitPortion: true
 - "a cup of rice" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
 - "half a cup of rice" → servings: 0.5, portionDescription: "1/2 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
 - "some chicken" → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
@@ -231,8 +235,11 @@ If the user says "delete breakfast", return every entry whose meal tag is breakf
 Example: in "Breakfast Burrito (lunch)", the food name is Breakfast Burrito and the meal tag is lunch, so "delete breakfast" must NOT return Breakfast Burrito.
 If the user says a meal word as part of a food name, such as "delete breakfast burrito", delete that exact food and do not treat it as a whole-meal delete.
 If the user says "remove the bacon", return only the bacon entry.
-If the user says "remove that", "delete that", "remove it", or "delete it", use recent conversation context and delete ONLY the most recently logged or referenced food item.
-Do not treat "that" or "it" as the whole log unless the recent conversation clearly refers to the whole meal.
+For "remove that", "delete that", "remove it", or "delete it", resolve "that" or "it" to the most recent logging action shown in the conversation.
+If the latest assistant confirmation contains multiple food lines created from one user request, delete every still-present food from that grouped action. If the latest context clearly singles out one food, delete only that food.
+Short follow-ups such as "both", "all of them", "the other one", "those too", or "them too" continue the immediately preceding delete request or grouped logging action. Return the matching names that are still present in the Food log.
+If some members of that referenced group were already deleted, return every referenced member that is still present rather than returning an empty list.
+Example: a grouped action logged A and B, a later delete removed B, and the user follows with "both"; if the current Food log still contains A, return A.
 If the user says "keep X", do not delete X.
 If the user asks to remove a modifier, topping, add-on, or included component while keeping the main item, delete only that component and not unrelated sides.
 If the user uses relative position language such as "before the last", "previous", "middle", or "between X and Y", use the order in the current food log and recent conversation.

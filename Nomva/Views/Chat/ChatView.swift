@@ -702,6 +702,7 @@ struct ChatView: View {
         case .deleteMeal(let meal):
             let mealLower = meal.lowercased().trimmingCharacters(in: .whitespaces)
             let toDelete: [FoodEntry]
+            let mutationDateLabel = absoluteDateLabel(for: targetDayStart)
             
             if ["all", "day", "today"].contains(mealLower) {
                 toDelete = targetEntries
@@ -711,15 +712,15 @@ struct ChatView: View {
             
             if toDelete.isEmpty {
                 return mealLower == "all"
-                    ? "\(targetDateLabel) is already empty."
-                    : "No \(meal) entries found in your \(targetDateLabel.lowercased()) log."
+                    ? "\(mutationDateLabel) is already empty."
+                    : "No \(meal) entries found for \(mutationDateLabel)."
             }
             
             for entry in toDelete { modelContext.delete(entry) }
             let count = toDelete.count
             return mealLower == "all"
-                ? "✓ Cleared all \(count) items from \(targetDateLabel.lowercased())."
-                : "✓ Removed \(count) \(meal) item\(count == 1 ? "" : "s") from your \(targetDateLabel.lowercased()) log."
+                ? "✓ Cleared all \(count) item\(count == 1 ? "" : "s") from \(mutationDateLabel)."
+                : "✓ Removed \(count) \(meal) item\(count == 1 ? "" : "s") from \(mutationDateLabel)."
 
         case .logWater(let oz):
             let entry = WaterEntry(amountOz: oz)
@@ -1078,6 +1079,13 @@ struct ChatView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = cal.component(.year, from: date) == cal.component(.year, from: .now)
             ? "MMM d" : "MMM d, yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func absoluteDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
         return formatter.string(from: date)
     }
 }
