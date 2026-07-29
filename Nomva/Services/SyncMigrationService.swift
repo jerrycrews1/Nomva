@@ -850,6 +850,7 @@ struct CustomFoodRecord: Codable {
     var carbsG: Double
     var fatG: Double
     var fiberG: Double
+    var barcode: String?
     var createdAt: Date
 
     init(_ model: CustomFood) {
@@ -863,6 +864,7 @@ struct CustomFoodRecord: Codable {
         carbsG = model.carbsG
         fatG = model.fatG
         fiberG = model.fiberG
+        barcode = model.barcode
         createdAt = model.createdAt
     }
 
@@ -876,7 +878,8 @@ struct CustomFoodRecord: Codable {
             proteinG: proteinG,
             carbsG: carbsG,
             fatG: fatG,
-            fiberG: fiberG
+            fiberG: fiberG,
+            barcode: barcode
         )
         apply(to: model)
         return model
@@ -893,6 +896,7 @@ struct CustomFoodRecord: Codable {
         model.carbsG = carbsG
         model.fatG = fatG
         model.fiberG = fiberG
+        model.barcode = barcode
         model.createdAt = createdAt
     }
 }

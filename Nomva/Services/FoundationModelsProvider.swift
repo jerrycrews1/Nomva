@@ -101,6 +101,7 @@ enum IntentCategory: String {
     case logFood      = "log_food"
     case deleteFood   = "delete_food"
     case editFood     = "edit_food"
+    case moveFood     = "move_food"
     case queryData    = "query_data"
     case logWeight    = "log_weight"
     case logWater     = "log_water"
@@ -143,15 +144,15 @@ struct CandidateValidationPick {
     var keepCurrentCandidate: Bool
     @Guide(description: "Final serving count after reconciling the food mention with the extracted portion.")
     var servings: Double
-    @Guide(description: "Final human-readable portion description such as '3 nuggets' or '5 fries'.")
+    @Guide(description: "Final human-readable portion description such as '3 pieces' or '1/2 cup'.")
     var portionDescription: String
-    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'nugget', 'fry', 'egg', 'slice', 'cup', or 'serving'.")
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'piece', 'slice', 'cup', or 'serving'.")
     var servingUnit: String
     @Guide(description: "True if the final amount is explicit and trustworthy.")
     var confident: Bool
     @Guide(description: "True only when the user explicitly provided a usable amount, size, count, or fraction.")
     var hasExplicitPortion: Bool
-    @Guide(description: "A neutral scalable replacement search query such as 'chicken nuggets' when the current candidate should not be kept. Empty string if not needed.")
+    @Guide(description: "A neutral scalable replacement search query for the underlying food when the current candidate should not be kept. Empty string if not needed.")
     var replacementSearchQuery: String
 }
 
@@ -169,7 +170,7 @@ struct ServingsPick {
     var servings: Double
     @Guide(description: "Portion description using the user's own words, e.g. '2 slices', '1 cup', '3 oz'. If user said nothing, use '1 serving'.")
     var portionDescription: String
-    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'slice', 'cup', 'egg', 'nugget', 'fry', or 'serving'.")
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'slice', 'cup', 'piece', or 'serving'.")
     var servingUnit: String
     @Guide(description: "True if the user clearly stated an amount, false if you had to guess.")
     var confident: Bool
@@ -227,7 +228,7 @@ struct EditResolutionPick {
     var servings: Double
     @Guide(description: "User-facing portion description for the corrected amount.")
     var portionDescription: String
-    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'nugget', 'fry', 'egg', 'slice', 'cup', or 'serving'.")
+    @Guide(description: "Reusable base unit for this portion, singular when natural, such as 'piece', 'slice', 'cup', or 'serving'.")
     var servingUnit: String
     @Guide(description: "True if the user clearly stated a replacement amount.")
     var confident: Bool
@@ -316,10 +317,14 @@ struct FoundationModelsProvider: LLMProvider {
           "make the bacon 3 slices" → edit_food
           "that was 1 cup not 2"    → edit_food
           after a recent food log, "that's not right" → edit_food
-          after a recent food log, "actually it was only 5 fries" → edit_food
+          after a recent food log, a corrected count or portion → edit_food
           after a recent food log, corrections to food type, ingredient, brand, preparation, caffeine, dairy, meat, or plant-based variant → edit_food
           after a recent food log, vague correction requests like "too much", "undo that", or "make it healthier" → edit_food
           "undo", "revert", or "change back" after recent food logging/editing → edit_food unless the user explicitly asks to delete
+
+        move_food — user wants an existing food assigned to another meal.
+          "move the rice from dinner to lunch" → move_food
+          "put that yogurt under breakfast" → move_food
 
         query_data — user asks about their logs, weight, nutrition history, trends, averages, or goals.
           "how many calories today?"                     → query_data
@@ -378,6 +383,7 @@ struct FoundationModelsProvider: LLMProvider {
         case .logFood:    return .logFood
         case .deleteFood: return .deleteFood
         case .editFood:   return .editFood
+        case .moveFood:   return .moveFood
         case .queryData:  return .queryData
         case .logWeight:  return .logWeight
         case .logWater:   return .logWater
@@ -424,8 +430,8 @@ struct FoundationModelsProvider: LLMProvider {
         Convert the food mention into the best short database search query.
         The amount in the food mention matters.
         Keep exact restaurant or menu wording only when the user clearly specified that exact size or count and wants that exact menu item.
-        If the user gave a loose partial amount like "5 Chick-fil-A fries" or "3 Chick-fil-A nuggets",
-        prefer the underlying scalable food such as "waffle fries" or "chicken nuggets" instead of a whole menu item.
+        If the user gave a loose partial amount of a branded menu item,
+        prefer a nutritionally equivalent scalable food over a fixed full-size menu entry.
         """
 
         let result = try await respond(
@@ -485,10 +491,10 @@ struct FoundationModelsProvider: LLMProvider {
         The original food mention is the source of truth for the amount.
         If the extracted portion lost an explicit count or size from the food mention, correct it.
         If the selected candidate introduces an unrelated subpart or meal context the user did not mention, reject it and provide a better replacement search query.
-        If the user gave a vague amount like "some spinach", convert it into a natural everyday portion such as "1 cup" instead of leaving a synthetic "1 serving".
+        If the user gave a vague amount, convert it into a conservative natural everyday portion when one exists instead of inventing a large fixed menu serving.
         If the candidate is a fixed whole serving or menu item that does not fit the user's small partial amount, reject it and provide a neutral scalable replacement search query.
         Keep restaurant/menu candidates only when the user's amount actually matches that exact item size or count.
-        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        Return a reusable servingUnit in singular form when natural, such as "piece", "slice", "cup", or "serving".
         """
 
         let brand = candidate.brand?.isEmpty == false ? "\nCandidate brand: \(candidate.brand!)" : ""
@@ -568,17 +574,13 @@ struct FoundationModelsProvider: LLMProvider {
         Figure out how many servings of the food the user ate, and a short human description.
         Focus only on the named food mention. The amount can appear before or after the food name. Do not borrow quantities from other foods in the same message.
         Do not invent a replacement amount when the user is only objecting or saying the previous amount was wrong.
-        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        Return a reusable servingUnit in singular form when natural, such as "piece", "slice", "cup", or "serving".
         Examples:
-        - "I had three Chick-fil-A nuggets, one egg, and about 5 Chick-fil-A fries", for the nuggets mention return portionDescription "3 nuggets" and servingUnit "nugget"
         - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", servingUnit: "slice", confident: true, hasExplicitPortion: true
-        - "Coffee 3 servings" → servings: 3, portionDescription: "3 servings", servingUnit: "serving", confident: true, hasExplicitPortion: true
         - "a cup of rice" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
-        - "some chicken" → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
-        - "some spinach" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: false, hasExplicitPortion: false
         - "half an avocado" → servings: 0.5, portionDescription: "1/2 avocado", servingUnit: "avocado", confident: true, hasExplicitPortion: true
-        - in "I had 3 nuggets, 1 egg, and about 5 fries", for the fries mention return portionDescription "5 fries" and servingUnit "fry"
-        - "It was only about 5 fries" → servings: 5, portionDescription: "5 fries", servingUnit: "fry", confident: true, hasExplicitPortion: true
+        - in a message containing several foods, use only the quantity grammatically attached to the named food
+        - a vague amount → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
         - "That's not right..." → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
         """
 
@@ -764,14 +766,14 @@ struct FoundationModelsProvider: LLMProvider {
         Interpret the user's correction for the currently logged food.
         If the user did not provide a concrete replacement amount, set hasExplicitPortion to false and ask a short follow-up question.
         Sizes such as "small", "medium", "large", "regular", "kids", "half", or "double" are concrete replacement portions; set hasExplicitPortion to true when the user says one of them.
-        Units such as "oz", "ounces", "cups", "pieces", "nuggets", "slices", "tablespoons", and "tbsp" are concrete replacement portions; set hasExplicitPortion to true.
+        Count, weight, and volume units are concrete replacement portions; set hasExplicitPortion to true.
         Fractions of the current item, such as half, quarter, three quarters, or half a sandwich/banana/bowl, are explicit portions; set hasExplicitPortion to true.
         Natural portion phrases such as small handful, bite, sip, scoop, bowl, plate, glass, can, bottle, or packet are explicit enough to edit; set hasExplicitPortion to true.
         If the user says the current item should have the same amount as the entry before it, use the previous entry's portion from conversation context.
-        If the current item is too specific to resize directly, provide a neutral replacement search query like "chicken nuggets" or "waffle fries".
+        If the current item is too specific to resize directly, provide a neutral replacement search query for the underlying scalable food.
         Leave replacementSearchQuery empty when direct resizing of the current item is appropriate.
-        Return a reusable servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
-        The servings number must match the corrected count in portionDescription when the unit is countable: "3 slices" means servings 3, "5 fries" means servings 5, "1/2 cup" means servings 0.5.
+        Return a reusable servingUnit in singular form when natural, such as "piece", "slice", "cup", or "serving".
+        The servings number must match the corrected count in portionDescription when the unit is countable or fractional.
         """
 
         let brandLine = currentEntryBrand?.isEmpty == false ? "\nCurrent brand: \(currentEntryBrand!)" : ""
@@ -806,22 +808,19 @@ struct FoundationModelsProvider: LLMProvider {
         let instructions = """
         Given a food and a portion description, estimate the TOTAL weight in grams.
         Use real-world knowledge of typical food weights.
-        If a reference serving is provided, anchor the estimate to that serving when the request is a subset like "5 fries" or "3 nuggets".
+        If a reference serving is provided, scale from it when the requested portion is a subset.
 
         Examples:
         - "bacon", "2 slices" → 24   (one raw strip ≈ 12 g)
         - "bread", "1 slice"  → 28
         - "milk", "1 cup"     → 244
         - "egg", "1 large"    → 50
-        - "chicken breast", "6 oz" → 170
         - "rice", "1 cup cooked" → 158
         - "rice", "1/2 cup cooked" → 79
         - "rice", "0.5 cup cooked" → 79
         - "cheddar cheese", "2 slices" → 42
         - "peanut butter", "1 tbsp" → 16
-        - with reference "1 large fries ≈ 134 g", "5 fries" should be much smaller than the full serving
-        - for fries, estimate individual pieces conservatively: 5 fries is usually about 20-30 g, not 50+ g, unless the user says oversized wedges
-        - with reference "6 nuggets ≈ 96 g", "3 nuggets" should be about half the serving
+        - when a reference says a serving contains multiple pieces, scale a partial piece count proportionally
         """
 
         var promptLines = [

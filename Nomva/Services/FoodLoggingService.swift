@@ -40,6 +40,7 @@ private struct SearchCandidate {
     let portionBasis: FoodPortionBasis
     let servingSource: FoodServingSource?
     let per100gValues: NutritionValues
+    var isFavorite: Bool = false
     var score: Int = 0
 
     func scaled(to grams: Double) -> NutritionValues {
@@ -191,7 +192,7 @@ final class FoodLoggingService {
 
     /// Returns the likely restaurant or brand phrase mentioned in a query
     /// by taking all identity tokens except the last one (the food item).
-    /// For example, "chick-fil-a nuggets" → "chick fil a".
+    /// For example, "Acme protein bar" becomes the possible brand phrase "acme protein".
     private func potentialBrandPhrase(in query: String) -> String? {
         let tokens = identityTokens(in: query)
         guard tokens.count > 1 else { return nil }
@@ -205,6 +206,7 @@ final class FoodLoggingService {
         case replaceEntry(deleteName: String, newEntries: [FoodEntry])
         case replaceEntryById(deleteId: UUID, newEntries: [FoodEntry])
         case editEntry(foodName: String, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String)
+        case moveEntry(id: UUID, destinationMeal: String)
         case deleteEntry(foodNames: [String])
         case deleteEntries(ids: [UUID])
         case deleteMeal(meal: String)
@@ -215,7 +217,7 @@ final class FoodLoggingService {
         case logWater(oz: Double)
         case deleteWater
         case setWaterTotal(oz: Double)
-        case setGoal(calories: Double?, protein: Double?, carbs: Double?, fat: Double?, fiber: Double?)
+        case setGoal(changes: [GoalChange])
         case askClarification(String)
         case reply(String)
     }
@@ -227,6 +229,7 @@ final class FoodLoggingService {
         var clearSession: Bool = true
         var trace: AgentTraceDraft? = nil
         var evidenceDrafts: [ResolvedFoodEvidenceDraft] = []
+        var isRecoverableFailure: Bool = false
     }
 
     struct ResolvedFoodEvidenceDraft {
@@ -276,6 +279,7 @@ final class FoodLoggingService {
         weightEntries: [WeightEntry] = [],
         waterEntries: [WaterEntry] = [],
         mealTemplates: [MealTemplate] = [],
+        defaultMeal: String = "snack",
         sessionState: AgentTaskState? = nil
     ) async -> LoggingResult {
 
@@ -318,6 +322,24 @@ final class FoodLoggingService {
             return correction
         }
 
+        if let templateReuse = handleMealTemplateReuse(
+            userMessage: userMessage,
+            mealTemplates: mealTemplates,
+            defaultMeal: defaultMeal
+        ) {
+            return templateReuse
+        }
+
+        if isUnambiguousFoodLoggingRequest(userMessage) {
+            return await handleLogFood(
+                userMessage: userMessage,
+                provider: provider,
+                recentEntries: recentEntries,
+                customFoods: customFoods,
+                defaultMeal: defaultMeal
+            )
+        }
+
         if await shouldFastRouteFoodLog(
             userMessage,
             recentEntries: recentEntries,
@@ -327,7 +349,8 @@ final class FoodLoggingService {
                 userMessage: userMessage,
                 provider: provider,
                 recentEntries: recentEntries,
-                customFoods: customFoods
+                customFoods: customFoods,
+                defaultMeal: defaultMeal
             )
         }
 
@@ -348,7 +371,8 @@ final class FoodLoggingService {
                 userMessage: userMessage,
                 provider: provider,
                 recentEntries: recentEntries,
-                customFoods: customFoods
+                customFoods: customFoods,
+                defaultMeal: defaultMeal
             )
 
         case .deleteFood:
@@ -372,6 +396,15 @@ final class FoodLoggingService {
                 sessionState: sessionState
             )
 
+        case .moveFood:
+            return await handleMoveFood(
+                userMessage: userMessage,
+                provider: provider,
+                dayEntries: dayEntries,
+                dayLabel: dayLabel,
+                recentMessages: recentMessages
+            )
+
         case .queryData:
             return await handleQuery(
                 userMessage: userMessage,
@@ -379,6 +412,7 @@ final class FoodLoggingService {
                 goals: goals,
                 dayEntries: dayEntries,
                 dayLabel: dayLabel,
+                targetDate: targetDate,
                 recentEntries: recentEntries,
                 weightEntries: weightEntries,
                 waterEntries: waterEntries,
@@ -402,7 +436,7 @@ final class FoodLoggingService {
             )
 
         case .setGoal:
-            return await handleSetGoal(userMessage: userMessage, provider: provider, recentMessages: recentMessages)
+            return await handleSetGoal(userMessage: userMessage, provider: provider)
 
         case .reply:
             return await handleGeneralReply(
@@ -595,6 +629,44 @@ final class FoodLoggingService {
         return true
     }
 
+    private func isUnambiguousFoodLoggingRequest(_ userMessage: String) -> Bool {
+        if userMessage.contains("?") {
+            return false
+        }
+
+        let lowered = userMessage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let tokens = Set(tokenize(lowered).map(singularized))
+        let mutationWords: Set<String> = [
+            "delete", "remove", "clear", "change", "replace", "update", "edit",
+            "undo", "move", "goal", "target", "macro", "weight", "weigh",
+            "water", "hydrate", "hydration"
+        ]
+        guard tokens.intersection(mutationWords).isEmpty else {
+            return false
+        }
+        let planningWords: Set<String> = [
+            "will", "plan", "planning", "want", "might", "should", "could", "would"
+        ]
+        guard tokens.intersection(planningWords).isEmpty,
+              !lowered.contains("going to") else {
+            return false
+        }
+
+        let consumptionWords: Set<String> = [
+            "ate", "eaten", "eat", "had", "drank", "consumed", "logged", "log", "add"
+        ]
+        let startsWithMeal = ["breakfast", "lunch", "dinner", "snack"].contains {
+            lowered == $0
+                || lowered.hasPrefix("\($0):")
+                || lowered.hasPrefix("\($0) ")
+        }
+        let hasConsumptionSignal = !tokens.intersection(consumptionWords).isEmpty
+        return (startsWithMeal || hasConsumptionSignal)
+            && meaningfulTokens(in: userMessage).count >= 2
+    }
+
     private func containsBareAndFoodJoiner(_ text: String) -> Bool {
         text.range(of: #"(?i)(?<![,;])\s+and\s+"#, options: .regularExpression) != nil
     }
@@ -605,17 +677,18 @@ final class FoodLoggingService {
         userMessage: String,
         provider: any LLMProvider,
         recentEntries: [FoodEntry],
-        customFoods: [CustomFood]
+        customFoods: [CustomFood],
+        defaultMeal: String
     ) async -> LoggingResult {
 
         let fastParse = fastParseFoodLog(userMessage)
         let usedFastParse = fastParse?.mentions.isEmpty == false
-        let foodMentions: [FastFoodMention]
+        let rawFoodMentions: [FastFoodMention]
         if usedFastParse, let fastParse {
-            foodMentions = fastParse.mentions
+            rawFoodMentions = fastParse.mentions
         } else {
             do {
-                foodMentions = try await provider.splitFoods(userMessage: userMessage).map {
+                rawFoodMentions = try await provider.splitFoods(userMessage: userMessage).map {
                     FastFoodMention(
                         text: $0,
                         servingsInfo: ServingsInfo(
@@ -631,42 +704,101 @@ final class FoodLoggingService {
                 return handleProviderError(error)
             }
         }
+        let foodMentions = deduplicatedFoodMentions(rawFoodMentions)
 
-        let meal: String
-        if let parsedMeal = fastParse?.meal {
-            meal = parsedMeal
-        } else {
-            do {
-                meal = try await provider.extractMeal(userMessage: userMessage) ?? "snack"
-            } catch {
-                meal = "snack"
-            }
-        }
+        let meal = fastMeal(in: userMessage) ?? defaultMeal
 
         var entries: [FoodEntry] = []
         var confirmLines: [String] = []
 
-        for parsedMention in foodMentions {
-            let mention = parsedMention.text
-            let initialServings: ServingsInfo
-            if parsedMention.servingsInfo.confident || parsedMention.servingsInfo.hasExplicitPortion {
-                initialServings = parsedMention.servingsInfo
-            } else {
-                initialServings = await initialServingsInfo(
-                    for: mention,
+        var initialServings = foodMentions.map(\.servingsInfo)
+        var resolutions = Array<CandidateResolution?>(repeating: nil, count: foodMentions.count)
+
+        // Search the on-device database before spending a network round trip
+        // asking about portions. Plain foods with no stated amount can use the
+        // selected row's normal serving; only real portion language needs the
+        // focused portion extractor.
+        for index in foodMentions.indices {
+            resolutions[index] = await highConfidenceSearchResolution(
+                mention: foodMentions[index].text,
+                recentEntries: recentEntries,
+                customFoods: customFoods,
+                initialServingsInfo: initialServings[index]
+            )
+        }
+
+        let localPortionIndices = foodMentions.indices.filter {
+            resolutions[$0] != nil
+                && needsSemanticPortionResolution(
+                    mention: foodMentions[$0].text,
+                    current: initialServings[$0]
+                )
+        }
+        if let remoteProvider = provider as? RemoteAPIProvider, !localPortionIndices.isEmpty {
+            let portions = await remoteProvider.extractServingsBatch(
+                userMessage: userMessage,
+                foodMentions: localPortionIndices.map { foodMentions[$0].text }
+            )
+            for (position, mentionIndex) in localPortionIndices.enumerated() {
+                initialServings[mentionIndex] = portions[position]
+                if let candidate = resolutions[mentionIndex]?.candidate {
+                    resolutions[mentionIndex] = CandidateResolution(
+                        candidate: candidate,
+                        servingsInfo: portions[position]
+                    )
+                }
+            }
+        } else {
+            for index in localPortionIndices {
+                initialServings[index] = await initialServingsInfo(
+                    for: foodMentions[index].text,
                     userMessage: userMessage,
                     provider: provider
                 )
+                if let candidate = resolutions[index]?.candidate {
+                    resolutions[index] = CandidateResolution(
+                        candidate: candidate,
+                        servingsInfo: initialServings[index]
+                    )
+                }
+            }
+        }
+
+        let unresolvedCandidateIndices = foodMentions.indices.filter { resolutions[$0] == nil }
+        if let remoteProvider = provider as? RemoteAPIProvider, !unresolvedCandidateIndices.isEmpty {
+            let remoteCandidates = await remoteProvider.resolveFoodCandidates(
+                userMessage: userMessage,
+                foodMentions: unresolvedCandidateIndices.map { foodMentions[$0].text }
+            )
+            for (position, mentionIndex) in unresolvedCandidateIndices.enumerated() {
+                guard let resolved = remoteCandidates[position] else { continue }
+                resolutions[mentionIndex] = await candidateResolution(
+                    from: resolved,
+                    recentEntries: recentEntries,
+                    customFoods: customFoods,
+                    initialServingsInfo: initialServings[mentionIndex]
+                )
+            }
+        }
+
+        for index in foodMentions.indices {
+            let parsedMention = foodMentions[index]
+            let mention = parsedMention.text
+            let resolution: CandidateResolution?
+            if let existing = resolutions[index] {
+                resolution = existing
+            } else {
+                resolution = await resolveLoggedCandidate(
+                    mention: mention,
+                    userMessage: userMessage,
+                    provider: provider,
+                    recentEntries: recentEntries,
+                    customFoods: customFoods,
+                    initialServingsInfo: initialServings[index]
+                )
             }
 
-            guard let resolution = await resolveLoggedCandidate(
-                mention: mention,
-                userMessage: userMessage,
-                provider: provider,
-                recentEntries: recentEntries,
-                customFoods: customFoods,
-                initialServingsInfo: initialServings
-            ) else {
+            guard let resolution else {
                 confirmLines.append("I couldn't confidently match \"\(mention)\"")
                 continue
             }
@@ -685,8 +817,7 @@ final class FoodLoggingService {
                 continue
             }
 
-            // Deduplication: only skip if we already added this food in THIS message
-            if entries.contains(where: { $0.name == builtEntry.name && $0.meal == meal }) {
+            if entries.contains(where: { foodIdentityKey(for: $0) == foodIdentityKey(for: builtEntry) }) {
                 continue
             }
 
@@ -695,9 +826,154 @@ final class FoodLoggingService {
         }
 
         if entries.isEmpty {
-            return .reply("I couldn't find any matching foods to log. Could you try being more specific?")
+            return .recoverableReply("I couldn't find any matching foods to log. Try again or search the local food database.")
         }
         return .init(action: .logFood(entries), reply: "✓ " + confirmLines.joined(separator: "\n✓ "))
+    }
+
+    private func needsSemanticPortionResolution(
+        mention: String,
+        current: ServingsInfo
+    ) -> Bool {
+        guard !current.hasExplicitPortion else { return false }
+        let tokens = Set(tokenize(mention).map(singularized))
+        let portionWords: Set<String> = [
+            "half", "quarter", "third", "handful", "bite", "sip", "scoop",
+            "plate", "glass", "packet", "container", "heaping", "rounded"
+        ]
+        let hasNumericAmount = mention.range(
+            of: #"(?:\d+(?:[./]\d+)?)|[¼½¾⅓⅔]"#,
+            options: .regularExpression
+        ) != nil
+        return hasNumericAmount
+            || !tokens.intersection(unitWords).isEmpty
+            || !tokens.intersection(portionWords).isEmpty
+    }
+
+    private func handleMealTemplateReuse(
+        userMessage: String,
+        mealTemplates: [MealTemplate],
+        defaultMeal: String
+    ) -> LoggingResult? {
+        guard !mealTemplates.isEmpty else { return nil }
+
+        let normalizedMessage = " \(normalizedForComparison(userMessage)) "
+        let actionWords: Set<String> = [
+            "add", "have", "log", "repeat", "reuse", "use", "ate", "again"
+        ]
+        let messageWords = Set(tokenize(userMessage).map(singularized))
+        guard !messageWords.intersection(actionWords).isEmpty else { return nil }
+
+        let matchingTemplate = mealTemplates
+            .filter {
+                let name = normalizedForComparison($0.name)
+                return !name.isEmpty && normalizedMessage.contains(" \(name) ")
+            }
+            .max { $0.name.count < $1.name.count }
+
+        guard let template = matchingTemplate, !template.items.isEmpty else { return nil }
+        let meal = fastMeal(in: userMessage) ?? defaultMeal
+        let entries = template.items.map { item in
+            let grams = max(0, item.portionGrams)
+            let factor = grams > 0 ? 100 / grams : 0
+            return FoodEntry(
+                name: item.foodName,
+                brand: item.brand,
+                meal: meal,
+                portionGrams: grams,
+                portionDescription: item.portionDescription ?? "1 serving",
+                servings: item.servings ?? 1,
+                servingUnit: item.servingUnit ?? "serving",
+                calories: item.calories,
+                proteinG: item.proteinG,
+                carbsG: item.carbsG,
+                fatG: item.fatG,
+                fiberG: item.fiberG ?? 0,
+                caloriesPer100g: item.calories * factor,
+                proteinPer100g: item.proteinG * factor,
+                carbsPer100g: item.carbsG * factor,
+                fatPer100g: item.fatG * factor,
+                fiberPer100g: (item.fiberG ?? 0) * factor,
+                rawUserInput: userMessage,
+                fdcId: item.fdcId,
+                foodDatabaseId: item.foodDatabaseId,
+                source: item.source ?? "meal_template",
+                barcode: item.barcode
+            )
+        }
+
+        return LoggingResult(
+            action: .logFood(entries),
+            reply: "✓ Added \(template.name) to \(MealCategory(storedValue: meal).title)."
+        )
+    }
+
+    private func handleMoveFood(
+        userMessage: String,
+        provider: any LLMProvider,
+        dayEntries: [FoodEntry],
+        dayLabel: String,
+        recentMessages: [(role: String, content: String)]
+    ) async -> LoggingResult {
+        guard !dayEntries.isEmpty else {
+            return .reply("Your \(dayLabel) food log is empty.")
+        }
+
+        let logSummary = dayEntries.map { "\($0.name) (\($0.meal))" }.joined(separator: "\n")
+        do {
+            let mutation = try await provider.extractFoodMove(
+                userMessage: userMessage,
+                logSummary: logSummary,
+                recentMessages: recentMessages
+            )
+            guard let destination = mutation.destinationMeal,
+                  MealCategory(storedValue: destination).rawValue == destination else {
+                let question = mutation.clarificationQuestion ?? "Which meal should I move it to?"
+                return .init(action: .askClarification(question), reply: question)
+            }
+            guard let name = mutation.foodName,
+                  let entry = resolveEntry(named: name, in: dayEntries) else {
+                let question = mutation.clarificationQuestion ?? "Which food should I move?"
+                return .init(action: .askClarification(question), reply: question)
+            }
+            guard entry.meal != destination else {
+                return .reply("\(entry.name) is already in \(MealCategory(storedValue: destination).title).")
+            }
+            return .init(
+                action: .moveEntry(id: entry.id, destinationMeal: destination),
+                reply: ""
+            )
+        } catch {
+            return .reply("I couldn't safely move that item. Please name the food and destination meal.")
+        }
+    }
+
+    private func deduplicatedFoodMentions(_ mentions: [FastFoodMention]) -> [FastFoodMention] {
+        var seen = Set<String>()
+        return mentions.filter { mention in
+            let key = normalizedForComparison(mention.text)
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
+    private func foodIdentityKey(for entry: FoodEntry) -> String {
+        if let barcode = entry.barcode, !barcode.isEmpty {
+            return "barcode:\(barcode)"
+        }
+        if let fdcId = entry.fdcId {
+            return "fdc:\(fdcId)"
+        }
+        if let foodDatabaseId = entry.foodDatabaseId {
+            return "database:\(foodDatabaseId)"
+        }
+        return [
+            entry.source ?? "",
+            entry.brand ?? "",
+            entry.name,
+            entry.meal,
+        ]
+        .map(normalizedForComparison)
+        .joined(separator: ":")
     }
 
     // MARK: - Edit Food
@@ -1053,6 +1329,18 @@ final class FoodLoggingService {
                 return meal
             }
         }
+
+        let temporalHints: [(meal: String, pattern: String)] = [
+            ("breakfast", #"(?i)\b(?:this\s+)?morning\b"#),
+            ("lunch", #"(?i)\b(?:at\s+)?(?:noon|midday)\b"#),
+            ("dinner", #"(?i)\b(?:this\s+)?(?:evening|tonight)\b"#)
+        ]
+        if let match = temporalHints.first(where: {
+            text.range(of: $0.pattern, options: .regularExpression) != nil
+        }) {
+            return match.meal
+        }
+
         return nil
     }
 
@@ -1089,8 +1377,6 @@ final class FoodLoggingService {
     private func fastServingsInfo(for mention: String) -> ServingsInfo {
         let tokens = tokenize(mention)
         let count = leadingCount(in: tokens)
-        let lowered = mention.lowercased()
-
         if let count {
             let unit = servingUnitNearCount(tokens: tokens) ?? inferredServingUnit(from: mention)
             let description = "\(count.display) \(pluralized(unit, count: count.value))"
@@ -1101,18 +1387,6 @@ final class FoodLoggingService {
                 confident: true,
                 hasExplicitPortion: true
             )
-        }
-
-        if tokens.first == "some" {
-            if lowered.contains("spinach") || lowered.contains("blueberr") {
-                return ServingsInfo(
-                    servings: 1,
-                    portionDescription: "1 cup",
-                    servingUnit: "cup",
-                    confident: true,
-                    hasExplicitPortion: false
-                )
-            }
         }
 
         return ServingsInfo(
@@ -1314,43 +1588,21 @@ final class FoodLoggingService {
 
     private func isStrongFoodIdentityMatch(_ candidate: SearchCandidate, mention: String) -> Bool {
         let mentionTokens = Set(identityTokens(in: mention).map(singularized))
-        let candidateTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
-        let mentionsChickFilA = mentionTokens.contains("chick") && mentionTokens.contains("fil")
-
-        if mentionsChickFilA,
-           mentionTokens.contains("nugget"),
-           candidateTokens.contains("chicken"),
-           candidateTokens.contains("nugget") {
-            return true
-        }
-
-        if mentionsChickFilA,
-           mentionTokens.contains("fry"),
-           candidateTokens.contains("waffle"),
-           candidateTokens.contains("fry") {
-            return true
-        }
-
-        if mentionTokens.contains("egg"),
-           candidateTokens.contains("egg"),
-           candidateTokens.contains("whole"),
-           candidate.brand?.isEmpty != false {
-            return true
-        }
-
-        if mentionTokens.contains("spinach"),
-           candidateTokens.contains("spinach"),
-           candidate.brand?.isEmpty != false {
-            return true
-        }
-
-        if mentionTokens.contains("coffee"),
-           candidateTokens.contains("coffee") {
-            return true
-        }
-
-        let meaningfulMentionTokens = mentionTokens.filter { !["chick", "fil"].contains($0) }
+        let candidateNameTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
+        let candidateBrandTokens = Set(meaningfulTokens(in: candidate.brand ?? "").map(singularized))
+        let candidateTokens = candidateNameTokens.union(candidateBrandTokens)
+        let meaningfulMentionTokens = brandMatchesMention(candidate.brand, mention: mention)
+            ? mentionTokens.subtracting(candidateBrandTokens)
+            : mentionTokens
         guard !meaningfulMentionTokens.isEmpty else { return false }
+
+        let unexpectedVariants = candidateNameTokens
+            .intersection(variantQualifierWords)
+            .subtracting(mentionTokens)
+        if !unexpectedVariants.isEmpty {
+            return false
+        }
+
         let matched = meaningfulMentionTokens.filter { mentionToken in
             candidateTokens.contains(mentionToken)
                 || candidateTokens.contains(where: { editDistanceLimited(mentionToken, $0, maxDistance: 1) <= 1 })
@@ -1361,25 +1613,25 @@ final class FoodLoggingService {
     private func isLowScoreEverydayDefault(_ candidate: SearchCandidate, mention: String) -> Bool {
         let mentionTokens = Set(identityTokens(in: mention).map(singularized))
         let candidateTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
-        return mentionTokens == ["coffee"]
-            && candidateTokens.contains("coffee")
-            && candidateTokens.contains("black")
+        guard !mentionTokens.isEmpty, candidate.brand?.isEmpty != false else { return false }
+        let matched = mentionTokens.filter { token in
+            candidateTokens.contains(token)
+                || candidateTokens.contains(where: { editDistanceLimited(token, $0, maxDistance: 1) <= 1 })
+        }
+        let unexpectedVariants = candidateTokens
+            .intersection(variantQualifierWords)
+            .subtracting(mentionTokens)
+        return unexpectedVariants.isEmpty
+            && Double(matched.count) / Double(mentionTokens.count) >= 0.9
     }
 
-    private func isPlainCoffeeQuery(_ query: String) -> Bool {
-        Set(identityTokens(in: query).map(singularized)) == ["coffee"]
-    }
-
-    private func isAmbiguousPlainCoffeeCandidate(_ candidate: SearchCandidate) -> Bool {
+    private func isAmbiguousPlainRecentCandidate(_ candidate: SearchCandidate, query: String) -> Bool {
+        let queryTokens = Set(identityTokens(in: query).map(singularized))
         let candidateTokens = Set(meaningfulTokens(in: candidate.name).map(singularized))
-        guard candidateTokens == ["coffee"] else { return false }
-        if candidate.source == .recent, candidate.caloriesPerServing > 25 {
-            return true
-        }
-        if let density = calorieDensity(for: candidate), density > 20 {
-            return true
-        }
-        return false
+        return queryTokens.count == 1
+            && candidateTokens == queryTokens
+            && candidate.source == .recent
+            && candidate.caloriesPerServing > 50
     }
 
     private func brandMatchesMention(_ brand: String?, mention: String) -> Bool {
@@ -1443,27 +1695,44 @@ final class FoodLoggingService {
             return .unavailable
         }
 
+        guard let resolution = await candidateResolution(
+            from: resolved,
+            recentEntries: recentEntries,
+            customFoods: customFoods,
+            initialServingsInfo: initialServingsInfo
+        ) else {
+            return .unavailable
+        }
+        return .resolved(resolution)
+    }
+
+    private func candidateResolution(
+        from resolved: ResolvedFoodCandidate,
+        recentEntries: [FoodEntry],
+        customFoods: [CustomFood],
+        initialServingsInfo: ServingsInfo
+    ) async -> CandidateResolution? {
         guard let candidate = await resolveCandidate(
             candidateId: resolved.candidateId,
             recentEntries: recentEntries,
             customFoods: customFoods
         ) else {
-            return .unavailable
+            return nil
         }
 
         let localName = normalizedForComparison(candidate.name)
         let remoteName = normalizedForComparison(resolved.name)
         guard !localName.isEmpty, localName == remoteName else {
-            return .unavailable
+            return nil
         }
 
         let localBrand = normalizedForComparison(candidate.brand ?? "")
         let remoteBrand = normalizedForComparison(resolved.brand ?? "")
         if !localBrand.isEmpty || !remoteBrand.isEmpty, localBrand != remoteBrand {
-            return .unavailable
+            return nil
         }
 
-        return .resolved(CandidateResolution(
+        return CandidateResolution(
             candidate: candidate,
             servingsInfo: ServingsInfo(
                 servings: max(0.1, resolved.servings),
@@ -1472,7 +1741,7 @@ final class FoodLoggingService {
                 confident: resolved.confident,
                 hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
             )
-        ))
+        )
     }
 
     /// Run the LLM-driven find-food agent loop. The LLM proposes the search
@@ -1848,9 +2117,8 @@ final class FoodLoggingService {
             return max(servingGrams / representedCount * servingsInfo.servings, 1)
         }
 
-        if servingsInfo.hasExplicitPortion,
-           let approximate = approximateUnitGrams(unit: servingsInfo.servingUnit, foodName: candidate.name) {
-            return max(approximate * servingsInfo.servings, 1)
+        if servingsInfo.hasExplicitPortion {
+            return nil
         }
 
         if let servingGrams = candidate.servingGrams, servingGrams > 0 {
@@ -1885,26 +2153,6 @@ final class FoodLoggingService {
             return 1
         }
         return nil
-    }
-
-    private func approximateUnitGrams(unit: String, foodName: String) -> Double? {
-        let singularUnit = singularized(unit.lowercased())
-        let foodTokens = Set(meaningfulTokens(in: foodName).map(singularized))
-        switch singularUnit {
-        case "egg":
-            return 50
-        case "nugget":
-            return 16
-        case "fry":
-            return foodTokens.contains("waffle") ? 5 : 4
-        case "cup":
-            if foodTokens.contains("spinach") { return 30 }
-            if foodTokens.contains("blueberry") { return 148 }
-            if foodTokens.contains("coffee") { return 240 }
-            return nil
-        default:
-            return nil
-        }
     }
 
     private func loggedEntry(
@@ -2052,11 +2300,27 @@ final class FoodLoggingService {
         goals: DailyGoal,
         dayEntries: [FoodEntry],
         dayLabel: String,
+        targetDate: Date,
         recentEntries: [FoodEntry],
         weightEntries: [WeightEntry],
         waterEntries: [WaterEntry] = [],
         recentMessages: [(role: String, content: String)]
     ) async -> LoggingResult {
+        if let remoteProvider = provider as? RemoteAPIProvider,
+           let specs = try? await remoteProvider.parseDataQueries(userMessage: userMessage),
+           let answer = deterministicQueryAnswer(
+               specs: specs,
+               goals: goals,
+               targetDate: targetDate,
+               dayLabel: dayLabel,
+               dayEntries: dayEntries,
+               recentEntries: recentEntries,
+               weightEntries: weightEntries,
+               waterEntries: waterEntries
+           ) {
+            return .reply(answer)
+        }
+
         let context = buildDataContext(
             goals: goals,
             dayEntries: dayEntries,
@@ -2077,6 +2341,137 @@ final class FoodLoggingService {
             let eaten = dayEntries.reduce(0.0) { $0 + $1.calories }
             return .reply("You've eaten \(Int(eaten)) of \(Int(goals.calories)) calories on \(dayLabel).")
         }
+    }
+
+    private func deterministicQueryAnswer(
+        specs: [DataQuerySpec],
+        goals: DailyGoal,
+        targetDate: Date,
+        dayLabel: String,
+        dayEntries: [FoodEntry],
+        recentEntries: [FoodEntry],
+        weightEntries: [WeightEntry],
+        waterEntries: [WaterEntry]
+    ) -> String? {
+        guard !specs.isEmpty else { return nil }
+        let cal = Calendar.current
+        let anchorStart = cal.startOfDay(for: targetDate)
+        let anchorEnd = cal.date(byAdding: .day, value: 1, to: anchorStart)!
+        var answers: [String] = []
+
+        func foodValue(_ entry: FoodEntry, metric: String) -> Double? {
+            switch metric {
+            case "calories": entry.calories
+            case "protein": entry.proteinG
+            case "carbs": entry.carbsG
+            case "fat": entry.fatG
+            case "fiber": entry.fiberG
+            default: nil
+            }
+        }
+
+        func goalValue(_ metric: String) -> Double? {
+            switch metric {
+            case "calories": goals.calories
+            case "protein": goals.protein
+            case "carbs": goals.carbs
+            case "fat": goals.fat
+            case "fiber": goals.fiber
+            default: nil
+            }
+        }
+
+        func unit(for metric: String) -> String {
+            switch metric {
+            case "calories": "cal"
+            case "water": "oz"
+            case "weight": "lb"
+            default: "g"
+            }
+        }
+
+        for spec in specs.prefix(4) {
+            let metric = spec.metric
+            let aggregation = spec.aggregation
+
+            if metric == "weight" {
+                let sorted = weightEntries.sorted { $0.date < $1.date }
+                guard let latest = sorted.last else {
+                    answers.append("No weight is logged yet")
+                    continue
+                }
+                if aggregation == "change" || aggregation == "trend" {
+                    let days = max(1, min(spec.days ?? 14, 365))
+                    let start = cal.date(byAdding: .day, value: -(days - 1), to: anchorStart)!
+                    let range = sorted.filter { $0.date >= start && $0.date < anchorEnd }
+                    guard let first = range.first, let last = range.last, first.id != last.id else {
+                        answers.append("Not enough weight entries for a \(days)-day trend")
+                        continue
+                    }
+                    let change = last.weightLbs - first.weightLbs
+                    let direction = change < 0 ? "down" : (change > 0 ? "up" : "unchanged")
+                    answers.append("Weight is \(direction) \(formatMeasurement(abs(change))) lb over \(days) days")
+                } else {
+                    answers.append("Latest weight: \(formatMeasurement(latest.weightLbs)) lb")
+                }
+                continue
+            }
+
+            if metric == "water" {
+                let total = waterEntries
+                    .filter { $0.date >= anchorStart && $0.date < anchorEnd }
+                    .reduce(0) { $0 + $1.amountOz }
+                if aggregation == "remaining" {
+                    let storedGoal = UserDefaults.standard.double(forKey: "water_goal_oz")
+                    let waterGoal = storedGoal > 0 ? storedGoal : 64
+                    answers.append("\(formatMeasurement(max(waterGoal - total, 0))) oz water left \(dayLabel)")
+                } else {
+                    answers.append("\(formatMeasurement(total)) oz water \(dayLabel)")
+                }
+                continue
+            }
+
+            guard goalValue(metric) != nil else { continue }
+            let entries: [FoodEntry]
+            let divisor: Double
+            let windowLabel: String
+            if spec.window == "last_n_days" {
+                let days = max(1, min(spec.days ?? 7, 30))
+                let start = cal.date(byAdding: .day, value: -(days - 1), to: anchorStart)!
+                entries = recentEntries.filter { $0.date >= start && $0.date < anchorEnd }
+                divisor = Double(days)
+                windowLabel = "over the last \(days) days"
+            } else {
+                entries = dayEntries
+                divisor = 1
+                windowLabel = dayLabel
+            }
+
+            let total = entries.compactMap { foodValue($0, metric: metric) }.reduce(0, +)
+            let value: Double
+            if aggregation == "remaining", let goal = goalValue(metric) {
+                value = max(goal - total, 0)
+            } else if aggregation == "average" {
+                value = total / divisor
+            } else {
+                value = total
+            }
+
+            let label: String
+            switch aggregation {
+            case "remaining": label = "\(metric.capitalized) left"
+            case "average": label = "Average \(metric)"
+            default: label = metric.capitalized
+            }
+            answers.append("\(label): \(formatMeasurement(value)) \(unit(for: metric)) \(windowLabel)")
+        }
+
+        guard !answers.isEmpty else { return nil }
+        return answers.joined(separator: ". ") + "."
+    }
+
+    private func formatMeasurement(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(abs(value.rounded() - value) < 0.05 ? 0 : 1)))
     }
 
     // MARK: - Rich Data Context Builder
@@ -2342,34 +2737,23 @@ final class FoodLoggingService {
 
     private func handleSetGoal(
         userMessage: String,
-        provider: any LLMProvider,
-        recentMessages: [(role: String, content: String)]
+        provider: any LLMProvider
     ) async -> LoggingResult {
-        // Let GPT parse the goal — it understands natural language better than regex
         guard let remoteProvider = provider as? RemoteAPIProvider else {
             return .reply("Goal setting requires an internet connection.")
         }
 
         do {
-            let goal = try await remoteProvider.extractGoal(userMessage: userMessage)
-
-            var parts: [String] = []
-            if let c = goal.calories { parts.append("\(Int(c)) cal") }
-            if let p = goal.protein { parts.append("\(Int(p))g protein") }
-            if let c = goal.carbs { parts.append("\(Int(c))g carbs") }
-            if let f = goal.fat { parts.append("\(Int(f))g fat") }
-            if let f = goal.fiber { parts.append("\(Int(f))g fiber") }
-
-            if parts.isEmpty {
-                return .reply("I couldn't figure out what goal to set. Try \"set protein to 150g\" or \"set calories to 2000\".")
+            let validMetrics = Set(["calories", "protein", "carbs", "fat", "fiber", "water_oz", "target_weight_lbs"])
+            let validOperations = Set(["set", "increase", "decrease"])
+            let changes = try await remoteProvider.extractGoalChanges(userMessage: userMessage)
+                .filter { validMetrics.contains($0.metric) && validOperations.contains($0.operation) && $0.value > 0 }
+            guard !changes.isEmpty else {
+                return .reply("I couldn't figure out what goal to change. Try \"set protein to 150g\" or \"lower calories by 200\".")
             }
-
-            return .init(
-                action: .setGoal(calories: goal.calories, protein: goal.protein, carbs: goal.carbs, fat: goal.fat, fiber: goal.fiber),
-                reply: "✓ Goals updated: \(parts.joined(separator: ", "))."
-            )
+            return .init(action: .setGoal(changes: changes), reply: "")
         } catch {
-            return .reply("I had trouble parsing that goal. Try \"set protein to 150g\" or \"set calories to 2000\".")
+            return .reply("I had trouble parsing that goal. Try \"set protein to 150g\" or \"lower calories by 200\".")
         }
     }
 
@@ -2410,11 +2794,11 @@ final class FoodLoggingService {
     private func handleProviderError(_ error: Error) -> LoggingResult {
         let isOffline = !NetworkMonitor.shared.isConnected
         if isOffline {
-            return .reply("No internet connection. Please check your network and try again. You can still log food manually in the Log tab!")
+            return .recoverableReply("You're offline. Try again when connected or search the local food database.")
         }
         
         print("❌ AI Service Error: \(error.localizedDescription)")
-        return .reply("I'm having trouble connecting to my brain right now. Could you try again in a moment? You can always log food manually in the Log tab if you're in a hurry.")
+        return .recoverableReply("Nomva Cloud didn't finish that request. Try again or search the local food database.")
     }
 
     private static func dayContextLabel(for date: Date, calendar: Calendar = .current) -> String {
@@ -2431,14 +2815,18 @@ final class FoodLoggingService {
         return formatter.string(from: date)
     }
 
-    func searchFoodsForManualEntry(query: String, limit: Int = 30) async -> [FoodItem] {
+    func searchFoodsForManualEntry(
+        query: String,
+        customFoods: [CustomFood] = [],
+        limit: Int = 30
+    ) async -> [FoodItem] {
         let candidates = await searchCandidates(
             query: query,
             recentEntries: [],
-            customFoods: [],
+            customFoods: customFoods,
             limit: limit
         )
-        return candidates.compactMap(databaseFood(from:))
+        return candidates.compactMap(foodItem(from:))
     }
 
     private func searchCandidates(
@@ -2527,6 +2915,12 @@ final class FoodLoggingService {
         let fuzzyOverlap = fuzzyQueryOverlapScore(queryTokens: queryTokens, candidateTokens: candidateTokens.union(brandTokens))
         score += fuzzyOverlap * 30
 
+        if candidate.source == .custom {
+            score += 120
+        } else if candidate.source == .recent {
+            score += candidate.isFavorite ? 260 : 24
+        }
+
         if genericQuery && (candidate.brand?.isEmpty != false) {
             score += 18
         }
@@ -2549,47 +2943,25 @@ final class FoodLoggingService {
             score += 16
         }
 
-        if queryTokens.contains("coffee"), candidateTokens.contains("coffee") {
-            if candidateTokens.contains("black") {
-                score += 60
-            }
-            for bad in ["candy", "honey", "nut", "cashew"] where candidateTokens.contains(bad) && !queryTokens.contains(bad) {
-                score -= 50
-            }
-        }
-
-        if isPlainCoffeeQuery(query), isAmbiguousPlainCoffeeCandidate(candidate) {
+        if isAmbiguousPlainRecentCandidate(candidate, query: query) {
             score -= 220
         }
 
-        let mentionsChickFilA = queryTokens.contains("chick") && queryTokens.contains("fil")
-        if mentionsChickFilA,
-           let brand = candidate.brand,
-           brandMatchesMention(brand, mention: query) {
+        if let candidateBrand = candidate.brand,
+           brandMatchesMention(candidateBrand, mention: query) {
             let foodTokens = queryTokens.subtracting(brandTokens)
-            let foodTokenMatched = foodTokens.isEmpty || foodTokens.contains { token in
+            let matchedFoodTokens = foodTokens.filter { token in
                 candidateTokens.contains(token)
                     || candidateTokens.contains(where: { editDistanceLimited(token, $0, maxDistance: 1) <= 1 })
             }
-            if foodTokenMatched {
+            let coverage = foodTokens.isEmpty
+                ? 1
+                : Double(matchedFoodTokens.count) / Double(foodTokens.count)
+            if coverage >= 0.6 {
                 score += (hasUnstatedMenuSize && countBased) ? 70 : 500
             } else {
                 score -= 250
             }
-        }
-
-        if mentionsChickFilA,
-           queryTokens.contains("nugget"),
-           candidateTokens.contains("chicken"),
-           candidateTokens.contains("nugget") {
-            score += candidate.portionBasis == .grams ? 70 : 32
-        }
-
-        if mentionsChickFilA,
-           queryTokens.contains("fry"),
-           candidateTokens.contains("waffle"),
-           candidateTokens.contains("fry") {
-            score += candidate.portionBasis == .grams ? 70 : 20
         }
 
         if countBased,
@@ -2853,7 +3225,7 @@ final class FoodLoggingService {
 
     private func isLiteralWholeFoodMatch(_ candidate: SearchCandidate, query: String) -> Bool {
         guard looksLikePlainWholeFoodQuery(query) else { return false }
-        if isPlainCoffeeQuery(query), isAmbiguousPlainCoffeeCandidate(candidate) {
+        if isAmbiguousPlainRecentCandidate(candidate, query: query) {
             return false
         }
         if candidate.brand?.isEmpty == false { return false }
@@ -2873,7 +3245,7 @@ final class FoodLoggingService {
 
     private func isSimpleGenericBaseMatch(_ candidate: SearchCandidate, query: String) -> Bool {
         guard looksLikePlainWholeFoodQuery(query) else { return false }
-        if isPlainCoffeeQuery(query), isAmbiguousPlainCoffeeCandidate(candidate) {
+        if isAmbiguousPlainRecentCandidate(candidate, query: query) {
             return false
         }
         if candidate.brand?.isEmpty == false { return false }
@@ -2930,8 +3302,6 @@ final class FoodLoggingService {
             }
         }
 
-        variants.append(contentsOf: foodFamilySearchVariants(for: coreTokens))
-
         // Generic brand‑aware variants when a brand phrase can be extracted
         if let brandPhrase = potentialBrandPhrase(in: query) {
             let lowerBrandTokens = brandPhrase.split(separator: " ").map { String($0) }
@@ -2959,43 +3329,6 @@ final class FoodLoggingService {
         return unique
     }
 
-    private func foodFamilySearchVariants(for tokens: [String]) -> [String] {
-        let singularTokens = Set(tokens.map(singularized))
-        var variants: [String] = []
-
-        let mentionsChickFilA = singularTokens.contains("chick") && singularTokens.contains("fil")
-        let mentionsChicken = singularTokens.contains("chicken") || mentionsChickFilA
-        let mentionsNuggets = singularTokens.contains("nugget")
-        let mentionsFries = singularTokens.contains("fry") || singularTokens.contains("frie")
-        let mentionsWaffle = singularTokens.contains("waffle") || mentionsChickFilA
-
-        if mentionsNuggets, mentionsChicken {
-            variants.append("chicken nuggets")
-        } else if mentionsNuggets, tokens.count == 1 {
-            variants.append("chicken nuggets")
-        }
-
-        if mentionsFries, mentionsWaffle {
-            variants.append("waffle fries")
-        } else if mentionsFries, tokens.count <= 2 {
-            variants.append("french fries")
-        }
-
-        if singularTokens.contains("egg") {
-            variants.append("whole egg")
-        }
-
-        if singularTokens.contains("spinach") {
-            variants.append("spinach raw")
-        }
-
-        if singularTokens.contains("coffee") {
-            variants.append("black coffee")
-        }
-
-        return variants
-    }
-
     private func resolveCandidate(candidateId: String, recentEntries: [FoodEntry], customFoods: [CustomFood]) async -> SearchCandidate? {
         if candidateId.hasPrefix("db_"), let id = Int(candidateId.replacingOccurrences(of: "db_", with: "")) {
             return (await db.food(byRowId: id)).map { buildDatabaseCandidates(from: [$0]).first! }
@@ -3014,10 +3347,15 @@ final class FoodLoggingService {
         return nil
     }
 
-    private func databaseFood(from candidate: SearchCandidate) -> FoodItem? {
-        guard candidate.source == .database,
-              let rowId = Int(candidate.candidateId.replacingOccurrences(of: "db_", with: "")) else {
-            return nil
+    private func foodItem(from candidate: SearchCandidate) -> FoodItem? {
+        let rowId: Int
+        if candidate.source == .database,
+           let databaseId = Int(candidate.candidateId.replacingOccurrences(of: "db_", with: "")) {
+            rowId = databaseId
+        } else {
+            rowId = candidate.candidateId.unicodeScalars.reduce(1_000_000) {
+                (($0 &* 31) &+ Int($1.value)) & Int.max
+            }
         }
 
         return FoodItem(
@@ -3098,13 +3436,60 @@ final class FoodLoggingService {
     }
 
     private func buildCustomCandidates(from foods: [CustomFood]) -> [SearchCandidate] {
-        foods.map { SearchCandidate(candidateId: "custom_\(String($0.id.uuidString.prefix(10)))", source: CandidateSource.custom, databaseSource: nil, fdcId: nil, customFoodId: $0.id, recentEntryId: nil, name: $0.name, brand: $0.brand, servingGrams: $0.servingGrams, servingDesc: $0.servingDesc, caloriesPerServing: $0.calories, proteinG: $0.proteinG, carbsG: $0.carbsG, fatG: $0.fatG, fiberG: $0.fiberG, sugarG: 0, sodiumMg: 0, saturatedFatG: nil, transFatG: nil, cholesterolMg: nil, addedSugarG: nil, vitaminDMcg: nil, calciumMg: nil, ironMg: nil, potassiumMg: nil, vitaminAMcgRAE: nil, vitaminCMg: nil, vitaminB12Mcg: nil, folateMcgDFE: nil, magnesiumMg: nil, zincMg: nil, barcode: nil, portionBasis: .grams, servingSource: nil, per100gValues: NutritionValues(calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0)) }
+        foods.map {
+            let factor = $0.servingGrams > 0 ? 100 / $0.servingGrams : 0
+            return SearchCandidate(
+                candidateId: "custom_\(String($0.id.uuidString.prefix(10)))",
+                source: CandidateSource.custom,
+                databaseSource: "custom",
+                fdcId: nil,
+                customFoodId: $0.id,
+                recentEntryId: nil,
+                name: $0.name,
+                brand: $0.brand,
+                servingGrams: $0.servingGrams,
+                servingDesc: $0.servingDesc,
+                caloriesPerServing: $0.calories,
+                proteinG: $0.proteinG,
+                carbsG: $0.carbsG,
+                fatG: $0.fatG,
+                fiberG: $0.fiberG,
+                sugarG: 0,
+                sodiumMg: 0,
+                saturatedFatG: nil,
+                transFatG: nil,
+                cholesterolMg: nil,
+                addedSugarG: nil,
+                vitaminDMcg: nil,
+                calciumMg: nil,
+                ironMg: nil,
+                potassiumMg: nil,
+                vitaminAMcgRAE: nil,
+                vitaminCMg: nil,
+                vitaminB12Mcg: nil,
+                folateMcgDFE: nil,
+                magnesiumMg: nil,
+                zincMg: nil,
+                barcode: $0.barcode,
+                portionBasis: .grams,
+                servingSource: nil,
+                per100gValues: NutritionValues(
+                    calories: $0.calories * factor,
+                    protein: $0.proteinG * factor,
+                    carbs: $0.carbsG * factor,
+                    fat: $0.fatG * factor,
+                    fiber: $0.fiberG * factor,
+                    sugar: 0,
+                    sodium: 0
+                )
+            )
+        }
     }
 
     private func buildRecentCandidates(from entries: [FoodEntry]) -> [SearchCandidate] {
         entries.prefix(10).map {
             let gramSafe = $0.portionGrams > 0 && $0.caloriesPer100g > 0
-            return SearchCandidate(candidateId: "recent_\(String($0.id.uuidString.prefix(10)))", source: CandidateSource.recent, databaseSource: $0.source, fdcId: $0.fdcId, customFoodId: nil, recentEntryId: $0.id, name: $0.name, brand: $0.brand, servingGrams: $0.portionGrams, servingDesc: $0.portionDescription, caloriesPerServing: $0.calories, proteinG: $0.proteinG, carbsG: $0.carbsG, fatG: $0.fatG, fiberG: $0.fiberG, sugarG: $0.sugarG, sodiumMg: $0.sodiumMg, saturatedFatG: $0.saturatedFatG, transFatG: $0.transFatG, cholesterolMg: $0.cholesterolMg, addedSugarG: $0.addedSugarG, vitaminDMcg: $0.vitaminDMcg, calciumMg: $0.calciumMg, ironMg: $0.ironMg, potassiumMg: $0.potassiumMg, vitaminAMcgRAE: $0.vitaminAMcgRAE, vitaminCMg: $0.vitaminCMg, vitaminB12Mcg: $0.vitaminB12Mcg, folateMcgDFE: $0.folateMcgDFE, magnesiumMg: $0.magnesiumMg, zincMg: $0.zincMg, barcode: $0.barcode, portionBasis: gramSafe ? .grams : .fixedServing, servingSource: nil, per100gValues: NutritionValues(calories: $0.caloriesPer100g, protein: $0.proteinPer100g, carbs: $0.carbsPer100g, fat: $0.fatPer100g, fiber: $0.fiberPer100g, sugar: $0.sugarPer100g, sodium: $0.sodiumPer100g, saturatedFat: $0.saturatedFatPer100g, transFat: $0.transFatPer100g, cholesterol: $0.cholesterolPer100g, addedSugar: $0.addedSugarPer100g, vitaminD: $0.vitaminDPer100g, calcium: $0.calciumPer100g, iron: $0.ironPer100g, potassium: $0.potassiumPer100g, vitaminA: $0.vitaminAPer100g, vitaminC: $0.vitaminCPer100g, vitaminB12: $0.vitaminB12Per100g, folate: $0.folatePer100g, magnesium: $0.magnesiumPer100g, zinc: $0.zincPer100g)) }
+            return SearchCandidate(candidateId: "recent_\(String($0.id.uuidString.prefix(10)))", source: CandidateSource.recent, databaseSource: $0.source, fdcId: $0.fdcId, customFoodId: nil, recentEntryId: $0.id, name: $0.name, brand: $0.brand, servingGrams: $0.portionGrams, servingDesc: $0.portionDescription, caloriesPerServing: $0.calories, proteinG: $0.proteinG, carbsG: $0.carbsG, fatG: $0.fatG, fiberG: $0.fiberG, sugarG: $0.sugarG, sodiumMg: $0.sodiumMg, saturatedFatG: $0.saturatedFatG, transFatG: $0.transFatG, cholesterolMg: $0.cholesterolMg, addedSugarG: $0.addedSugarG, vitaminDMcg: $0.vitaminDMcg, calciumMg: $0.calciumMg, ironMg: $0.ironMg, potassiumMg: $0.potassiumMg, vitaminAMcgRAE: $0.vitaminAMcgRAE, vitaminCMg: $0.vitaminCMg, vitaminB12Mcg: $0.vitaminB12Mcg, folateMcgDFE: $0.folateMcgDFE, magnesiumMg: $0.magnesiumMg, zincMg: $0.zincMg, barcode: $0.barcode, portionBasis: gramSafe ? .grams : .fixedServing, servingSource: nil, per100gValues: NutritionValues(calories: $0.caloriesPer100g, protein: $0.proteinPer100g, carbs: $0.carbsPer100g, fat: $0.fatPer100g, fiber: $0.fiberPer100g, sugar: $0.sugarPer100g, sodium: $0.sodiumPer100g, saturatedFat: $0.saturatedFatPer100g, transFat: $0.transFatPer100g, cholesterol: $0.cholesterolPer100g, addedSugar: $0.addedSugarPer100g, vitaminD: $0.vitaminDPer100g, calcium: $0.calciumPer100g, iron: $0.ironPer100g, potassium: $0.potassiumPer100g, vitaminA: $0.vitaminAPer100g, vitaminC: $0.vitaminCPer100g, vitaminB12: $0.vitaminB12Per100g, folate: $0.folatePer100g, magnesium: $0.magnesiumPer100g, zinc: $0.zincPer100g), isFavorite: $0.isFavorite) }
         }
     }
 
@@ -3115,6 +3500,10 @@ final class FoodLoggingService {
 private extension FoodLoggingService.LoggingResult {
     static func reply(_ text: String) -> FoodLoggingService.LoggingResult {
         .init(action: .reply(text), reply: text)
+    }
+
+    static func recoverableReply(_ text: String) -> FoodLoggingService.LoggingResult {
+        .init(action: .reply(text), reply: text, isRecoverableFailure: true)
     }
 }
 

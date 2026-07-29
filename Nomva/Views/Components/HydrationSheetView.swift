@@ -7,8 +7,11 @@ struct HydrationSheetView: View {
     @Query(sort: \WaterEntry.date, order: .reverse) private var allWaterEntries: [WaterEntry]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss)      private var dismiss
+    @Environment(\.undoManager)  private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("water_goal_oz") private var goalOz: Double = 64
     @State private var customAmount: String = ""
+    @State private var undoNotice: String?
     @FocusState private var isCustomFocused: Bool
 
     private let quickAmounts: [Double] = [4, 8, 12, 16, 20, 32]
@@ -31,6 +34,24 @@ struct HydrationSheetView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    if let undoNotice {
+                        HStack {
+                            Text(undoNotice)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Undo") {
+                                undoManager?.undo()
+                                try? modelContext.save()
+                                self.undoNotice = nil
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                        .padding(12)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+
                     // ── Progress ring ─────────────────────────────
                     progressHeader
 
@@ -61,6 +82,9 @@ struct HydrationSheetView: View {
                 }
             }
         }
+        .onAppear {
+            modelContext.undoManager = undoManager
+        }
     }
 
     // MARK: - Subviews
@@ -74,7 +98,7 @@ struct HydrationSheetView: View {
                     .trim(from: 0, to: min(totalOz / goalOz, 1.0))
                     .stroke(Color.blue, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.spring(), value: totalOz)
+                    .animation(reduceMotion ? .none : .spring(), value: totalOz)
 
                 VStack(spacing: 2) {
                     Image(systemName: "drop.fill")
@@ -214,6 +238,8 @@ struct HydrationSheetView: View {
 
                         Button(role: .destructive) {
                             modelContext.delete(entry)
+                            try? modelContext.save()
+                            presentUndo("\(Int(entry.amountOz)) oz removed")
                         } label: {
                             Image(systemName: "minus.circle.fill")
                                 .font(.body)
@@ -243,6 +269,17 @@ struct HydrationSheetView: View {
             entry.date = cal.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date
         }
         modelContext.insert(entry)
+        try? modelContext.save()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func presentUndo(_ message: String) {
+        undoNotice = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if undoNotice == message {
+                undoNotice = nil
+            }
+        }
     }
 }

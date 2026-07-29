@@ -4,120 +4,220 @@ import SwiftData
 @MainActor
 final class ExportService {
     static let shared = ExportService()
-    
-    // MARK: - Fitness Coach Report (CSV)
-    
+
     enum DetailLevel {
         case summary, detailed
     }
-    
-    func generateCoachReport(entries: [FoodEntry], weights: [WeightEntry], detailLevel: DetailLevel = .detailed) -> URL? {
-        var csv: String
+
+    func generateCoachReport(
+        entries: [FoodEntry],
+        weights: [WeightEntry],
+        water: [WaterEntry],
+        goals: [DailyGoal],
+        detailLevel: DetailLevel = .detailed
+    ) -> URL? {
+        let currentGoal = GoalService.currentGoal(from: goals)
+        let calendar = Calendar.current
+        let allDates = Set(
+            entries.map { calendar.startOfDay(for: $0.date) }
+                + weights.map { calendar.startOfDay(for: $0.date) }
+                + water.map { calendar.startOfDay(for: $0.date) }
+        )
+        .sorted(by: >)
+
+        var rows: [[String]] = []
         if detailLevel == .summary {
-            csv = "Date,Calories,Protein(g),Carbs(g),Fat(g),Weight(lbs)\n"
+            rows.append([
+                "Date", "Calories", "Protein (g)", "Carbs (g)", "Fat (g)",
+                "Fiber (g)", "Water (oz)", "Weight (lb)", "Calorie Goal",
+                "Protein Goal (g)", "Carb Goal (g)", "Fat Goal (g)"
+            ])
         } else {
-            csv = "Date,Meal,Food,Brand,Portion,Calories,Protein(g),Carbs(g),Fat(g),Weight(lbs)\n"
+            rows.append([
+                "Date", "Meal", "Food", "Brand", "Portion", "Servings",
+                "Serving Unit", "Calories", "Protein (g)", "Carbs (g)",
+                "Fat (g)", "Fiber (g)", "Water (oz)", "Weight (lb)",
+                "Source", "FDC ID", "Database ID", "Barcode", "Original Input"
+            ])
         }
-        
-        let allDates = Set(entries.map { Calendar.current.startOfDay(for: $0.date) } + 
-                          weights.map { Calendar.current.startOfDay(for: $0.date) }).sorted(by: >)
-        
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
-        
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+
         for date in allDates {
-            let dayEntries = entries.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
-            let dayWeight = weights.first { Calendar.current.isDate($0.date, inSameDayAs: date) }?.weightLbs ?? 0
-            
+            let dayEntries = entries.filter { calendar.isDate($0.date, inSameDayAs: date) }
+            let dayWater = water
+                .filter { calendar.isDate($0.date, inSameDayAs: date) }
+                .reduce(0) { $0 + $1.amountOz }
+            let dayWeight = weights
+                .filter { calendar.isDate($0.date, inSameDayAs: date) }
+                .sorted { $0.date > $1.date }
+                .first?.weightLbs
+
             if detailLevel == .summary {
-                let totals = dayEntries.reduce(into: (cal: 0.0, p: 0.0, c: 0.0, f: 0.0)) { res, e in
-                    res.cal += e.calories; res.p += e.proteinG; res.c += e.carbsG; res.f += e.fatG
-                }
-                let row = [
-                    df.string(from: date),
-                    "\(Int(totals.cal))",
-                    "\(Int(totals.p))",
-                    "\(Int(totals.c))",
-                    "\(Int(totals.f))",
-                    dayWeight > 0 ? String(format: "%.1f", dayWeight) : ""
-                ].joined(separator: ",")
-                csv += row + "\n"
+                let totals = NutritionTotals.from(entries: dayEntries)
+                rows.append([
+                    formatter.string(from: date),
+                    number(totals.calories),
+                    number(totals.protein),
+                    number(totals.carbs),
+                    number(totals.fat),
+                    number(totals.fiber),
+                    number(dayWater),
+                    dayWeight.map(number) ?? "",
+                    number(currentGoal.calories),
+                    number(currentGoal.protein),
+                    number(currentGoal.carbs),
+                    number(currentGoal.fat)
+                ])
+                continue
+            }
+
+            if dayEntries.isEmpty {
+                rows.append([
+                    formatter.string(from: date), "", "", "", "", "", "", "",
+                    "", "", "", "", number(dayWater), dayWeight.map(number) ?? "",
+                    "", "", "", "", ""
+                ])
             } else {
-                if dayEntries.isEmpty && dayWeight > 0 {
-                    csv += "\(df.string(from: date)),,,,,\(String(format: "%.1f", dayWeight))\n"
-                }
-                
-                for e in dayEntries {
-                    let row = [
-                        df.string(from: date),
-                        e.meal,
-                        e.name.replacingOccurrences(of: ",", with: ""),
-                        (e.brand ?? "").replacingOccurrences(of: ",", with: ""),
-                        e.portionDescription.replacingOccurrences(of: ",", with: ""),
-                        "\(Int(e.calories))",
-                        "\(Int(e.proteinG))",
-                        "\(Int(e.carbsG))",
-                        "\(Int(e.fatG))",
-                        dayWeight > 0 ? String(format: "%.1f", dayWeight) : ""
-                    ].joined(separator: ",")
-                    csv += row + "\n"
+                for entry in dayEntries.sorted(by: { $0.date < $1.date }) {
+                    rows.append([
+                        formatter.string(from: date),
+                        MealCategory(storedValue: entry.meal).title,
+                        entry.name,
+                        entry.brand ?? "",
+                        entry.portionDescription,
+                        number(entry.servings),
+                        entry.servingUnit,
+                        number(entry.calories),
+                        number(entry.proteinG),
+                        number(entry.carbsG),
+                        number(entry.fatG),
+                        number(entry.fiberG),
+                        number(dayWater),
+                        dayWeight.map(number) ?? "",
+                        entry.source ?? "",
+                        entry.fdcId.map(String.init) ?? "",
+                        entry.foodDatabaseId.map(String.init) ?? "",
+                        entry.barcode ?? "",
+                        entry.rawUserInput
+                    ])
                 }
             }
         }
-        
+
+        let csv = rows
+            .map { $0.map(csvField).joined(separator: ",") }
+            .joined(separator: "\n") + "\n"
         let url = URL.documentsDirectory.appending(path: "Nomva_Coach_Report.csv")
-        try? csv.write(to: url, atomically: true, encoding: .utf8)
-        return url
+        do {
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
-    
-    // MARK: - App Backup (JSON)
-    
+
     struct BackupData: Codable {
+        let schemaVersion: Int
+        let exportedAt: Date
+        let archive: SyncMigrationService.Archive?
+
+        // Version 1 compatibility. New backups use archive.
         let foods: [FoodBackup]
         let weights: [WeightBackup]
         let goals: [GoalBackup]
         let water: [WaterBackup]
+
+        init(archive: SyncMigrationService.Archive) {
+            schemaVersion = 2
+            exportedAt = archive.exportedAt
+            self.archive = archive
+            foods = []
+            weights = []
+            goals = []
+            water = []
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion, exportedAt, archive, foods, weights, goals, water
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+            exportedAt = try container.decodeIfPresent(Date.self, forKey: .exportedAt) ?? .distantPast
+            archive = try container.decodeIfPresent(SyncMigrationService.Archive.self, forKey: .archive)
+            foods = try container.decodeIfPresent([FoodBackup].self, forKey: .foods) ?? []
+            weights = try container.decodeIfPresent([WeightBackup].self, forKey: .weights) ?? []
+            goals = try container.decodeIfPresent([GoalBackup].self, forKey: .goals) ?? []
+            water = try container.decodeIfPresent([WaterBackup].self, forKey: .water) ?? []
+        }
     }
-    
-    func generateBackup(foods: [FoodEntry], weights: [WeightEntry], goals: [DailyGoal], water: [WaterEntry]) -> URL? {
-        let backup = BackupData(
-            foods: foods.map { FoodBackup(from: $0) },
-            weights: weights.map { WeightBackup(from: $0) },
-            goals: goals.map { GoalBackup(from: $0) },
-            water: water.map { WaterBackup(from: $0) }
-        )
-        
-        guard let data = try? JSONEncoder().encode(backup) else { return nil }
-        let url = URL.documentsDirectory.appending(path: "Nomva_Backup.json")
-        try? data.write(to: url)
-        return url
+
+    func generateBackup() -> URL? {
+        do {
+            let manager = ModelContainerManager.shared
+            let archive = try SyncMigrationService.captureArchive(
+                from: manager.container,
+                storeKind: manager.activeStoreKind
+            )
+            let backup = BackupData(archive: archive)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(backup)
+            let url = URL.documentsDirectory.appending(path: "Nomva_Backup.json")
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private func number(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    private func csvField(_ value: String) -> String {
+        guard value.contains(",") || value.contains("\"") || value.contains("\n") else {
+            return value
+        }
+        return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }
 
-// MARK: - Backup Models (Simplified Codable versions of SwiftData classes)
+// MARK: - Legacy Version 1 Backup Models
 
 struct FoodBackup: Codable {
-    let name: String; let brand: String?; let meal: String; let date: Date
-    let grams: Double; let desc: String; let servings: Double; let unit: String
-    let cals: Double; let p: Double; let c: Double; let f: Double; let fiber: Double
-    
-    init(from e: FoodEntry) {
-        self.name = e.name; self.brand = e.brand; self.meal = e.meal; self.date = e.date
-        self.grams = e.portionGrams; self.desc = e.portionDescription; self.servings = e.servings; self.unit = e.servingUnit
-        self.cals = e.calories; self.p = e.proteinG; self.c = e.carbsG; self.f = e.fatG; self.fiber = e.fiberG
-    }
+    let name: String
+    let brand: String?
+    let meal: String
+    let date: Date
+    let grams: Double
+    let desc: String
+    let servings: Double
+    let unit: String
+    let cals: Double
+    let p: Double
+    let c: Double
+    let f: Double
+    let fiber: Double
 }
 
 struct WeightBackup: Codable {
-    let date: Date; let lbs: Double; let note: String?
-    init(from w: WeightEntry) { self.date = w.date; self.lbs = w.weightLbs; self.note = w.note }
+    let date: Date
+    let lbs: Double
+    let note: String?
 }
 
 struct GoalBackup: Codable {
-    let cal: Double; let p: Double; let c: Double; let f: Double
-    init(from g: DailyGoal) { self.cal = g.calories; self.p = g.protein; self.c = g.carbs; self.f = g.fat }
+    let cal: Double
+    let p: Double
+    let c: Double
+    let f: Double
 }
 
 struct WaterBackup: Codable {
-    let date: Date; let oz: Double
-    init(from h: WaterEntry) { self.date = h.date; self.oz = h.amountOz }
+    let date: Date
+    let oz: Double
 }

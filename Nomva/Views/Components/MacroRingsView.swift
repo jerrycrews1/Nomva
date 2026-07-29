@@ -13,7 +13,7 @@ struct MacroRingsView: View {
     }
 
     private var remainingCalories: Int {
-        max(Int(goal.calories - consumed.calories), 0)
+        max(Int((goal.calories - consumed.calories).rounded()), 0)
     }
 
     private var calorieStatus: String {

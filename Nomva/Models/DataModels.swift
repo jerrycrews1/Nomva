@@ -220,11 +220,12 @@ class CustomFood {
     var carbsG: Double = 0
     var fatG: Double = 0
     var fiberG: Double = 0
+    var barcode: String?
     var createdAt: Date = Date.now
 
     init(name: String, brand: String? = nil, servingDesc: String,
          servingGrams: Double, calories: Double, proteinG: Double,
-         carbsG: Double, fatG: Double, fiberG: Double) {
+         carbsG: Double, fatG: Double, fiberG: Double, barcode: String? = nil) {
         self.id = UUID()
         self.name = name
         self.brand = brand
@@ -235,6 +236,7 @@ class CustomFood {
         self.carbsG = carbsG
         self.fatG = fatG
         self.fiberG = fiberG
+        self.barcode = barcode
         self.createdAt = .now
     }
 }
@@ -446,6 +448,15 @@ class MealTemplate {
         var proteinG: Double
         var carbsG: Double
         var fatG: Double
+        var brand: String?
+        var portionDescription: String?
+        var servings: Double?
+        var servingUnit: String?
+        var fiberG: Double?
+        var source: String?
+        var fdcId: Int?
+        var foodDatabaseId: Int?
+        var barcode: String?
     }
 
     init(name: String, items: [TemplateItem] = []) {

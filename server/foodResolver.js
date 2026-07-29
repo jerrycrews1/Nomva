@@ -76,6 +76,70 @@ function normalizedTokens(value) {
     .filter(Boolean));
 }
 
+function normalizedFoodTokens(value) {
+  const stopWords = new Set([
+    "a", "an", "the", "i", "had", "ate", "drank", "for", "at", "to", "of",
+    "with", "and", "about", "one", "two", "three", "four", "five", "six",
+    "seven", "eight", "nine", "ten", "oz", "ounce", "ounces", "g", "gram",
+    "grams", "cup", "cups", "serving", "servings", "small", "medium", "large",
+  ]);
+  return [...normalizedTokens(String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, ""))]
+    .filter((token) => !stopWords.has(token) && !/^\d+(?:\.\d+)?$/.test(token));
+}
+
+function deterministicFallbackCandidate(foodMention, searchRounds) {
+  const mentionTokens = normalizedFoodTokens(foodMention);
+  if (!mentionTokens.length) {
+    return null;
+  }
+
+  const candidates = searchRounds.flatMap((round) => round.candidates || []);
+  const unique = new Map(candidates.map((candidate) => [candidate.rowId, candidate]));
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const candidate of unique.values()) {
+    const candidateTokens = new Set(normalizedFoodTokens(`${candidate.name || ""} ${candidate.brand || ""}`));
+    const matched = mentionTokens.filter((token) => candidateTokens.has(token));
+    const coverage = matched.length / mentionTokens.length;
+    if (coverage < (mentionTokens.length === 1 ? 1 : 0.67)) {
+      continue;
+    }
+
+    const normalizedMention = normalizedFoodTokens(foodMention).join(" ");
+    const normalizedName = normalizedFoodTokens(candidate.name).join(" ");
+    const exactBonus = normalizedName === normalizedMention ? 100 : 0;
+    const brandBonus = candidate.brand
+      && normalizedFoodTokens(candidate.brand).some((token) => mentionTokens.includes(token))
+      ? 25
+      : 0;
+    const extraPenalty = Math.max(0, candidateTokens.size - matched.length) * 2;
+    const score = exactBonus + (coverage * 80) + brandBonus - extraPenalty;
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function fallbackResolvedBody(foodMention, searchRounds) {
+  const candidate = deterministicFallbackCandidate(foodMention, searchRounds);
+  if (!candidate || nutritionInvariantFeedback(foodMention, candidate, 1)) {
+    return null;
+  }
+  return resolvedBody(candidate, {
+    servings: 1,
+    portionDescription: "1 serving",
+    servingUnit: "serving",
+    confident: false,
+    hasExplicitPortion: false,
+  });
+}
+
 function nutritionInvariantFeedback(foodMention, selectedFood, servings) {
   const mentionTokens = normalizedTokens(foodMention);
   const selectedTokens = normalizedTokens(`${selectedFood?.name || ""} ${selectedFood?.brand || ""}`);
@@ -107,7 +171,7 @@ async function resolveFoodCandidate({
   foodSearchStore,
   askAgent,
   verifyPick,
-  maxTurns = 5,
+  maxTurns = 4,
   onEvent = () => {},
 }) {
   const trimmedMention = String(foodMention || "").trim();
@@ -263,16 +327,25 @@ async function resolveFoodCandidate({
         verifierFeedback.push("Do not give up after only the seeded search. Try one materially different database query.");
         continue;
       }
+      const fallback = fallbackResolvedBody(trimmedMention, searchRounds);
+      if (fallback) {
+        return { status: 200, body: fallback };
+      }
       return { status: 422, body: { error: "no_matching_food" } };
     }
 
     verifierFeedback.push(`Invalid action "${action || "(missing)"}". Use search, inspect, pick, or give_up.`);
   }
 
-  return { status: 503, body: { error: "food_resolution_failed" } };
+  const fallback = fallbackResolvedBody(trimmedMention, searchRounds);
+  return fallback
+    ? { status: 200, body: fallback }
+    : { status: 422, body: { error: "no_matching_food" } };
 }
 
 module.exports = {
+  deterministicFallbackCandidate,
+  fallbackResolvedBody,
   nutritionInvariantFeedback,
   resolveFoodCandidate,
   renderFoodSearchRounds,

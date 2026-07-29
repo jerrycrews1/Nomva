@@ -32,6 +32,7 @@ final class SyncManager: ObservableObject {
 
     @Published private(set) var syncStatus: SyncStatus = .idle
     @Published private(set) var lastTransferDate: Date?
+    @Published private(set) var lastTransferSummary: String?
     @Published private(set) var lastBackupURL: URL?
     @Published private(set) var isAccountAvailable: Bool = false
     @Published private(set) var activeStoreKind: ModelContainerManager.StoreKind
@@ -52,6 +53,7 @@ final class SyncManager: ObservableObject {
     private let cloudContainer = CKContainer(identifier: "iCloud.com.nomva.app")
     private let lastTransferDateKey = "icloud_sync_last_transfer_date"
     private let lastBackupPathKey = "icloud_sync_last_backup_path"
+    private let lastTransferSummaryKey = "icloud_sync_last_transfer_summary"
     private var cancellables: Set<AnyCancellable> = []
 
     private init() {
@@ -65,6 +67,7 @@ final class SyncManager: ObservableObject {
         if let storedPath = UserDefaults.standard.string(forKey: lastBackupPathKey) {
             lastBackupURL = URL(fileURLWithPath: storedPath)
         }
+        lastTransferSummary = UserDefaults.standard.string(forKey: lastTransferSummaryKey)
 
         bindContainerManager()
 
@@ -142,6 +145,7 @@ final class SyncManager: ObservableObject {
 
             lastTransferDate = .now
             lastBackupURL = backupURL
+            lastTransferSummary = transferSummary(counts)
             lastErrorMessage = nil
             persistMetadata()
 
@@ -170,13 +174,14 @@ final class SyncManager: ObservableObject {
 
             syncStatus = .working("Restoring the on-device store from your synced data…")
             let localContainer = try ModelContainerManager.shared.makeAuxiliaryContainer(for: .local)
-            _ = try SyncMigrationService.replaceStore(with: cloudArchive, in: localContainer)
+            let counts = try SyncMigrationService.replaceStore(with: cloudArchive, in: localContainer)
             try SyncMigrationService.saveBaseline(cloudArchive.baseline)
 
             try ModelContainerManager.shared.activate(.local, using: localContainer)
 
             lastTransferDate = .now
             lastBackupURL = backupURL
+            lastTransferSummary = transferSummary(counts)
             lastErrorMessage = nil
             persistMetadata()
 
@@ -191,7 +196,12 @@ final class SyncManager: ObservableObject {
     private func persistMetadata() {
         UserDefaults.standard.set(lastTransferDate, forKey: lastTransferDateKey)
         UserDefaults.standard.set(lastBackupURL?.path, forKey: lastBackupPathKey)
+        UserDefaults.standard.set(lastTransferSummary, forKey: lastTransferSummaryKey)
         UserDefaults.standard.set(lastErrorMessage, forKey: ModelContainerManager.lastErrorKey)
+    }
+
+    private func transferSummary(_ counts: SyncMigrationService.TransferCounts) -> String {
+        "\(counts.inserted) added, \(counts.updated) updated, \(counts.deleted) removed"
     }
 
     private func bindContainerManager() {

@@ -13,8 +13,10 @@ const { loadServerState } = require("./stateStore");
 const { loadAnalyticsStore } = require("./analyticsStore");
 const { createFoodSearchStore } = require("./foodSearchStore");
 const { resolveFoodCandidate: runFoodResolver } = require("./foodResolver");
-const { deterministicDeleteTargets } = require("./deleteTargetGuard");
+const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("./deleteTargetGuard");
 const { deterministicEditTarget } = require("./editTargetGuard");
+const { sanitizeFoodMentions } = require("./foodMentionGuard");
+const { hasExplicitPortion } = require("./portionGuard");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1220,6 +1222,9 @@ app.use("/v1", (req, res, next) => {
     return orig(body);
   };
   res.on("finish", () => {
+    if (res.locals.skipAnalytics) {
+      return;
+    }
     const durationMs = Date.now() - start;
     const status = res.statusCode;
     analyticsStore.record({
@@ -1435,6 +1440,13 @@ app.post("/v1/analytics/events", (req, res) => {
   })));
 
   return res.json({ ok: true, stored });
+});
+
+app.delete("/v1/privacy/analytics", (req, res) => {
+  res.locals.skipAnalytics = true;
+  const userHash = analyticsUserHash(req.nomvaUserId);
+  const deleted = analyticsStore.deleteUser(userHash);
+  return res.json({ ok: true, deleted });
 });
 
 // Garmin OAuth 1.0a start (requested by the iOS app after Nomva Cloud auth)
@@ -1800,7 +1812,7 @@ app.post("/v1/split-foods", async (req, res) => {
   try {
     const { userMessage } = req.body;
     const result = await ask(prompts.SPLIT_FOODS, `User: ${userMessage}`, llmAnalyticsOptions(req, "split_foods"));
-    res.json({ foods: result.foods || [userMessage] });
+    res.json({ foods: sanitizeFoodMentions(userMessage, result.foods) });
   } catch (err) {
     console.error("split-foods error:", err.message);
     res.status(500).json({ error: "split_failed" });
@@ -1936,12 +1948,16 @@ app.post("/v1/extract-servings", async (req, res) => {
     const servDesc = candidateServingDescription ? `\nCandidate serving: "${candidateServingDescription}"` : "";
     const userPrompt = `User said: "${userMessage}"\nFood mention: "${foodMention}"\nCandidate: "${candidateName}"${servDesc}`;
     const result = await ask(prompts.EXTRACT_SERVINGS, userPrompt, llmAnalyticsOptions(req, "extract_servings"));
+    const portionDescription = result.portionDescription || "1 serving";
+    const explicitPortion = result.hasExplicitPortion === true
+      || hasExplicitPortion(foodMention)
+      || hasExplicitPortion(portionDescription);
     res.json({
       servings: result.servings ?? 1,
-      portionDescription: result.portionDescription || "1 serving",
+      portionDescription,
       servingUnit: result.servingUnit || "serving",
-      confident: result.confident ?? false,
-      hasExplicitPortion: result.hasExplicitPortion === true,
+      confident: explicitPortion ? true : (result.confident ?? false),
+      hasExplicitPortion: explicitPortion,
     });
   } catch (err) {
     console.error("extract-servings error:", err.message);
@@ -2001,11 +2017,47 @@ app.post("/v1/extract-weight-mutation", async (req, res) => {
   }
 });
 
+app.post("/v1/extract-food-move", async (req, res) => {
+  try {
+    const { userMessage, logSummary = "", recentMessages = [] } = req.body;
+    const entries = parseLogEntries(logSummary);
+    const history = recentMessages
+      .slice(-6)
+      .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
+      .join("\n");
+    const prompt = [
+      history ? `Recent conversation:\n${history}` : null,
+      `Food log:\n${logSummary}`,
+      `User said: ${userMessage}`,
+    ].filter(Boolean).join("\n\n");
+    const result = await ask(
+      prompts.EXTRACT_FOOD_MOVE,
+      prompt,
+      llmAnalyticsOptions(req, "extract_food_move", { model: CONTEXT_MODEL })
+    );
+    const requestedName = typeof result.foodName === "string" ? result.foodName.trim() : "";
+    const matchedEntry = entries.find((entry) => normalizeText(entry.name) === normalizeText(requestedName));
+    const destination = String(result.destinationMeal || "").toLowerCase();
+    const validMeals = ["breakfast", "lunch", "dinner", "snack"];
+
+    res.json({
+      foodName: matchedEntry?.name || null,
+      destinationMeal: validMeals.includes(destination) ? destination : null,
+      clarificationQuestion: typeof result.clarificationQuestion === "string"
+        ? result.clarificationQuestion
+        : null,
+    });
+  } catch (err) {
+    console.error("extract-food-move error:", err.message);
+    res.status(500).json({ error: "food_move_failed" });
+  }
+});
+
 // 9. Pick delete targets
 app.post("/v1/pick-delete-targets", async (req, res) => {
   try {
     const { userMessage, logSummary, recentMessages = [] } = req.body;
-    const guardedTargets = deterministicDeleteTargets({ userMessage, logSummary });
+    const guardedTargets = deterministicDeleteTargets({ userMessage, logSummary, recentMessages });
     if (Array.isArray(guardedTargets)) {
       return res.json({ foodNames: guardedTargets });
     }
@@ -2201,10 +2253,60 @@ app.post("/v1/extract-goal", async (req, res) => {
   try {
     const { userMessage } = req.body;
     const result = await ask(prompts.EXTRACT_GOAL, `User: ${userMessage}`, llmAnalyticsOptions(req, "extract_goal"));
-    res.json(result);
+    const validMetrics = new Set(["calories", "protein", "carbs", "fat", "fiber", "water_oz", "target_weight_lbs"]);
+    const validOperations = new Set(["set", "increase", "decrease"]);
+    const changes = (Array.isArray(result.changes) ? result.changes : [])
+      .map((change) => ({
+        metric: String(change?.metric || "").toLowerCase(),
+        operation: String(change?.operation || "").toLowerCase(),
+        value: Number(change?.value),
+      }))
+      .filter((change) =>
+        validMetrics.has(change.metric)
+        && validOperations.has(change.operation)
+        && Number.isFinite(change.value)
+        && change.value > 0
+      );
+    const legacyAbsoluteFields = {};
+    for (const change of changes) {
+      if (change.operation === "set" && ["calories", "protein", "carbs", "fat", "fiber"].includes(change.metric)) {
+        legacyAbsoluteFields[change.metric] = change.value;
+      }
+    }
+    res.json({ changes, ...legacyAbsoluteFields });
   } catch (err) {
     console.error("extract-goal error:", err.message);
     res.status(500).json({ error: "goal_failed" });
+  }
+});
+
+app.post("/v1/parse-data-query", async (req, res) => {
+  try {
+    const { userMessage } = req.body;
+    const result = await ask(
+      prompts.PARSE_DATA_QUERY,
+      `User: ${userMessage}`,
+      llmAnalyticsOptions(req, "parse_data_query", { model: CONTEXT_MODEL })
+    );
+    const metrics = new Set(["calories", "protein", "carbs", "fat", "fiber", "water", "weight"]);
+    const aggregations = new Set(["total", "average", "remaining", "latest", "change", "trend"]);
+    const windows = new Set(["selected_day", "last_n_days"]);
+    const queries = (Array.isArray(result.queries) ? result.queries : [])
+      .map((query) => ({
+        metric: String(query?.metric || "").toLowerCase(),
+        aggregation: String(query?.aggregation || "").toLowerCase(),
+        window: String(query?.window || "").toLowerCase(),
+        days: Number.isInteger(query?.days) ? Math.max(1, Math.min(query.days, 365)) : null,
+      }))
+      .filter((query) =>
+        metrics.has(query.metric)
+        && aggregations.has(query.aggregation)
+        && windows.has(query.window)
+      );
+    res.json({ queries });
+  } catch (err) {
+    console.error("parse-data-query error:", err.message);
+    res.status(500).json({ error: "data_query_failed" });
   }
 });
 

@@ -4,6 +4,7 @@ import SwiftData
 struct WaterTrackerSection: View {
     @Query private var allWaterEntries: [WaterEntry]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("water_goal_oz") private var goalOz: Double = 64
 
     private let quickAmounts: [Double] = [8, 12, 16, 20]
@@ -49,6 +50,7 @@ struct WaterTrackerSection: View {
                     Button {
                         let entry = WaterEntry(amountOz: oz)
                         modelContext.insert(entry)
+                        try? modelContext.save()
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     } label: {
                         Text("+\(Int(oz))")
@@ -65,6 +67,6 @@ struct WaterTrackerSection: View {
             }
         }
         .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
-        .animation(.spring(), value: totalOz)
+        .animation(reduceMotion ? .none : .spring(), value: totalOz)
     }
 }

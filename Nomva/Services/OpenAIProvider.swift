@@ -46,7 +46,7 @@ struct OpenAIProvider: LLMProvider {
         }
     }
 
-    // MARK: - Focused Tasks (GPT-4o-mini handles these via prompts)
+    // MARK: - Focused Tasks
 
     func classifyIntent(userMessage: String, recentMessages: [(role: String, content: String)]) async throws -> UserIntentKind {
         let prompt = "Classify user intent into one: log_food, delete_food, edit_food, query_data, log_weight, set_goal, reply. Return just the word."
@@ -66,8 +66,8 @@ struct OpenAIProvider: LLMProvider {
         Turn the food mention into the best short search query for a nutrition database.
         The amount in the food mention matters.
         Keep exact restaurant/menu wording only when the user clearly specified that exact size or count and wants that exact menu item.
-        When the user gave a loose partial amount like "5 Chick-fil-A fries" or "3 Chick-fil-A nuggets", prefer the underlying scalable food like "waffle fries" or "chicken nuggets" instead of a whole menu item.
-        For plain whole foods, prefer the everyday whole-food form rather than a subpart or oversized prepared entry. Example: "1 egg" should search "whole egg", not "egg white".
+        When the user gave a loose partial amount from a restaurant order, prefer the underlying scalable food instead of a fixed whole-menu item.
+        For plain whole foods, prefer the everyday whole-food form rather than a subpart or oversized prepared entry.
         Return JSON only: {"query":"..."}
         """
         let completion = try await quickComplete(
@@ -96,7 +96,7 @@ struct OpenAIProvider: LLMProvider {
         If the user described a partial amount, prefer the candidate that best supports that portion realistically.
         Favor gram-scalable candidates for loose partial amounts when the alternatives are fixed whole servings.
         Reject menu-size candidates when the size or count clearly conflicts with the user's amount.
-        Reject candidates that introduce unrelated concepts the user did not mention, such as salad, dressing, kids meal, egg white, or a menu size like medium/large.
+        Reject candidates that introduce unrelated ingredients, dish types, subparts, combo contexts, or menu sizes the user did not mention.
         Return JSON only: {"candidateIndex": 0} or {"candidateIndex": null}
         """
         let completion = try await quickComplete(
@@ -124,10 +124,10 @@ struct OpenAIProvider: LLMProvider {
         The original food mention is the source of truth for the amount.
         If the extracted portion lost an explicit count or size from the food mention, correct it.
         If the selected candidate introduces an unrelated subpart or meal context the user did not mention, reject it and provide a better replacementSearchQuery.
-        If the user gave a vague amount like "some spinach", convert it into a natural everyday portion such as "1 cup" instead of leaving a synthetic "1 serving".
+        For a vague amount, use a natural everyday portion only when it is supported by the selected row.
         If the candidate is a fixed whole serving or menu item that does not fit the user's small partial amount, reject it and provide a more neutral scalable replacementSearchQuery.
         Keep restaurant/menu candidates only when the user's amount actually matches that exact item size or count.
-        Also return servingUnit as a reusable base unit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        Also return servingUnit as a reusable base unit in singular form when natural, such as "piece", "slice", "cup", or "serving".
         Return JSON only with keys: keepCurrentCandidate, servings, portionDescription, servingUnit, confident, hasExplicitPortion, replacementSearchQuery.
         """
         let completion = try await quickComplete(
@@ -172,10 +172,9 @@ struct OpenAIProvider: LLMProvider {
         Focus only on this food mention and do not borrow counts from other foods in the same message.
         Do not invent a replacement amount for vague objections.
         Examples:
-        - "I had three Chick-fil-A nuggets, one egg, and about 5 Chick-fil-A fries" for "three Chick-fil-A nuggets" -> {"servings": 3, "portionDescription": "3 nuggets", "servingUnit": "nugget", "confident": true, "hasExplicitPortion": true}
-        - "I had 3 nuggets, 1 egg, and about 5 fries" for "about 5 fries" -> {"servings": 5, "portionDescription": "5 fries", "servingUnit": "fry", "confident": true, "hasExplicitPortion": true}
-        - "some spinach" -> {"servings": 1, "portionDescription": "1 cup", "servingUnit": "cup", "confident": false, "hasExplicitPortion": false}
-        - "It was only about 5 fries" -> {"servings": 5, "portionDescription": "5 fries", "servingUnit": "fry", "confident": true, "hasExplicitPortion": true}
+        - In a multi-food message, preserve the count attached to this mention and ignore every other count.
+        - "It was only about 5 pieces" -> {"servings": 5, "portionDescription": "5 pieces", "servingUnit": "piece", "confident": true, "hasExplicitPortion": true}
+        - "a small handful" -> {"servings": 1, "portionDescription": "small handful", "servingUnit": "handful", "confident": true, "hasExplicitPortion": true}
         - "That's not right..." -> {"servings": 1, "portionDescription": "1 serving", "servingUnit": "serving", "confident": false, "hasExplicitPortion": false}
         Return JSON: {"servings": 1.0, "portionDescription": "...", "servingUnit": "serving", "confident": true, "hasExplicitPortion": true}
         """
@@ -256,8 +255,8 @@ struct OpenAIProvider: LLMProvider {
         let prompt = """
         Interpret the user's correction for the currently logged food.
         If the user did not provide a concrete replacement amount, set hasExplicitPortion to false and ask a short follow-up question.
-        If the current logged food is too specific to resize directly, provide a neutral replacementSearchQuery such as "chicken nuggets" or "waffle fries".
-        Also return servingUnit as a reusable base unit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+        If the current logged food is too specific to resize directly, provide a neutral replacementSearchQuery for the underlying scalable food.
+        Also return servingUnit as a reusable base unit in singular form when natural, such as "piece", "slice", "cup", or "serving".
         Return JSON only with keys: servings, portionDescription, servingUnit, confident, hasExplicitPortion, clarificationQuestion, replacementSearchQuery.
         """
         let completion = try await quickComplete(
@@ -284,7 +283,7 @@ struct OpenAIProvider: LLMProvider {
         referenceServingDescription: String?,
         referenceServingGrams: Double?
     ) async throws -> Double {
-        var prompt = "Estimate weight in grams for \(portionDescription) of \(foodName). If a reference serving is provided, anchor the estimate to that serving for subsets like 5 fries or 3 nuggets. Return just the number."
+        var prompt = "Estimate weight in grams for \(portionDescription) of \(foodName). If a reference serving is provided, anchor a smaller subset or piece count to that reference. Return just the number."
         if let referenceServingDescription, let referenceServingGrams {
             prompt += " Reference serving: \(referenceServingDescription) is about \(referenceServingGrams) grams."
         }

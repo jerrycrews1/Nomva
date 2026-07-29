@@ -87,7 +87,34 @@ function explicitFoodNameTargets(userMessage, entries) {
   return null;
 }
 
-function deterministicDeleteTargets({ userMessage, logSummary }) {
+function groupedAssistantTargets(userMessage, entries, recentMessages = []) {
+  const normalizedMessage = normalizeText(userMessage);
+  const groupedReference = /^(?:no\s+)?(?:delete|remove)\s+(?:that|it|them|those|all(?:\s+of\s+them)?)$/.test(normalizedMessage)
+    || /^(?:both|all(?:\s+of\s+them)?|them|those)(?:\s+too)?$/.test(normalizedMessage);
+  if (!groupedReference) {
+    return null;
+  }
+
+  const assistantMessages = recentMessages
+    .filter((message) => message?.role === "assistant" && typeof message.content === "string")
+    .slice()
+    .reverse();
+
+  for (const message of assistantMessages) {
+    const normalizedContent = normalizeText(message.content);
+    const matches = entries.filter((entry) => {
+      const normalizedName = normalizeText(entry.name);
+      return normalizedName && normalizedContent.includes(normalizedName);
+    });
+    if (matches.length) {
+      return matches.map((entry) => entry.name);
+    }
+  }
+
+  return null;
+}
+
+function deterministicDeleteTargets({ userMessage, logSummary, recentMessages = [] }) {
   const entries = parseLogEntries(logSummary);
   if (!entries.length) {
     return null;
@@ -104,6 +131,11 @@ function deterministicDeleteTargets({ userMessage, logSummary }) {
       .map((entry) => entry.name);
   }
 
+  const groupedTargets = groupedAssistantTargets(userMessage, entries, recentMessages);
+  if (groupedTargets) {
+    return groupedTargets;
+  }
+
   return explicitFoodNameTargets(userMessage, entries);
 }
 
@@ -111,6 +143,7 @@ module.exports = {
   deterministicDeleteTargets,
   parseLogEntries,
   normalizeText,
+  groupedAssistantTargets,
   scopedMealDeleteTarget,
   isWholeDayFoodDelete,
 };

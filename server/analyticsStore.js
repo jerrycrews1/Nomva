@@ -58,6 +58,7 @@ function loadAnalyticsStore(options) {
       record() {},
       recordBatch() { return 0; },
       prune() {},
+      deleteUser() { return 0; },
       summary() { return { enabled: false }; },
     };
   }
@@ -99,6 +100,9 @@ function loadAnalyticsStore(options) {
 
     CREATE INDEX IF NOT EXISTS idx_analytics_events_route_time
       ON analytics_events(route, event_time);
+
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_user
+      ON analytics_events(user_hash);
   `);
 
   const insert = db.prepare(`
@@ -130,6 +134,10 @@ function loadAnalyticsStore(options) {
   const pruneStatement = db.prepare(`
     DELETE FROM analytics_events
     WHERE event_time < ?
+  `);
+  const deleteUserStatement = db.prepare(`
+    DELETE FROM analytics_events
+    WHERE user_hash = ?
   `);
 
   function hashUserId(value) {
@@ -219,6 +227,14 @@ function loadAnalyticsStore(options) {
   function prune() {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     pruneStatement.run(cutoff);
+  }
+
+  function deleteUser(userHash) {
+    const normalized = textOrNull(userHash, 128);
+    if (!normalized) {
+      return 0;
+    }
+    return deleteUserStatement.run(normalized).changes;
   }
 
   function summarizeGroup(rows) {
@@ -349,6 +365,7 @@ function loadAnalyticsStore(options) {
     record,
     recordBatch,
     prune,
+    deleteUser,
     summary,
   };
 }

@@ -62,6 +62,34 @@ struct iCloudSyncSettingsView: View {
                 Text("Turn sync on to merge this device into iCloud. Turn it off to keep a copy here without deleting the iCloud copy.")
             }
 
+            if syncManager.lastTransferDate != nil || syncManager.lastErrorMessage != nil {
+                Section("Last Transfer") {
+                    if let date = syncManager.lastTransferDate {
+                        LabeledContent("Completed") {
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                        }
+                    }
+                    if let summary = syncManager.lastTransferSummary {
+                        LabeledContent("Records") {
+                            Text(summary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    if let backup = syncManager.lastBackupFilename {
+                        LabeledContent("Safety Backup") {
+                            Text(backup)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    if let issue = syncManager.lastErrorMessage {
+                        Label(issue, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+
             Section {
                 syncItemRow("Food logs & water entries", systemImage: "fork.knife")
                 syncItemRow("Weight history", systemImage: "scalemass")
@@ -70,7 +98,7 @@ struct iCloudSyncSettingsView: View {
             } header: {
                 Text("What Syncs")
             } footer: {
-                Text("Nomva creates a backup before switching sync modes.")
+                Text("Nomva creates a backup before switching sync modes and merges records by their stable IDs so a failure never silently replaces the only copy.")
             }
         }
         .navigationTitle("iCloud Sync")

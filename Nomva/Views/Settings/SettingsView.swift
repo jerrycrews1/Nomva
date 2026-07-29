@@ -25,7 +25,12 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: NomvaTheme.sectionGap) {
-                        aiOverviewCard
+                        NavigationLink {
+                            LLMProviderSettingsView()
+                        } label: {
+                            aiOverviewCard
+                        }
+                        .buttonStyle(.plain)
 
                         SettingsSectionCard("Nutrition", detail: "Adjust calorie and macro targets, including Apple Health.") {
                             NavigationLink {
@@ -295,6 +300,10 @@ struct SettingsView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
     }

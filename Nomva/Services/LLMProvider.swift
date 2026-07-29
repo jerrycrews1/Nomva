@@ -18,6 +18,7 @@ enum UserIntentKind: String, Sendable {
     case logFood = "log_food"
     case deleteFood = "delete_food"
     case editFood = "edit_food"
+    case moveFood = "move_food"
     case queryData = "query_data"
     case logWeight = "log_weight"
     case logWater = "log_water"
@@ -76,6 +77,25 @@ struct WeightMutation: Sendable {
     let action: String
     let weightLbs: Double?
     let dateHint: String?
+}
+
+struct FoodMoveMutation: Sendable {
+    let foodName: String?
+    let destinationMeal: String?
+    let clarificationQuestion: String?
+}
+
+struct GoalChange: Sendable {
+    let metric: String
+    let operation: String
+    let value: Double
+}
+
+struct DataQuerySpec: Sendable {
+    let metric: String
+    let aggregation: String
+    let window: String
+    let days: Int?
 }
 
 struct ResolvedFoodCandidate: Sendable {
@@ -201,6 +221,13 @@ protocol LLMProvider: Sendable {
     /// Parse weight CRUD from natural language.
     func extractWeightMutation(userMessage: String) async throws -> WeightMutation
 
+    /// Parse a request to move one existing food entry to another meal.
+    func extractFoodMove(
+        userMessage: String,
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
+    ) async throws -> FoodMoveMutation
+
     /// Given today's log + the user's delete request, return exact food
     /// names from the log that should be deleted.
     func pickDeleteTargets(
@@ -283,6 +310,14 @@ extension LLMProvider {
     }
 
     func extractWeightMutation(userMessage _: String) async throws -> WeightMutation {
+        throw FindFoodStepError.unsupported
+    }
+
+    func extractFoodMove(
+        userMessage _: String,
+        logSummary _: String,
+        recentMessages _: [(role: String, content: String)]
+    ) async throws -> FoodMoveMutation {
         throw FindFoodStepError.unsupported
     }
 }

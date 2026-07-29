@@ -9,7 +9,7 @@ log_food — user says they consumed food or drink. ALWAYS this when the message
   "ate an apple this morning"         → log_food
   "bacon"                             → log_food
   "3 eggs and toast"                  → log_food
-  "coffee with milk"                  → log_food
+  "tea with milk"                     → log_food
 
 delete_food — user wants to remove something from their log.
   "delete the bacon"        → delete_food
@@ -22,10 +22,14 @@ edit_food — user wants to change a portion they already logged.
   "make the bacon 3 slices" → edit_food
   "that was 1 cup not 2"    → edit_food
   after a recent food log, "that's not right" → edit_food
-  after a recent food log, "actually it was only 5 fries" → edit_food
+  after a recent food log, "actually it was only 3 pieces" → edit_food
   after a recent food log, corrections to food type, ingredient, brand, preparation, caffeine, dairy, meat, or plant-based variant → edit_food
   after a recent food log, vague correction requests like "too much", "undo that", or "make it healthier" → edit_food
   "undo", "revert", or "change back" after recent food logging/editing → edit_food unless the user explicitly asks to delete
+
+move_food — user wants to reassign an existing food to another meal.
+  "move the rice from dinner to lunch" → move_food
+  "put that yogurt under breakfast"    → move_food
 
 query_data — user asks about their logs, weight, nutrition history, trends, averages, or goals.
   "how many calories today?"                     → query_data
@@ -55,11 +59,14 @@ log_water — user is logging water or hydration intake, or wants to clear their
   "drank a bottle of water"   → log_water
   "add 500ml water"           → log_water
   "set my water total to 64 oz" → log_water
-  "set hydration to 80 ounces"  → log_water
+  "set today's hydration total to 80 ounces"  → log_water
   "clear my water log"        → log_water
 
-set_goal — user wants to change their calorie or macro target.
+set_goal — user wants to change a calorie, macro, hydration, or target-weight goal.
   "set my calorie goal to 2000" → set_goal
+  "lower my calorie goal by 200" → set_goal
+  "set my water goal to 90 ounces" → set_goal
+  "change my target weight to 165 pounds" → set_goal
 
 reply — ONLY for greetings, small talk, or questions about the app itself.
   "hi"           → reply
@@ -75,8 +82,12 @@ Treat compound foods like "peanut butter and jelly sandwich" or "mac and cheese"
 Also keep common compound names such as "fish and chips", "bacon egg and cheese sandwich", and "cookies and cream yogurt" together.
 Split "X and Y" or "X, Y" into separate items when they are truly separate foods.
 Treat main-dish/side constructions such as "X with a side of Y" as separate foods when X and Y can be logged independently.
-Split a base food or drink from independently measurable add-ins, toppings, or accompaniments so each can receive its own portion and nutrition. For example, "3 cups of coffee with creamer" is "3 cups of coffee" plus "creamer".
+Split a base food or drink from independently measurable add-ins, toppings, or accompaniments so each can receive its own portion and nutrition. For example, "2 cups of tea with 1 tablespoon of honey" is "2 cups of tea" plus "1 tablespoon of honey".
+Phrases such as "topped with", "with a side of", and "plus" explicitly identify an independently measurable item; split that item unless the complete phrase is a conventional compound food name.
 Do not copy a quantity onto an add-in unless the user explicitly gave that add-in its own quantity.
+Do not split a dish-defining ingredient or variant from the dish itself. "tofu bibimbap", "chicken curry", "vegetable pizza", "turkey sandwich", and "protein oatmeal" are each one food unless the user explicitly describes the ingredient as an extra, side, topping, or separately measured item.
+Never return the same consumed food twice using overlapping wording. If one returned phrase already represents the complete dish, do not also return one of its ingredients.
+Return the smallest plausible set of independently logged foods. When it is unclear whether a word is an ingredient/variant or a separate add-in, keep it attached to the dish so nutrition is not double counted.
 Keep each food's quantity, size, preparation, flavor, restaurant, and brand attached to that food. Remove only meal labels and conversational wording.
 
 Respond with ONLY a JSON object: {"foods": ["food1", "food2"]}`;
@@ -84,20 +95,17 @@ Respond with ONLY a JSON object: {"foods": ["food1", "food2"]}`;
 const BUILD_FOOD_SEARCH_QUERY = `Turn the food mention into the best short search query for a nutrition database.
 The amount in the food mention matters.
 Keep exact restaurant or menu wording only when the user clearly specified that exact size or count and wants that exact menu item.
-If the user gave a loose partial amount like "5 Chick-fil-A fries" or "3 Chick-fil-A nuggets",
-prefer the underlying scalable food such as "waffle fries" or "chicken nuggets" instead of a whole menu item.
-If the user explicitly says a large Chick-fil-A waffle fries/menu fries serving, use "Chick-Fil-A waffle potato fries large" exactly.
-Correct obvious food typos in the search query, such as "Gree Yogurt" -> "Greek yogurt".
+If the user gave a loose partial amount from a restaurant order, prefer a scalable form of the underlying food instead of a fixed whole-menu serving.
+If the user explicitly names a complete menu size, preserve the restaurant, product, and size.
+Correct obvious spelling and speech-recognition errors without dropping nutrition-critical modifiers.
 For plain whole foods, prefer the everyday whole-food form rather than a subpart or oversized prepared entry.
 
 Examples:
-- food mention "one egg" → query: "whole egg"
-- food mention "1 egg" → query: "whole egg"
-- food mention "3 Chick-fil-A nuggets" → query: "chicken nuggets"
-- food mention "about 5 Chick-fil-A fries" → query: "waffle fries"
-- food mention "3 Chick-fil-A nuggets, one egg, and some spinach" → for the nuggets mention, query: "chicken nuggets"
-- food mention "some spinach" → query: "fresh spinach"
-- food mention "large Chick-fil-A waffle fries" → query: "Chick-Fil-A waffle potato fries large"
+- food mention "four restaurant dumplings" → query: "dumplings"
+- food mention "a few seasoned potato wedges from a restaurant" → query: "seasoned potato wedges"
+- food mention "large named-restaurant potato wedges" → preserve the restaurant, product, and large size
+- food mention "one whole pear" → query: "whole pear"
+- food mention with a misspelled dietary modifier → correct the spelling and preserve the modifier
 
 Respond with ONLY a JSON object: {"query": "<short search query>"}`;
 
@@ -105,11 +113,11 @@ const CHOOSE_FOOD_CANDIDATE = `Pick the best database candidate for the user's f
 Favor candidates whose specificity and serving description fit the user's amount.
 Favor gram-scalable candidates for loose partial amounts when the alternatives are fixed whole servings or menu items.
 Reject menu-size candidates when the size or count clearly conflicts with what the user said.
-Reject candidates that introduce unrelated concepts the user did not mention, such as salad, dressing, kids meal, egg white, or a menu size like medium/large.
+Reject candidates that introduce unrelated ingredients, dish types, combo contexts, subparts, or menu sizes the user did not mention.
 Examples:
-- user said "three Chick-fil-A nuggets", candidate "Clchick-fil-a cobb salad grilled nuggets 1/2 dressing, no crunchy peppers" → reject
-- user said "1 egg", candidate "Egg, white, raw, fresh" → reject
-- user said "about 5 Chick-fil-A fries", candidate "Side items waffle potato fries medium" → reject
+- user named a few plain breaded bites, candidate is a salad containing those bites and dressing → reject
+- user named a whole food, candidate is only one isolated subpart → reject
+- user named a loose partial count, candidate is a fixed medium combo side → reject
 Return null when none of the candidates fit.
 
 Respond with ONLY a JSON object: {"candidateIndex": <0-based index or null>}`;
@@ -118,24 +126,20 @@ const VALIDATE_FOOD_CANDIDATE = `Review whether the selected nutrition database 
 The original food mention is the source of truth for the amount.
 If the extracted portion lost an explicit count or size from the food mention, correct it.
 If the selected candidate introduces an unrelated subpart or meal context the user did not mention, reject it and provide a better replacementSearchQuery.
-If the user gave a vague amount like "some spinach", convert it into a natural everyday portion such as "1 cup" instead of leaving a synthetic "1 serving".
+If the user gave a vague amount, use a natural everyday portion supported by that food instead of blindly inventing a large fixed serving.
 If the candidate is a fixed whole serving or menu item that does not fit the user's small partial amount, reject it and provide a neutral scalable replacementSearchQuery.
 Keep restaurant/menu candidates only when the user's amount actually matches that exact item size or count.
-Return servingUnit as a reusable base unit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
+Return servingUnit as a reusable base unit in singular form when natural, such as "piece", "slice", "cup", or "serving".
 
 Examples:
-- food mention "three Chick-fil-A nuggets", selected candidate "Chick-Fil-A, Chick Fil A Nuggets", basis "fixed_serving", extracted portion "3 nuggets"
-  → keepCurrentCandidate: false, portionDescription: "3 nuggets", servingUnit: "nugget", replacementSearchQuery: "chicken nuggets"
-- food mention "three Chick-fil-A nuggets", selected candidate "Clchick-fil-a cobb salad grilled nuggets 1/2 dressing, no crunchy peppers", basis "grams", extracted portion "3 nuggets"
-  → keepCurrentCandidate: false, portionDescription: "3 nuggets", servingUnit: "nugget", replacementSearchQuery: "chicken nuggets"
-- food mention "about 5 Chick-fil-A fries", selected candidate "Chick-Fil-A, Waffle Potato Fries, Large", basis "fixed_serving", extracted portion "1 serving"
-  → keepCurrentCandidate: false, servings: 5, portionDescription: "5 fries", servingUnit: "fry", hasExplicitPortion: true, replacementSearchQuery: "waffle fries"
-- food mention "1 egg", selected candidate "Egg, white, raw, fresh", basis "grams", extracted portion "1 egg"
-  → keepCurrentCandidate: false, portionDescription: "1 egg", servingUnit: "egg", replacementSearchQuery: "whole egg"
-- food mention "some spinach", selected candidate "Spinach, raw", basis "grams", extracted portion "1 serving"
-  → keepCurrentCandidate: true, servings: 1, portionDescription: "1 cup", servingUnit: "cup", hasExplicitPortion: false, replacementSearchQuery: null
-- food mention "1 egg", selected candidate "Egg", basis "grams"
-  → keepCurrentCandidate: true, portionDescription: "1 egg", servingUnit: "egg", replacementSearchQuery: null
+- a loose count selected against a fixed full menu serving
+  → reject and search for a scalable version of the underlying food
+- a whole food selected against an isolated subpart
+  → reject and search for the whole-food form
+- a vague leafy-vegetable amount selected against a scalable raw row
+  → keep it and use a normal household portion supported by the row
+- an explicit piece count selected against an appropriate scalable row
+  → keep it and preserve the exact count in portionDescription
 
 Respond with ONLY a JSON object: {"keepCurrentCandidate": <boolean>, "servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <boolean>, "hasExplicitPortion": <boolean>, "replacementSearchQuery": "<text or null>"}`;
 
@@ -147,22 +151,21 @@ Respond with ONLY a JSON object: {"isMatch": true} or {"isMatch": false}`;
 const EXTRACT_SERVINGS = `Extract the number of servings, a portion description, a reusable servingUnit, confidence, and whether the user explicitly stated a usable portion.
 Focus ONLY on the named food mention. The amount can appear before or after the food name. Do not borrow quantities from other foods in the same message.
 Do NOT invent a replacement amount when the user is only objecting or saying the previous log was wrong.
-Return servingUnit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
-When the user uses a vague amount like "some spinach", prefer a natural everyday portion such as "1 cup" instead of the abstract phrase "1 serving".
+Return servingUnit in singular form when natural, such as "piece", "slice", "cup", "bowl", or "serving".
+When the user uses a vague amount, use a natural everyday portion only when it is well supported; otherwise keep one serving and mark confidence false.
 Fractions like "half a cup" mean servings 0.5, portionDescription "1/2 cup", servingUnit "cup".
 Natural portion phrases such as "small handful", "handful", "bite", "sip", "scoop", "bowl", "plate", "glass", "can", "bottle", or "packet" are explicit enough; set hasExplicitPortion true.
+Any stated weight, volume, count, size, or fraction is explicit. Preserve it in portionDescription and set confident and hasExplicitPortion true.
 
 Examples:
 - "2 slices of bacon" → servings: 2, portionDescription: "2 slices", servingUnit: "slice", confident: true, hasExplicitPortion: true
-- "Coffee 3 servings" → servings: 3, portionDescription: "3 servings", servingUnit: "serving", confident: true, hasExplicitPortion: true
+- "Soup 3 servings" → servings: 3, portionDescription: "3 servings", servingUnit: "serving", confident: true, hasExplicitPortion: true
 - "a cup of rice" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
 - "half a cup of rice" → servings: 0.5, portionDescription: "1/2 cup", servingUnit: "cup", confident: true, hasExplicitPortion: true
 - "some chicken" → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
-- "some spinach" → servings: 1, portionDescription: "1 cup", servingUnit: "cup", confident: false, hasExplicitPortion: false
 - "small handful of almonds" → servings: 1, portionDescription: "small handful", servingUnit: "handful", confident: true, hasExplicitPortion: true
-- user message "I had three Chick-fil-A nuggets, one egg, and about 5 Chick-fil-A fries", food mention "three Chick-fil-A nuggets" → servings: 3, portionDescription: "3 nuggets", servingUnit: "nugget", confident: true, hasExplicitPortion: true
-- user message "I had 3 nuggets, 1 egg, and about 5 fries", food mention "about 5 fries" → servings: 5, portionDescription: "5 fries", servingUnit: "fry", confident: true, hasExplicitPortion: true
-- "It was only about 5 fries" → servings: 5, portionDescription: "5 fries", servingUnit: "fry", confident: true, hasExplicitPortion: true
+- in a multi-food message, preserve the count attached to this mention and ignore counts attached to the others
+- "It was only about 5 pieces" → servings: 5, portionDescription: "5 pieces", servingUnit: "piece", confident: true, hasExplicitPortion: true
 - "That’s not right..." → servings: 1, portionDescription: "1 serving", servingUnit: "serving", confident: false, hasExplicitPortion: false
 
 Respond with ONLY a JSON object: {"servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <boolean>, "hasExplicitPortion": <boolean>}`;
@@ -227,6 +230,16 @@ Examples:
 
 Respond with ONLY a JSON object: {"action":"<add|update|delete|delete_all|reply>","weightLbs":<number or null>,"dateHint":"<today|yesterday|latest|null>"}`;
 
+const EXTRACT_FOOD_MOVE = `Parse a request to move ONE existing food-log entry to a different meal.
+The supplied food log is the source of truth. Return foodName exactly as written in the log.
+destinationMeal must be breakfast, lunch, dinner, or snack.
+Use recent conversation to resolve "that", "it", or similar references.
+If the food or destination is ambiguous, return a short clarificationQuestion and null for the unresolved field.
+Do not claim that anything was moved.
+
+Respond with ONLY a JSON object:
+{"foodName":"<exact log name or null>","destinationMeal":"<breakfast|lunch|dinner|snack|null>","clarificationQuestion":"<text or null>"}`;
+
 const PICK_DELETE_TARGETS = `The user wants to delete entries from their food log. Return the EXACT food names from the log that should be deleted.
 The provided Food log is the source of truth. Do not omit a listed item because recent conversation suggests it was replaced unless the item is absent from the Food log.
 Food log lines include the meal in parentheses. Use that meal tag, not words inside the food name, when deciding meal-scoped deletes.
@@ -252,7 +265,7 @@ Use recent conversation context when the user says things like "that's not right
 If the user only says a vague command like "fix it" without a food, amount, size, or other correction, ask what they want changed instead of choosing the most recent item.
 If multiple separate assistant food lists are in recent context and the user says only "first one" or "second one", ask a clarification question unless the current message also names the meal or food.
 If multiple log entries share the same broad word, ask a clarification question when the user uses only that broad word.
-If the user says "fix the coffee" and the log has both black coffee and a mocha/latte/espresso drink, ask which coffee entry to change.
+If the user names only a broad category and the log has multiple distinct entries in that category, ask which entry to change.
 If you ask a clarification question, set foodName to null.
 Never return both a foodName and a clarificationQuestion. If clarificationQuestion is non-null, foodName must be null.
 If the user identifies an item by an attribute it lacks, such as "without X", choose the entry whose name/description lacks that attribute.
@@ -268,74 +281,110 @@ const RESOLVE_EDIT_REQUEST = `Interpret the user's correction for the currently 
 If the user did not provide a concrete replacement amount, set hasExplicitPortion to false and ask a short follow-up question.
 Do not reuse or infer the current portion for vague complaints like "that's not right"; those need hasExplicitPortion false.
 Sizes such as "small", "medium", "large", "regular", "kids", "half", or "double" are concrete replacement portions; set hasExplicitPortion to true when the user says one of them.
-Units such as "oz", "ounces", "cups", "pieces", "nuggets", "slices", "tablespoons", and "tbsp" are concrete replacement portions; set hasExplicitPortion to true.
+Units such as "oz", "ounces", "cups", "pieces", "slices", "tablespoons", and "tbsp" are concrete replacement portions; set hasExplicitPortion to true.
 Fractions of the current item, such as half, quarter, three quarters, or half a sandwich/banana/bowl, are explicit portions; set hasExplicitPortion to true.
 Natural portion phrases such as small handful, bite, sip, scoop, bowl, plate, glass, can, bottle, or packet are explicit enough to edit; set hasExplicitPortion to true.
 If the user says the current item should have the same amount as the entry before it, use the previous entry's portion from conversation context.
-If the current item is too specific to resize directly, provide a neutral replacementSearchQuery such as "chicken nuggets" or "waffle fries".
-When a fixed menu-size fries entry is corrected to a small count like "5 fries", provide replacementSearchQuery "waffle fries" so the app can replace the fixed menu item with a scalable food.
+If the current item is too specific to resize directly, provide a neutral replacementSearchQuery for the underlying scalable food.
+When a fixed menu-size entry is corrected to a small partial count, replace it with a scalable version of the same underlying food.
 If the user changes the food identity but gives no new amount, reuse the current portion, set hasExplicitPortion to true, and provide replacementSearchQuery for the new food.
-If the current entry is generic and the user changes it to a more specific food variant such as black coffee, Greek yogurt, tofu curry, or a named brand/item, provide that new food as replacementSearchQuery.
+If the current entry is generic and the user changes it to a more specific preparation, dietary variant, filling, flavor, or named brand/item, provide that new food as replacementSearchQuery.
 Leave replacementSearchQuery null when direct resizing of the current item is appropriate.
-Return servingUnit as a reusable base unit in singular form when natural, such as "nugget", "fry", "egg", "slice", "cup", or "serving".
-The servings number must match the corrected count in portionDescription when the unit is countable: "3 slices" means servings 3, "5 fries" means servings 5, "1/2 cup" means servings 0.5.
+Return servingUnit as a reusable base unit in singular form when natural, such as "piece", "slice", "cup", or "serving".
+The servings number must match the corrected count in portionDescription when the unit is countable: "3 slices" means servings 3, "5 pieces" means servings 5, "1/2 cup" means servings 0.5.
 
 Examples:
-- current entry: "Chick-Fil-A, Waffle Potato Fries, Large", user: "It was only about 5 fries"
-  → hasExplicitPortion: true, portionDescription: "5 fries", servingUnit: "fry", replacementSearchQuery: "waffle fries"
-- current entry: "Chicken Nuggets", user: "actually 3 nuggets"
-  → hasExplicitPortion: true, portionDescription: "3 nuggets", servingUnit: "nugget", replacementSearchQuery: null
+- current entry is a fixed large restaurant side, user says it was only about 5 pieces
+  → hasExplicitPortion: true, portionDescription: "5 pieces", servingUnit: "piece", replacementSearchQuery: the scalable underlying side
+- current entry is already scalable, user says "actually 3 pieces"
+  → hasExplicitPortion: true, portionDescription: "3 pieces", servingUnit: "piece", replacementSearchQuery: null
 - current entry: "Bacon", current portion "2 slices", user: "Actually the second one was 3 slices"
   → servings: 3, hasExplicitPortion: true, portionDescription: "3 slices", servingUnit: "slice", replacementSearchQuery: null
-- current entry: "French Fries (small)", user: "Actually the fries were medium"
+- current entry: "Restaurant Side (small)", user: "Actually the side was medium"
   → servings: 1, hasExplicitPortion: true, portionDescription: "medium", servingUnit: "serving", replacementSearchQuery: null
 - current entry: "Chicken Curry", current portion "1 bowl", user: "not chicken curry, it was tofu curry"
   → hasExplicitPortion: true, portionDescription: "1 bowl", servingUnit: "bowl", replacementSearchQuery: "tofu curry"
-- current entry: "Coffee", current portion "1 serving", user: "It was black coffee"
-  → hasExplicitPortion: true, portionDescription: "1 serving", servingUnit: "serving", replacementSearchQuery: "black coffee"
-- current entry: "Chicken Nuggets", user: "that's not right"
+- current entry: "Yogurt", current portion "1 serving", user: "It was nonfat vanilla yogurt"
+  → hasExplicitPortion: true, portionDescription: "1 serving", servingUnit: "serving", replacementSearchQuery: "nonfat vanilla yogurt"
+- current entry: "Breaded Bites", user: "that's not right"
   → hasExplicitPortion: false, servingUnit: "serving", clarificationQuestion: "What amount should I change it to?"
 
 Respond with ONLY a JSON object: {"servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <boolean>, "hasExplicitPortion": <boolean>, "clarificationQuestion": "<text or null>", "replacementSearchQuery": "<text or null>"}`;
 
 const ESTIMATE_GRAMS = `Given a food and a portion description, estimate the TOTAL weight in grams.
 Use real-world knowledge of typical food weights.
-If a reference serving is provided, anchor the estimate to that serving when the requested portion is a subset like "5 fries" or "3 nuggets".
+If a reference serving is provided, anchor the estimate to that serving when the requested portion is a smaller subset or piece count.
 
 Examples:
 - "bacon", "2 slices" → 24   (one raw strip ≈ 12 g)
 - "bread", "1 slice"  → 28
 - "milk", "1 cup"     → 244
-- "egg", "1 large"    → 50
+- "pear", "1 medium"  → 178
 - "chicken breast", "6 oz" → 170
 - "rice", "1 cup cooked" → 158
 - "rice", "1/2 cup cooked" → 79
 - "rice", "0.5 cup cooked" → 79
 - "cheddar cheese", "2 slices" → 42
 - "peanut butter", "1 tbsp" → 16
-- with reference "1 large fries ≈ 134 g", "5 fries" should be far smaller than the full serving
-- for fries, estimate individual pieces conservatively: 5 fries is usually about 20-30 g, not 50+ g, unless the user says oversized wedges
-- with reference "6 nuggets ≈ 96 g", "3 nuggets" should be about half the serving
+- with a reference serving of 6 pieces weighing 96 g, 3 pieces should be about half the serving
+- a small partial count must be far lighter than a complete large restaurant serving
 
 Respond with ONLY a JSON object: {"grams": <number>}`;
 
-const EXTRACT_GOAL = `You extract nutrition goal changes from a user message. Return a json object.
-Only include fields the user explicitly mentioned. Leave out anything they didn't say.
+const EXTRACT_GOAL = `Extract goal mutations from one food-tracking app message.
+Identify meaning only; do not calculate a resulting goal.
+
+Metrics: calories, protein, carbs, fat, fiber, water_oz, target_weight_lbs.
+Operations:
+- set: replace the current value with the stated value
+- increase: add the stated value to the current value
+- decrease: subtract the stated value from the current value
+
+Convert kilograms to pounds for target_weight_lbs and liters/milliliters to fluid ounces for water_oz.
+Return only metrics explicitly requested.
 
 Examples:
-- "set my calorie goal to 2000" → {"calories": 2000}
-- "set protein to 150g" → {"protein": 150}
-- "I want 2000 calories, 180g protein, 200g carbs, 60g fat" → {"calories": 2000, "protein": 180, "carbs": 200, "fat": 60}
-- "change my protein goal to 300g per day" → {"protein": 300}
-- "set carbs to 250 and fat to 80" → {"carbs": 250, "fat": 80}
+- "set my calorie goal to 2000" → {"changes":[{"metric":"calories","operation":"set","value":2000}]}
+- "lower my calorie goal by 200" → {"changes":[{"metric":"calories","operation":"decrease","value":200}]}
+- "add 20 grams to protein" → {"changes":[{"metric":"protein","operation":"increase","value":20}]}
+- "set carbs to 250 and fat to 80" → {"changes":[{"metric":"carbs","operation":"set","value":250},{"metric":"fat","operation":"set","value":80}]}
+- "set my water goal to 90 ounces" → {"changes":[{"metric":"water_oz","operation":"set","value":90}]}
+- "change my target weight to 75 kg" → {"changes":[{"metric":"target_weight_lbs","operation":"set","value":165.35}]}
 
-Respond with ONLY a json object: {"calories": <number>, "protein": <number>, "carbs": <number>, "fat": <number>, "fiber": <number>}
-Only include fields the user mentioned.`;
+Respond with ONLY a JSON object:
+{"changes":[{"metric":"<metric>","operation":"<set|increase|decrease>","value":<positive number>}]}`;
+
+const PARSE_DATA_QUERY = `Convert a question about logged nutrition data into one or more typed query specifications.
+Do not calculate an answer.
+
+Metrics: calories, protein, carbs, fat, fiber, water, weight.
+Aggregations: total, average, remaining, latest, change, trend.
+Windows:
+- selected_day for today, yesterday, the selected day, or no stated range
+- last_n_days for a rolling number of days
+
+Return one query per requested metric. Resolve "week" to 7 days and "two weeks" to 14.
+Use remaining when the user asks how much is left. Use average only when they ask for an average.
+For weight-loss/trend questions use metric weight and aggregation trend.
+
+Examples:
+- "How many calories and grams of protein do I have left today?"
+  → {"queries":[{"metric":"calories","aggregation":"remaining","window":"selected_day","days":null},{"metric":"protein","aggregation":"remaining","window":"selected_day","days":null}]}
+- "What was my average protein for the last 7 days?"
+  → {"queries":[{"metric":"protein","aggregation":"average","window":"last_n_days","days":7}]}
+- "How much water did I drink today?"
+  → {"queries":[{"metric":"water","aggregation":"total","window":"selected_day","days":null}]}
+- "Am I losing weight over the last two weeks?"
+  → {"queries":[{"metric":"weight","aggregation":"trend","window":"last_n_days","days":14}]}
+
+Respond with ONLY a JSON object:
+{"queries":[{"metric":"<metric>","aggregation":"<aggregation>","window":"<selected_day|last_n_days>","days":<integer or null>}]}`;
 
 const GENERAL_REPLY = `You are Nomva, a friendly and knowledgeable nutrition coach. You have full access to the user's food log, weight history, and goals — all provided in the context below.
 
-When the user asks about their data, DO the math:
-- Compute averages, totals, trends, differences, streaks, or comparisons across any date range they ask about.
+Most common totals, averages, trends, and remaining-goal questions are calculated by app code before this fallback is used.
+When answering an unsupported question:
+- Use only exact values in the supplied context.
 - For weight questions: look up exact values from the weight history, calculate change over time, weekly averages, etc.
 - For food questions: calculate average daily calories/protein/etc., identify most-eaten foods, compare days, find patterns.
 - For hydration questions: check their water intake totals, compare to their goal, identify patterns.
@@ -369,10 +418,10 @@ SEARCH
 - Use short, neutral nutrition-database queries.
 - If the user gave a loose partial amount of a branded/menu item, search the underlying scalable food first.
 - Good examples:
-  - "three Chick-fil-A nuggets" -> "chicken nuggets"
-  - "about 5 Chick-fil-A fries" -> "waffle fries"
-  - "one egg" -> "whole egg"
-  - "some spinach" -> "spinach raw"
+  - a few restaurant breaded bites -> the underlying breaded food
+  - a partial restaurant side -> the scalable underlying side
+  - one explicitly whole food -> the whole-food form
+  - a plain leafy vegetable -> the plain raw or cooked form the user named
 - If results are close but not good enough, reformulate based on what came back.
 - Use offset to see more results for the SAME query when the first page is plausible but incomplete.
 - After two materially different reformulations, stop searching. Choose the best realistic row already returned or give up.
@@ -384,13 +433,13 @@ PICK
 - Nutrition-critical modifiers outrank flavor and brand. If an exact flavored diet/zero-sugar product is absent, prefer the same base diet/zero-sugar product over a regular-sugar flavored product or a different branded drink.
 - "grams" basis means scalable and is usually better for loose partial counts.
 - "fixed_serving" basis means the row represents one whole menu item or fixed serving. Only pick it when the user's amount actually matches that whole item.
-- Reject rows that add concepts the user did not mention, such as bacon, salad, dressing, kids meal, egg white, medium, large, combo meal, sandwich, or wrap.
+- Reject rows that add ingredients, dish types, subparts, sizes, or combo contexts the user did not mention.
 - Do not multiply a whole branded menu serving to represent a smaller count unless the row itself is clearly per-piece or otherwise scales naturally.
 - servings always means the number of DATABASE servings, not the number of pieces the user named. If the row serving says "3 pieces" and the user ate 3 pieces, servings must be 1. If a row is per 100 g, estimate the consumed grams and divide by 100.
 - A close branded row is acceptable as a nutrition proxy for an unbranded food when the underlying food, preparation, and serving basis match and no better generic row is available.
 - For diet, zero-sugar, or sugar-free soft drinks, calculate the calories implied by the proposed servings before picking. Never pick a row that exceeds 10 calories for the user's actual drink portion unless caloric add-ins were named.
-- servingUnit should be a reusable singular base unit such as "nugget", "fry", "egg", "cup", "slice", or "serving".
-- For vague amounts like "some spinach", choose a natural everyday portion such as "1 cup" and set hasExplicitPortion to false.
+- servingUnit should be a reusable singular base unit such as "piece", "cup", "slice", or "serving".
+- For vague amounts, choose a normal everyday portion only when the selected row supports it and set hasExplicitPortion to false.
 
 VERIFIER FEEDBACK
 - If verifier feedback says a previous pick was not a realistic nutrition basis, correct course. Usually that means search again with a more neutral scalable food or inspect a different row.
@@ -422,14 +471,14 @@ If you reject, provide a short feedback note and a better retryQuery when possib
 If you accept but the portion wording should be cleaned up, you may correct the portion fields.
 
 Examples:
-- mention "three Chick-fil-A nuggets", row "Chick-Fil-A, Chick Fil A Nuggets", basis "fixed_serving", serving "1 serving", proposed "3 nuggets"
-  -> accept false, retryQuery "chicken nuggets"
-- mention "about 5 Chick-fil-A fries", row "Bacon", proposed "5 fries"
-  -> accept false, retryQuery "waffle fries"
-- mention "one egg", row "Egg, white, raw, fresh", proposed "1 egg"
-  -> accept false, retryQuery "whole egg"
-- mention "some spinach", row "Spinach, raw", proposed "1 cup"
-  -> accept true
+- a loose partial count paired with a fixed whole-menu serving
+  -> reject and retry with the scalable underlying food
+- a named side paired with an unrelated meat row
+  -> reject and retry with the named side
+- a whole food paired with an isolated subpart
+  -> reject and retry with the whole-food form
+- a vague vegetable amount paired with an appropriate scalable vegetable row
+  -> accept with a reasonable supported portion
 
 Respond with ONLY a JSON object:
 {"accept": <boolean>, "servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <boolean>, "hasExplicitPortion": <boolean>, "retryQuery": "<text or null>", "feedback": "<short text or null>"}`;
@@ -451,24 +500,24 @@ How to decide:
 
 SEARCH — choose this when the history is empty, OR when none of the candidates so far are a reasonable nutrition basis for the user's food. Pick a NEW query that hasn't been tried; reformulate based on what you learned. Examples:
 - mention "peanut butter sandwich", round 0 returned brand PB bars only → next query: "peanut butter and jelly sandwich"
-- mention "3 Chick-fil-A nuggets", round 0 returned only large menu items → next query: "chicken nuggets"
-- mention "some spinach", round 0 returned spinach juice / chips → next query: "spinach raw"
-- mention "1 egg", round 0 returned "egg white only" → next query: "whole egg"
-Prefer the everyday whole-food form for plain whole foods. Prefer scalable generic foods (chicken nuggets, waffle fries) over fixed menu items when the user gave a loose partial count.
+- mention is a few restaurant breaded pieces, round 0 returned only combo meals → next query: the underlying breaded food
+- mention is a plain leafy vegetable, round 0 returned juices and snack chips → next query: the plain vegetable form
+- mention is one whole food, round 0 returned only a separated subpart → next query: the whole-food form
+Prefer the everyday whole-food form for plain foods. Prefer scalable underlying foods over fixed menu items when the user gave a loose partial count.
 
 PICK — choose this when a candidate in some round is a good nutrition basis for the user's food AND you can describe the amount they ate.
 - "round" is the 0-based round index. "candidateIndex" is the 0-based index within that round's candidates.
 - The candidate's serving description and basis matter:
   - "grams" basis = scalable per-gram. Good for partial counts.
   - "fixed_serving" basis = whole menu item. Only OK if the user's amount actually matches that whole item.
-- Reject candidates that introduce concepts the user did not mention: salad, dressing, kids meal, egg-white-only, "medium"/"large" sizes the user didn't say.
+- Reject candidates that introduce ingredients, dish types, subparts, or sizes the user did not mention.
 - servings: how many of the candidate's serving the user ate (e.g. for "2 slices bacon" with a per-slice candidate, servings = 2).
-- portionDescription: human text like "2 slices", "1 cup", "5 fries", "3 nuggets".
-- servingUnit: reusable singular base unit — "slice", "cup", "fry", "nugget", "egg", "serving".
-- hasExplicitPortion: true only if the user actually said an amount. "some spinach" or "had bacon" → false.
+- portionDescription: human text like "2 slices", "1 cup", or "5 pieces".
+- servingUnit: reusable singular base unit — "slice", "cup", "piece", or "serving".
+- hasExplicitPortion: true only if the user actually said an amount. Vague or omitted amounts are false.
 - confident: true if you are confident in BOTH the candidate and the portion.
 
-For vague amounts like "some spinach", pick a natural everyday portion ("1 cup") rather than the abstract "1 serving"; set hasExplicitPortion to false.
+For vague amounts, use a natural everyday portion only when it is supported by the selected row; set hasExplicitPortion to false.
 
 GIVE UP — only after at least 2 search rounds where nothing fits. Don't give up early.
 
@@ -518,11 +567,13 @@ module.exports = {
   EXTRACT_MEAL,
   EXTRACT_WATER_MUTATION,
   EXTRACT_WEIGHT_MUTATION,
+  EXTRACT_FOOD_MOVE,
   PICK_DELETE_TARGETS,
   PICK_EDIT_TARGET,
   RESOLVE_EDIT_REQUEST,
   ESTIMATE_GRAMS,
   EXTRACT_GOAL,
+  PARSE_DATA_QUERY,
   GENERAL_REPLY,
   RESOLVE_FOOD_CANDIDATE_AGENT,
   VERIFY_RESOLVED_FOOD_PICK,

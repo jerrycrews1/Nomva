@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { nutritionInvariantFeedback, resolveFoodCandidate } = require("../foodResolver");
+const {
+  deterministicFallbackCandidate,
+  nutritionInvariantFeedback,
+  resolveFoodCandidate,
+} = require("../foodResolver");
 
 const candidate = {
   rowId: 42,
@@ -75,7 +79,7 @@ test("does not accept give-up before a second materially different search", asyn
   assert.equal(result.status, 200);
 });
 
-test("returns a transient failure when malformed actions exhaust the bounded loop", async () => {
+test("returns a safe deterministic fallback when malformed actions exhaust the bounded loop", async () => {
   const result = await resolveFoodCandidate({
     userMessage: "I ate example food",
     foodMention: "example food",
@@ -85,10 +89,31 @@ test("returns a transient failure when malformed actions exhaust the bounded loo
     maxTurns: 2,
   });
 
-  assert.deepEqual(result, { status: 503, body: { error: "food_resolution_failed" } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.candidateId, "db_42");
 });
 
-test("rejects row IDs that were never returned by retrieval", async () => {
+test("deterministic fallback accepts a strongly matching ordinary food", () => {
+  const selected = deterministicFallbackCandidate("porridge", [{
+    candidates: [
+      { rowId: 1, name: "Porridge", brand: null },
+      { rowId: 2, name: "Porridge oat bar", brand: "Example" },
+    ],
+  }]);
+  assert.equal(selected.rowId, 1);
+});
+
+test("deterministic fallback preserves a named brand and product", () => {
+  const selected = deterministicFallbackCandidate("Starbucks caffe mocha", [{
+    candidates: [
+      { rowId: 1, name: "Caffe Mocha", brand: "Starbucks" },
+      { rowId: 2, name: "Mocha candy", brand: "Other" },
+    ],
+  }]);
+  assert.equal(selected.rowId, 1);
+});
+
+test("ignores hallucinated row IDs and falls back to a retrieved candidate", async () => {
   const result = await resolveFoodCandidate({
     userMessage: "I ate example food",
     foodMention: "example food",
@@ -98,7 +123,8 @@ test("rejects row IDs that were never returned by retrieval", async () => {
     maxTurns: 1,
   });
 
-  assert.equal(result.status, 503);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.candidateId, "db_42");
 });
 
 test("stops executing redundant searches after two reformulations", async () => {

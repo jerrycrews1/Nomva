@@ -62,7 +62,7 @@ struct NomvaWidgetSyncBridge: View {
     }
 
     private var currentGoal: DailyGoal {
-        goals.first ?? GoalService.defaultGoal()
+        GoalService.currentGoal(from: goals)
     }
 
     private var foodSignature: String {
@@ -151,18 +151,17 @@ struct NomvaWidgetSyncBridge: View {
             }
         }
 
-        let adjustedGoalCalories: Double
-        if activitySource != .manual,
-           let measuredActiveCalories,
-           activityReferenceActiveCalories > 0 {
-            adjustedGoalCalories = GoalService.dynamicallyAdjustedCalories(
-                baseGoalCalories: currentGoal.calories,
-                dailyActiveCalories: measuredActiveCalories,
-                referenceActiveCalories: activityReferenceActiveCalories
-            )
-        } else {
-            adjustedGoalCalories = currentGoal.calories
-        }
+        let adjustedGoal = GoalService.displayGoal(
+            base: currentGoal,
+            selectedDate: .now,
+            activitySource: GoalActivitySource(rawValue: activitySourceRaw) ?? .manual,
+            referenceActiveCalories: activityReferenceActiveCalories,
+            averageActiveCalories: activitySource == .garmin
+                ? garminManager.averageActiveCalories
+                : measuredActiveCalories,
+            completedDayActiveCalories: nil
+        )
+        let adjustedGoalCalories = adjustedGoal.calories
 
         let recentWeights = Array(allWeightEntries.prefix(7).reversed())
         let recentWeightValues = recentWeights.map(\.weightLbs)

@@ -13,7 +13,11 @@ struct ChatView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager)  private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
+    @EnvironmentObject private var garminManager: GarminManager
+    @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
+    @AppStorage("goal_activity_reference_active_calories") private var activityReferenceActiveCalories = 0.0
 
     @State private var selectedDate      = Date.now
     @State private var inputText         = ""
@@ -23,6 +27,16 @@ struct ChatView: View {
     @State private var showNutritionDetail = false
     @State private var scannedFood: FoodItem? = nil
     @State private var scannerError: String? = nil
+    @State private var pendingBarcode = ""
+    @State private var showCustomFoodCreate = false
+    @State private var processingStage = "Understanding your request"
+    @State private var activeRequestTask: Task<Void, Never>? = nil
+    @State private var failedQuery: String? = nil
+    @State private var showManualSearch = false
+    @State private var manualSearchQuery = ""
+    @State private var undoNotice: String? = nil
+    @State private var customUndoAction: (() -> Void)? = nil
+    @State private var showDeleteAllWeightsConfirm = false
 
     // Photo food logging
     @State private var showPhotoSourcePicker = false
@@ -55,7 +69,26 @@ struct ChatView: View {
     }
 
     private var currentGoal: DailyGoal {
-        goals.first ?? GoalService.defaultGoal()
+        GoalService.currentGoal(from: goals)
+    }
+
+    private var selectedActivitySource: GoalActivitySource {
+        GoalActivitySource(rawValue: activitySourceRaw) ?? .manual
+    }
+
+    private var displayGoal: DailyGoal {
+        GoalService.displayGoal(
+            base: currentGoal,
+            selectedDate: selectedDate,
+            activitySource: selectedActivitySource,
+            referenceActiveCalories: activityReferenceActiveCalories,
+            averageActiveCalories: selectedActivitySource == .garmin
+                ? garminManager.averageActiveCalories
+                : nil,
+            completedDayActiveCalories: selectedActivitySource == .garmin
+                ? garminManager.summary(for: selectedDate)?.activeCalories
+                : nil
+        )
     }
 
     private var activeLoggingSession: LoggingSession? {
@@ -87,7 +120,7 @@ struct ChatView: View {
                     } label: {
                         MacroRingsView(
                             consumed: selectedDayTotals,
-                            goal: currentGoal,
+                            goal: displayGoal,
                             isCompact: isInputFocused || !messages.isEmpty,
                             showsDetailCue: true
                         )
@@ -95,7 +128,7 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, contentInset)
                     .padding(.top, NomvaTheme.topCardGap)
-                    .animation(.spring(), value: isInputFocused || !messages.isEmpty)
+                    .animation(reduceMotion ? .none : .spring(), value: isInputFocused || !messages.isEmpty)
                     .accessibilityHint("Shows detailed nutrition, Daily Value context, and trends")
 
                     messageList
@@ -134,6 +167,14 @@ struct ChatView: View {
             } message: {
                 Text("This removes the conversation but keeps your logged food entries.")
             }
+            .alert("Delete all weight history?", isPresented: $showDeleteAllWeightsConfirm) {
+                Button("Delete All", role: .destructive) {
+                    deleteAllWeightHistory()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes every weigh-in. You can undo immediately after deletion.")
+            }
             .sheet(isPresented: $showBarcodeScanner) {
                 BarcodeScannerView { barcode in
                     handleBarcode(barcode)
@@ -144,7 +185,7 @@ struct ChatView: View {
                     selectedDate: selectedDate,
                     entries: selectedDayEntries,
                     allEntries: allEntries,
-                    goal: currentGoal
+                    goal: displayGoal
                 )
             }
             .sheet(item: $scannedFood) { food in
@@ -155,12 +196,35 @@ struct ChatView: View {
                     )
                 }
             }
+            .sheet(isPresented: $showManualSearch) {
+                ManualFoodSearchView(
+                    isPresented: $showManualSearch,
+                    initialQuery: manualSearchQuery,
+                    initialMeal: currentMeal(at: timestampForSelectedDay())
+                )
+            }
+            .sheet(isPresented: $showCustomFoodCreate) {
+                NavigationStack {
+                    CustomFoodCreateView(initialBarcode: pendingBarcode)
+                }
+            }
         } // End of NavigationStack
         .alert("Scan Failed", isPresented: Binding(
             get: { scannerError != nil },
             set: { if !$0 { scannerError = nil } }
         )) {
-            Button("OK") { scannerError = nil }
+            Button("Create Custom Food") {
+                scannerError = nil
+                showCustomFoodCreate = true
+            }
+            Button("Search by Name") {
+                scannerError = nil
+                manualSearchQuery = ""
+                showManualSearch = true
+            }
+            Button("Cancel", role: .cancel) {
+                scannerError = nil
+            }
         } message: {
             Text(scannerError ?? "")
         }
@@ -217,6 +281,10 @@ struct ChatView: View {
             Text("Photo food scanning is a premium feature. Upgrade to scan meals with your camera.")
         }
         .onAppear { modelContext.undoManager = undoManager }
+        .onDisappear {
+            activeRequestTask?.cancel()
+            activeRequestTask = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if isToday { selectedDate = .now }
         }
@@ -276,7 +344,13 @@ struct ChatView: View {
                     }
 
                     if isProcessing {
-                        HStack { TypingIndicator(); Spacer() }
+                        HStack {
+                            ProcessingIndicator(
+                                stage: processingStage,
+                                onCancel: cancelActiveRequest
+                            )
+                            Spacer()
+                        }
                             .padding(.horizontal)
                             .id("typing")
                     }
@@ -309,15 +383,16 @@ struct ChatView: View {
         let scroll = {
             proxy.scrollTo(chatBottomID, anchor: .bottom)
         }
+        let shouldAnimate = animated && !reduceMotion
 
-        if animated {
+        if shouldAnimate {
             withAnimation(.easeOut(duration: 0.25), scroll)
         } else {
             scroll()
         }
 
         DispatchQueue.main.async {
-            if animated {
+            if shouldAnimate {
                 withAnimation(.easeOut(duration: 0.25), scroll)
             } else {
                 scroll()
@@ -325,7 +400,7 @@ struct ChatView: View {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if animated {
+            if shouldAnimate {
                 withAnimation(.easeOut(duration: 0.25), scroll)
             } else {
                 scroll()
@@ -384,6 +459,54 @@ struct ChatView: View {
 
     private var chatInputBar: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let undoNotice {
+                HStack(spacing: 10) {
+                    Text(undoNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Undo") {
+                        if let customUndoAction {
+                            customUndoAction()
+                        } else {
+                            undoManager?.undo()
+                        }
+                        try? modelContext.save()
+                        self.undoNotice = nil
+                        self.customUndoAction = nil
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color(UIColor.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            if let failedQuery {
+                HStack(spacing: 10) {
+                    Button {
+                        inputText = failedQuery
+                        self.failedQuery = nil
+                        sendMessage()
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        manualSearchQuery = failedQuery
+                        showManualSearch = true
+                    } label: {
+                        Label("Search locally", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+                .font(.caption.weight(.semibold))
+            }
+
             if !isToday {
                 NomvaTag(text: "Adding to \(dateLabel)", tint: NomvaTheme.accent)
             }
@@ -441,7 +564,10 @@ struct ChatView: View {
                     }
                     .disabled(!canSend)
                     .scaleEffect(canSend ? 1.0 : 0.92)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: canSend)
+                    .animation(
+                        reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.6),
+                        value: canSend
+                    )
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 6)
@@ -475,6 +601,15 @@ struct ChatView: View {
         isInputFocused = false
         inputText = ""
         isProcessing = true
+        processingStage = "Understanding your request"
+        failedQuery = nil
+
+        // Snapshot only prior turns. The current message is sent separately
+        // and must not appear twice in the model context.
+        let recentMsgs = messages
+            .filter { $0.role == "user" || $0.role == "assistant" }
+            .suffix(6)
+            .map { (role: $0.role, content: $0.content) }
 
         // Save user message immediately so it appears in the UI
         let userMsg = ChatMessage(
@@ -484,12 +619,7 @@ struct ChatView: View {
             dayDate: targetDayStart
         )
         modelContext.insert(userMsg)
-
-        // Build conversation context from the last 6 messages
-        let recentMsgs = messages
-            .filter { $0.role == "user" || $0.role == "assistant" }
-            .suffix(6)
-            .map { (role: $0.role, content: $0.content) }
+        try? modelContext.save()
 
         // Pass the last 30 days of food + all weight entries so the LLM can
         // answer "this week", "yesterday", "what's my trend" etc.
@@ -497,10 +627,15 @@ struct ChatView: View {
         let recentSnapshot = allEntries.filter { $0.date >= thirtyDaysAgo }
         let weightSnapshot = allWeightEntries
         let waterSnapshot  = allWaterEntries
-        let goalSnapshot   = currentGoal
+        let goalSnapshot   = displayGoal
         let sessionSnapshot = activeLoggingSession?.decodedState
 
-        Task { @MainActor in
+        activeRequestTask = Task { @MainActor in
+            let stageTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, isProcessing else { return }
+                processingStage = "Searching foods and checking your log"
+            }
             let result = await FoodLoggingService.shared.process(
                 userMessage: text,
                 recentMessages: recentMsgs,
@@ -512,9 +647,13 @@ struct ChatView: View {
                 weightEntries: weightSnapshot,
                 waterEntries: waterSnapshot,
                 mealTemplates: mealTemplates,
+                defaultMeal: currentMeal(at: timestamp(for: targetDayStart)),
                 sessionState: sessionSnapshot
             )
+            stageTask.cancel()
+            guard !Task.isCancelled else { return }
 
+            processingStage = "Saving changes"
             syncLoggingSession(with: result, dayStart: targetDayStart)
             let assistantReply = applyAction(
                 result,
@@ -534,9 +673,19 @@ struct ChatView: View {
                 dayDate: targetDayStart
             )
             modelContext.insert(assistantMsg)
+            try? modelContext.save()
 
+            failedQuery = result.isRecoverableFailure ? text : nil
             isProcessing = false
+            activeRequestTask = nil
         }
+    }
+
+    private func cancelActiveRequest() {
+        activeRequestTask?.cancel()
+        activeRequestTask = nil
+        isProcessing = false
+        processingStage = "Understanding your request"
     }
 
     private func syncLoggingSession(with result: FoodLoggingService.LoggingResult, dayStart: Date) {
@@ -570,78 +719,139 @@ struct ChatView: View {
         switch result.action {
 
         case .logFood(let entries):
-            for (index, entry) in entries.enumerated() {
-                entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
-                modelContext.insert(entry)
+            let uniqueEntries = uniqueMutationEntries(entries)
+            guard !uniqueEntries.isEmpty else {
+                return "Nothing was added because I couldn't verify a food match."
             }
-            persistEvidence(result.evidenceDrafts, for: entries, dayStart: targetDayStart)
-            return result.reply
+            let saved = commitMutation {
+                for (index, entry) in uniqueEntries.enumerated() {
+                    entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
+                    modelContext.insert(entry)
+                }
+            } verify: {
+                uniqueEntries.allSatisfy { $0.date >= targetDayStart }
+            }
+            guard saved else {
+                return "I found the food, but couldn't save it. Nothing was added."
+            }
+
+            if uniqueEntries.count == entries.count {
+                persistEvidence(result.evidenceDrafts, for: uniqueEntries, dayStart: targetDayStart)
+            }
+            return uniqueEntries
+                .map { "✓ \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .joined(separator: "\n")
 
         case .replaceEntry(let deleteName, let newEntries):
-            // Remove the wrong item if found
-            var removedName: String? = nil
-            if let match = findEntry(named: deleteName, in: targetEntries) {
-                removedName = match.name
+            guard let match = findEntry(named: deleteName, in: targetEntries) else {
+                return "I couldn't find \"\(deleteName)\" in your \(targetDateLabel.lowercased()) log, so nothing was changed."
+            }
+            let replacements = uniqueMutationEntries(newEntries)
+            guard !replacements.isEmpty else {
+                return "I couldn't verify a replacement for \(match.name), so the original entry stayed in your log."
+            }
+            let saved = commitMutation {
                 modelContext.delete(match)
+                for (index, entry) in replacements.enumerated() {
+                    entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
+                    modelContext.insert(entry)
+                }
             }
-            // Log the correct items
-            for (index, entry) in newEntries.enumerated() {
-                entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
-                modelContext.insert(entry)
+            guard saved else {
+                return "I couldn't save that correction, so \(match.name) was left unchanged."
             }
-            persistEvidence(result.evidenceDrafts, for: newEntries, dayStart: targetDayStart)
-            let lines = newEntries.map { "✓ \($0.name) (\($0.portionDescription)) — \(Int($0.calories)) cal" }
-            let removed = removedName.map { "Removed \($0).\n" } ?? ""
-            return removed + lines.joined(separator: "\n")
+            persistEvidence(result.evidenceDrafts, for: replacements, dayStart: targetDayStart)
+            presentUndo("Food correction saved")
+            return replacements
+                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .joined(separator: "\n")
 
         case .replaceEntryById(let deleteId, let newEntries):
-            var removedName: String? = nil
-            if let match = targetEntries.first(where: { $0.id == deleteId }) {
-                removedName = match.name
+            guard let match = targetEntries.first(where: { $0.id == deleteId }) else {
+                return "I couldn't find the original entry, so nothing was changed."
+            }
+            let replacements = uniqueMutationEntries(newEntries)
+            guard !replacements.isEmpty else {
+                return "I couldn't verify a replacement for \(match.name), so the original entry stayed in your log."
+            }
+            let saved = commitMutation {
                 modelContext.delete(match)
+                for (index, entry) in replacements.enumerated() {
+                    entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
+                    modelContext.insert(entry)
+                }
             }
-            for (index, entry) in newEntries.enumerated() {
-                entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
-                modelContext.insert(entry)
+            guard saved else {
+                return "I couldn't save that correction, so \(match.name) was left unchanged."
             }
-            persistEvidence(result.evidenceDrafts, for: newEntries, dayStart: targetDayStart)
-            let lines = newEntries.map { "✓ \($0.name) (\($0.portionDescription)) — \(Int($0.calories)) cal" }
-            let removed = removedName.map { "Removed \($0).\n" } ?? ""
-            return removed + lines.joined(separator: "\n")
+            persistEvidence(result.evidenceDrafts, for: replacements, dayStart: targetDayStart)
+            presentUndo("Food correction saved")
+            return replacements
+                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .joined(separator: "\n")
 
         case .log_weight(let entry):
             entry.date = timestamp(for: targetDayStart)
-            modelContext.insert(entry)
-            return result.reply
+            guard commitMutation({ modelContext.insert(entry) }) else {
+                return "I couldn't save that weigh-in. Nothing was added."
+            }
+            return "✓ Logged \(formatGoalNumber(entry.weightLbs)) lb for \(targetDateLabel)."
             
         case .updateWeight(let idStr, let weightLbs):
-            // Find the weight entry by checking if its UUID string starts with the provided ID
-            if let existing = allWeightEntries.first(where: { $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().hasPrefix(idStr.lowercased()) }) {
-                existing.weightLbs = weightLbs
+            guard let existing = allWeightEntries.first(where: {
+                $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().hasPrefix(idStr.lowercased())
+            }) else {
+                return "I couldn't find that weigh-in, so nothing was changed."
             }
-            return result.reply
+            let oldWeight = existing.weightLbs
+            guard commitMutation({
+                existing.weightLbs = weightLbs
+            }, verify: {
+                abs(existing.weightLbs - weightLbs) < 0.001
+            }) else {
+                return "I couldn't save that weight correction. The original value is still there."
+            }
+            presentUndo("Weight updated")
+            return "Updated weight from \(formatGoalNumber(oldWeight)) lb to \(formatGoalNumber(weightLbs)) lb."
 
         case .deleteWeight(let idStr):
-            // Find the weight entry by shortened ID match
             let toDelete = allWeightEntries.filter { $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().hasPrefix(idStr.lowercased()) }
-            for entry in toDelete { modelContext.delete(entry) }
-            return result.reply
+            guard !toDelete.isEmpty else {
+                return "I couldn't find that weigh-in, so nothing was removed."
+            }
+            guard commitMutation({
+                for entry in toDelete { modelContext.delete(entry) }
+            }) else {
+                return "I couldn't save that deletion. Your weight history was left unchanged."
+            }
+            presentUndo("Weight entry removed")
+            return "Removed \(toDelete.count == 1 ? "the weigh-in" : "\(toDelete.count) weigh-ins")."
 
         case .deleteAllWeights:
-            for entry in allWeightEntries { modelContext.delete(entry) }
-            return result.reply
+            guard !allWeightEntries.isEmpty else {
+                return "Your weight history is already empty."
+            }
+            showDeleteAllWeightsConfirm = true
+            return "Please confirm the alert to delete all \(allWeightEntries.count) weight entries."
 
         case .deleteEntries(let ids):
             let targetIds = Set(ids)
             let toDelete = targetEntries.filter { targetIds.contains($0.id) }
             guard !toDelete.isEmpty else { return "Nothing found to remove." }
 
-            for entry in toDelete { modelContext.delete(entry) }
+            guard commitMutation({
+                for entry in toDelete { modelContext.delete(entry) }
+            }) else {
+                return "I couldn't save that deletion. Nothing was removed."
+            }
+            presentUndo("\(toDelete.count) food item\(toDelete.count == 1 ? "" : "s") removed")
             return "Removed: \(displayNames(for: toDelete))."
 
         case .editEntry(let name, let newGrams, let newDesc, let newServings, let newServingUnit):
-            // Find the best matching entry in the selected day's log
-            if let match = findEntry(named: name, in: targetEntries) {
+            guard let match = findEntry(named: name, in: targetEntries) else {
+                return "Couldn't find \"\(name)\" in your \(targetDateLabel.lowercased()) log. Nothing was changed."
+            }
+            let saved = commitMutation {
                 let factor = newGrams / 100
                 match.portionGrams       = newGrams
                 match.portionDescription = newDesc
@@ -668,10 +878,30 @@ struct ChatView: View {
                 match.folateMcgDFE = match.folatePer100g.map { $0 * factor }
                 match.magnesiumMg = match.magnesiumPer100g.map { $0 * factor }
                 match.zincMg = match.zincPer100g.map { $0 * factor }
-                return "Updated \(match.name) to \(newDesc) — \(Int(match.calories)) cal"
-            } else {
-                return "Couldn't find \"\(name)\" in your \(targetDateLabel.lowercased()) log. Check the Log tab to see what's there."
+            } verify: {
+                match.portionDescription == newDesc
+                    && abs(match.portionGrams - newGrams) < 0.001
             }
+            guard saved else {
+                return "I couldn't save that edit. \(match.name) was left unchanged."
+            }
+            presentUndo("\(match.name) updated")
+            return "Updated \(match.name) to \(newDesc) — \(Int(match.calories.rounded())) cal"
+
+        case .moveEntry(let id, let destinationMeal):
+            guard let entry = targetEntries.first(where: { $0.id == id }) else {
+                return "I couldn't find that food in your \(targetDateLabel.lowercased()) log, so nothing was moved."
+            }
+            let oldMeal = entry.meal
+            guard commitMutation({
+                entry.meal = destinationMeal
+            }, verify: {
+                entry.meal == destinationMeal
+            }) else {
+                return "I couldn't save that move, so \(entry.name) stayed in \(MealCategory(storedValue: oldMeal).title)."
+            }
+            presentUndo("\(entry.name) moved")
+            return "Moved \(entry.name) to \(MealCategory(storedValue: destinationMeal).title)."
 
         case .deleteEntry(let names):
             var removed: [FoodEntry] = []
@@ -688,12 +918,19 @@ struct ChatView: View {
                     removed.append(contentsOf: matches)
                     let matchIds = Set(matches.map(\.id))
                     remainingEntries.removeAll { matchIds.contains($0.id) }
-                    for match in matches {
-                        modelContext.delete(match)
-                    }
                 } else {
                     notFound.append(name)
                 }
+            }
+            if !removed.isEmpty {
+                guard commitMutation({
+                    for match in removed {
+                        modelContext.delete(match)
+                    }
+                }) else {
+                    return "I couldn't save that deletion. Nothing was removed."
+                }
+                presentUndo("\(removed.count) food item\(removed.count == 1 ? "" : "s") removed")
             }
             var reply = removed.isEmpty ? "" : "Removed: \(displayNames(for: removed))."
             if !notFound.isEmpty { reply += (reply.isEmpty ? "" : " ") + "Couldn't find: \(notFound.joined(separator: ", "))." }
@@ -716,8 +953,13 @@ struct ChatView: View {
                     : "No \(meal) entries found for \(mutationDateLabel)."
             }
             
-            for entry in toDelete { modelContext.delete(entry) }
+            guard commitMutation({
+                for entry in toDelete { modelContext.delete(entry) }
+            }) else {
+                return "I couldn't save that deletion. Nothing was removed."
+            }
             let count = toDelete.count
+            presentUndo("\(count) food item\(count == 1 ? "" : "s") removed")
             return mealLower == "all"
                 ? "✓ Cleared all \(count) item\(count == 1 ? "" : "s") from \(mutationDateLabel)."
                 : "✓ Removed \(count) \(meal) item\(count == 1 ? "" : "s") from \(mutationDateLabel)."
@@ -725,37 +967,119 @@ struct ChatView: View {
         case .logWater(let oz):
             let entry = WaterEntry(amountOz: oz)
             entry.date = timestamp(for: targetDayStart)
-            modelContext.insert(entry)
-            return result.reply
+            guard commitMutation({ modelContext.insert(entry) }) else {
+                return "I couldn't save that water entry. Nothing was added."
+            }
+            let newTotal = allWaterEntries
+                .filter { $0.date >= targetDayStart && $0.date < dayEnd(for: targetDayStart) }
+                .reduce(0) { $0 + $1.amountOz }
+            return "✓ Logged \(formatGoalNumber(oz)) oz of water. Total: \(formatGoalNumber(newTotal)) oz."
 
         case .deleteWater:
-            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < cal.date(byAdding: .day, value: 1, to: targetDayStart)! }
-            for entry in todayWater { modelContext.delete(entry) }
-            return result.reply
+            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < dayEnd(for: targetDayStart) }
+            guard !todayWater.isEmpty else {
+                return "\(targetDateLabel) has no water entries to remove."
+            }
+            guard commitMutation({
+                for entry in todayWater { modelContext.delete(entry) }
+            }) else {
+                return "I couldn't save that deletion. Your water log was left unchanged."
+            }
+            presentUndo("Water log cleared")
+            return "Cleared \(todayWater.count) water entr\(todayWater.count == 1 ? "y" : "ies") from \(targetDateLabel)."
 
         case .setWaterTotal(let oz):
-            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < cal.date(byAdding: .day, value: 1, to: targetDayStart)! }
-            for entry in todayWater { modelContext.delete(entry) }
-            if oz > 0 {
-                let entry = WaterEntry(amountOz: oz)
-                entry.date = timestamp(for: targetDayStart)
-                modelContext.insert(entry)
+            let todayWater = allWaterEntries.filter { $0.date >= targetDayStart && $0.date < dayEnd(for: targetDayStart) }
+            guard commitMutation({
+                for entry in todayWater { modelContext.delete(entry) }
+                if oz > 0 {
+                    let entry = WaterEntry(amountOz: oz)
+                    entry.date = timestamp(for: targetDayStart)
+                    modelContext.insert(entry)
+                }
+            }) else {
+                return "I couldn't save that water correction. The previous total is still there."
             }
-            return result.reply
+            presentUndo("Water total updated")
+            return "Set \(targetDateLabel.lowercased()) water total to \(formatGoalNumber(oz)) oz."
 
-        case .setGoal(let calories, let protein, let carbs, let fat, let fiber):
+        case .setGoal(let changes):
             let goal = currentGoal
-            if let v = calories { goal.calories = v }
-            if let v = protein  { goal.protein  = v }
-            if let v = carbs    { goal.carbs     = v }
-            if let v = fat      { goal.fat       = v }
-            if let v = fiber    { goal.fiber     = v }
+            let oldGoal = (
+                calories: goal.calories,
+                protein: goal.protein,
+                carbs: goal.carbs,
+                fat: goal.fat,
+                fiber: goal.fiber
+            )
+            let oldStoredWater = UserDefaults.standard.object(forKey: "water_goal_oz") as? Double
+            let oldStoredTargetWeight = UserDefaults.standard.object(forKey: "target_weight_lbs") as? Double
             var parts: [String] = []
-            if let v = calories { parts.append("\(Int(v)) cal") }
-            if let v = protein  { parts.append("\(Int(v))g protein") }
-            if let v = carbs    { parts.append("\(Int(v))g carbs") }
-            if let v = fat      { parts.append("\(Int(v))g fat") }
-            if let v = fiber    { parts.append("\(Int(v))g fiber") }
+            let saved = commitMutation {
+                for change in changes {
+                    switch change.metric {
+                    case "calories":
+                        let old = goal.calories
+                        let new = boundedGoalValue(apply: change, to: old, range: 1_000...10_000)
+                        goal.calories = new
+                        parts.append("calories \(Int(old.rounded())) → \(Int(new.rounded()))")
+                    case "protein":
+                        let old = goal.protein
+                        let new = boundedGoalValue(apply: change, to: old, range: 0...1_000)
+                        goal.protein = new
+                        parts.append("protein \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                    case "carbs":
+                        let old = goal.carbs
+                        let new = boundedGoalValue(apply: change, to: old, range: 0...1_500)
+                        goal.carbs = new
+                        parts.append("carbs \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                    case "fat":
+                        let old = goal.fat
+                        let new = boundedGoalValue(apply: change, to: old, range: 0...500)
+                        goal.fat = new
+                        parts.append("fat \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                    case "fiber":
+                        let old = goal.fiber
+                        let new = boundedGoalValue(apply: change, to: old, range: 0...250)
+                        goal.fiber = new
+                        parts.append("fiber \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                    case "water_oz":
+                        let stored = UserDefaults.standard.double(forKey: "water_goal_oz")
+                        let old = stored > 0 ? stored : 64
+                        let new = boundedGoalValue(apply: change, to: old, range: 1...512)
+                        UserDefaults.standard.set(new, forKey: "water_goal_oz")
+                        parts.append("water \(Int(old.rounded())) oz → \(Int(new.rounded())) oz")
+                    case "target_weight_lbs":
+                        let stored = UserDefaults.standard.double(forKey: "target_weight_lbs")
+                        let old = stored > 0
+                            ? stored
+                            : (allWeightEntries.sorted { $0.date > $1.date }.first?.weightLbs ?? change.value)
+                        let new = boundedGoalValue(apply: change, to: old, range: 50...1_000)
+                        UserDefaults.standard.set(new, forKey: "target_weight_lbs")
+                        parts.append("target weight \(formatGoalNumber(old)) lb → \(formatGoalNumber(new)) lb")
+                    default:
+                        continue
+                    }
+                }
+            }
+            guard !parts.isEmpty else {
+                return "No valid goal changes were applied."
+            }
+            guard saved else {
+                restoreOptionalDefault(oldStoredWater, forKey: "water_goal_oz")
+                restoreOptionalDefault(oldStoredTargetWeight, forKey: "target_weight_lbs")
+                return "I couldn't save those goal changes. Your goals were left unchanged."
+            }
+            presentUndo("Goals updated") {
+                goal.calories = oldGoal.calories
+                goal.protein = oldGoal.protein
+                goal.carbs = oldGoal.carbs
+                goal.fat = oldGoal.fat
+                goal.fiber = oldGoal.fiber
+                restoreOptionalDefault(oldStoredWater, forKey: "water_goal_oz")
+                restoreOptionalDefault(oldStoredTargetWeight, forKey: "target_weight_lbs")
+                try? modelContext.save()
+            }
             return "Goals updated: \(parts.joined(separator: ", "))."
 
         case .askClarification(let text):
@@ -882,6 +1206,135 @@ struct ChatView: View {
         .joined(separator: ", ")
     }
 
+    private func uniqueMutationEntries(_ entries: [FoodEntry]) -> [FoodEntry] {
+        var seen = Set<String>()
+        return entries.filter { entry in
+            let key: String
+            if let barcode = entry.barcode, !barcode.isEmpty {
+                key = "barcode:\(barcode)"
+            } else if let fdcId = entry.fdcId {
+                key = "fdc:\(fdcId)"
+            } else if let foodDatabaseId = entry.foodDatabaseId {
+                key = "database:\(foodDatabaseId)"
+            } else {
+                key = [
+                    entry.source ?? "",
+                    entry.brand ?? "",
+                    entry.name,
+                    entry.meal,
+                ]
+                .joined(separator: " ")
+                .lowercased()
+                .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return seen.insert(key).inserted
+        }
+    }
+
+    private func boundedGoalValue(
+        apply change: GoalChange,
+        to current: Double,
+        range: ClosedRange<Double>
+    ) -> Double {
+        let proposed: Double
+        switch change.operation {
+        case "increase":
+            proposed = current + change.value
+        case "decrease":
+            proposed = current - change.value
+        default:
+            proposed = change.value
+        }
+        return min(max(proposed, range.lowerBound), range.upperBound)
+    }
+
+    private func formatGoalNumber(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(value.rounded() == value ? 0 : 1)))
+    }
+
+    private func commitMutation(
+        _ changes: () -> Void,
+        verify: () -> Bool = { true }
+    ) -> Bool {
+        undoManager?.beginUndoGrouping()
+        changes()
+
+        do {
+            try modelContext.save()
+            let verified = verify()
+            undoManager?.endUndoGrouping()
+
+            guard verified else {
+                undoManager?.undo()
+                try? modelContext.save()
+                return false
+            }
+            return true
+        } catch {
+            modelContext.rollback()
+            undoManager?.endUndoGrouping()
+            return false
+        }
+    }
+
+    private func presentUndo(
+        _ message: String,
+        action: (() -> Void)? = nil
+    ) {
+        undoNotice = message
+        customUndoAction = action
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if undoNotice == message {
+                undoNotice = nil
+                customUndoAction = nil
+            }
+        }
+    }
+
+    private func restoreOptionalDefault(_ value: Double?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    private func dayEnd(for start: Date) -> Date {
+        cal.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+    }
+
+    private func deleteAllWeightHistory() {
+        let entries = allWeightEntries
+        guard !entries.isEmpty else { return }
+
+        if commitMutation({
+            for entry in entries {
+                modelContext.delete(entry)
+            }
+        }) {
+            presentUndo("\(entries.count) weight entries removed")
+            let message = ChatMessage(
+                role: "assistant",
+                content: "Removed all \(entries.count) weight entries.",
+                timestamp: timestampForSelectedDay(offsetBy: 2),
+                dayDate: dayStart
+            )
+            modelContext.insert(message)
+            try? modelContext.save()
+        } else {
+            let message = ChatMessage(
+                role: "assistant",
+                content: "I couldn't save that deletion. Your weight history was left unchanged.",
+                timestamp: timestampForSelectedDay(offsetBy: 2),
+                dayDate: dayStart
+            )
+            modelContext.insert(message)
+            try? modelContext.save()
+        }
+    }
+
     // MARK: - Quick Add (from recent foods chips)
 
     private func quickAdd(entry: FoodEntry) {
@@ -955,16 +1408,46 @@ struct ChatView: View {
 
     private func handleBarcode(_ barcode: String) {
         showBarcodeScanner = false
+        pendingBarcode = barcode
+
+        if let custom = customFoods.first(where: {
+            $0.barcode?.filter(\.isNumber) == barcode.filter(\.isNumber)
+        }) {
+            scannedFood = foodItem(from: custom)
+            return
+        }
+
         Task { @MainActor in
             switch await BarcodeLookupService.shared.lookup(barcode: barcode) {
             case let .found(food, _):
                 scannedFood = food
             case .notFound:
-                scannerError = "Couldn’t find barcode \(barcode) in Nomva’s local food database yet. Try typing the food name instead."
+                scannerError = "Couldn’t find barcode \(barcode). Create it once and Nomva will recognize it next time."
             case .unavailable:
-                scannerError = "Couldn’t look up barcode \(barcode) from the local food database right now. Try typing the food name instead."
+                scannerError = "Barcode lookup is unavailable. You can create this food with the code already filled in."
             }
         }
+    }
+
+    private func foodItem(from food: CustomFood) -> FoodItem {
+        FoodItem(
+            id: food.id.uuidString.unicodeScalars.reduce(1_000_000) {
+                (($0 &* 31) &+ Int($1.value)) & Int.max
+            },
+            name: food.name,
+            brand: food.brand,
+            source: "custom",
+            servingGrams: food.servingGrams,
+            servingDesc: food.servingDesc,
+            caloriesPerServing: food.calories,
+            proteinG: food.proteinG,
+            carbsG: food.carbsG,
+            fatG: food.fatG,
+            fiberG: food.fiberG,
+            sugarG: 0,
+            sodiumMg: 0,
+            barcode: food.barcode
+        )
     }
 
     // MARK: - Photo Analysis
@@ -1119,7 +1602,7 @@ struct ChatBubble: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(message.content)
+                Text(renderedContent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(bubbleBackground)
@@ -1166,33 +1649,39 @@ struct ChatBubble: View {
                 .fill(Color(UIColor.secondarySystemBackground).opacity(0.82))
         }
     }
+
+    private var renderedContent: AttributedString {
+        guard !isUser,
+              let attributed = try? AttributedString(
+                  markdown: message.content,
+                  options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+              ) else {
+            return AttributedString(message.content)
+        }
+        return attributed
+    }
 }
 
-// MARK: - Typing Indicator
+// MARK: - Processing Indicator
 
-struct TypingIndicator: View {
-    @State private var animating = false
+struct ProcessingIndicator: View {
+    let stage: String
+    let onCancel: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(Color.secondary.opacity(0.5))
-                    .frame(width: 8, height: 8)
-                    .offset(y: animating ? -4 : 0)
-                    .animation(
-                        .easeInOut(duration: 0.5)
-                        .repeatForever()
-                        .delay(Double(i) * 0.18),
-                        value: animating
-                    )
-            }
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(stage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Cancel", role: .cancel, action: onCancel)
+                .font(.caption.weight(.semibold))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color(UIColor.secondarySystemBackground).opacity(0.82))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onAppear { animating = true }
     }
 }
 
@@ -1220,4 +1709,5 @@ struct RoundedCornerShape: Shape {
 #Preview {
     ChatView()
         .environmentObject(NomvaRouteCenter.shared)
+        .environmentObject(GarminManager.shared)
 }

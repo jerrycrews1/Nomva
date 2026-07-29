@@ -17,6 +17,10 @@ FILES=(
   stateStore.js
   foodSearchStore.js
   foodResolver.js
+  deleteTargetGuard.js
+  editTargetGuard.js
+  foodMentionGuard.js
+  portionGuard.js
   package.json
   package-lock.json
 )

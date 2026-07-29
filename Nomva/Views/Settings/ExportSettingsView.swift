@@ -81,7 +81,13 @@ struct ExportSettingsView: View {
                             
                             Button {
                                 let data = filteredData
-                                if let url = ExportService.shared.generateCoachReport(entries: data.foods, weights: data.weights, detailLevel: reportDetail) {
+                                if let url = ExportService.shared.generateCoachReport(
+                                    entries: data.foods,
+                                    weights: data.weights,
+                                    water: data.water,
+                                    goals: goals,
+                                    detailLevel: reportDetail
+                                ) {
                                     shareFile(url: url)
                                 }
                             } label: {
@@ -102,8 +108,7 @@ struct ExportSettingsView: View {
                     SettingsSectionCard("Full App Backup", detail: "Complete JSON backup of all your Nomva data.") {
                         VStack(spacing: 12) {
                             Button {
-                                let data = filteredData
-                                if let url = ExportService.shared.generateBackup(foods: data.foods, weights: data.weights, goals: goals, water: data.water) {
+                                if let url = ExportService.shared.generateBackup() {
                                     shareFile(url: url)
                                 }
                             } label: {
@@ -180,6 +185,15 @@ struct ExportSettingsView: View {
             do {
                 let data = try Data(contentsOf: url)
                 let backup = try JSONDecoder().decode(ExportService.BackupData.self, from: data)
+
+                if let archive = backup.archive {
+                    let counts = try SyncMigrationService.merge(
+                        archive: archive,
+                        into: ModelContainerManager.shared.container
+                    )
+                    importError = "Merge complete. Restored \(counts.totalTouched) records."
+                    return
+                }
                 
                 // 1. Fetch current data for comparison
                 let existingFoods = try modelContext.fetch(FetchDescriptor<FoodEntry>())
@@ -229,13 +243,13 @@ struct ExportSettingsView: View {
                 }
                 
                 try modelContext.save()
-                importError = "✅ Merge complete! Added \(addedCount) new items."
+                importError = "Merge complete. Added \(addedCount) new items."
             } catch {
-                importError = "❌ Import failed: \(error.localizedDescription)"
+                importError = "Import failed: \(error.localizedDescription)"
             }
             
         case .failure(let error):
-            importError = "❌ File picker failed: \(error.localizedDescription)"
+            importError = "File picker failed: \(error.localizedDescription)"
         }
     }
     
@@ -243,4 +257,3 @@ struct ExportSettingsView: View {
         FoodEntry(name: f.name, brand: f.brand, meal: f.meal, date: f.date, portionGrams: f.grams, portionDescription: f.desc, servings: f.servings, servingUnit: f.unit, calories: f.cals, proteinG: f.p, carbsG: f.c, fatG: f.f, fiberG: f.fiber, rawUserInput: "Restored from backup")
     }
 }
-

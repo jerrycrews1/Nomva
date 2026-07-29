@@ -123,6 +123,84 @@ struct RemoteAPIProvider: LLMProvider {
         )
     }
 
+    func resolveFoodCandidates(
+        userMessage: String,
+        foodMentions: [String]
+    ) async -> [ResolvedFoodCandidate?] {
+        await withTaskGroup(of: (Int, ResolvedFoodCandidate?).self) { group in
+            for (index, mention) in foodMentions.enumerated() {
+                group.addTask {
+                    do {
+                        return (
+                            index,
+                            try await self.resolveFoodCandidate(
+                                userMessage: userMessage,
+                                foodMention: mention
+                            )
+                        )
+                    } catch {
+                        return (index, nil)
+                    }
+                }
+            }
+
+            var resolved = Array<ResolvedFoodCandidate?>(repeating: nil, count: foodMentions.count)
+            for await (index, candidate) in group {
+                resolved[index] = candidate
+            }
+            return resolved
+        }
+    }
+
+    func extractServingsBatch(
+        userMessage: String,
+        foodMentions: [String]
+    ) async -> [ServingsInfo] {
+        await withTaskGroup(of: (Int, ServingsInfo).self) { group in
+            for (index, mention) in foodMentions.enumerated() {
+                group.addTask {
+                    do {
+                        return (
+                            index,
+                            try await self.extractServings(
+                                userMessage: userMessage,
+                                foodMention: mention,
+                                candidateName: mention,
+                                candidateServingDescription: nil
+                            )
+                        )
+                    } catch {
+                        return (
+                            index,
+                            ServingsInfo(
+                                servings: 1,
+                                portionDescription: "1 serving",
+                                servingUnit: "serving",
+                                confident: false,
+                                hasExplicitPortion: false
+                            )
+                        )
+                    }
+                }
+            }
+
+            var portions = Array(
+                repeating: ServingsInfo(
+                    servings: 1,
+                    portionDescription: "1 serving",
+                    servingUnit: "serving",
+                    confident: false,
+                    hasExplicitPortion: false
+                ),
+                count: foodMentions.count
+            )
+            for await (index, portion) in group {
+                portions[index] = portion
+            }
+            return portions
+        }
+    }
+
     func chooseFoodCandidate(
         userMessage: String,
         foodMention: String,
@@ -272,6 +350,25 @@ struct RemoteAPIProvider: LLMProvider {
             action: (json["action"] as? String) ?? "reply",
             weightLbs: json["weightLbs"] as? Double,
             dateHint: json["dateHint"] as? String
+        )
+    }
+
+    func extractFoodMove(
+        userMessage: String,
+        logSummary: String,
+        recentMessages: [(role: String, content: String)]
+    ) async throws -> FoodMoveMutation {
+        let body: [String: Any] = [
+            "userMessage": userMessage,
+            "logSummary": logSummary,
+            "recentMessages": recentMessages.map { ["role": $0.role, "content": $0.content] }
+        ]
+        let data = try await postRaw("/v1/extract-food-move", body: body)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return FoodMoveMutation(
+            foodName: json["foodName"] as? String,
+            destinationMeal: json["destinationMeal"] as? String,
+            clarificationQuestion: json["clarificationQuestion"] as? String
         )
     }
 
@@ -432,17 +529,39 @@ struct RemoteAPIProvider: LLMProvider {
         return result["text"] ?? "I'm not sure how to answer that."
     }
 
-    func extractGoal(userMessage: String) async throws -> (calories: Double?, protein: Double?, carbs: Double?, fat: Double?, fiber: Double?) {
+    func extractGoalChanges(userMessage: String) async throws -> [GoalChange] {
         let body: [String: Any] = ["userMessage": userMessage]
         let data = try await postRaw("/v1/extract-goal", body: body)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        return (
-            calories: json["calories"] as? Double,
-            protein: json["protein"] as? Double,
-            carbs: json["carbs"] as? Double,
-            fat: json["fat"] as? Double,
-            fiber: json["fiber"] as? Double
-        )
+        let rawChanges = json["changes"] as? [[String: Any]] ?? []
+        return rawChanges.compactMap { change in
+            guard let metric = change["metric"] as? String,
+                  let operation = change["operation"] as? String,
+                  let value = change["value"] as? Double,
+                  value > 0 else {
+                return nil
+            }
+            return GoalChange(metric: metric, operation: operation, value: value)
+        }
+    }
+
+    func parseDataQueries(userMessage: String) async throws -> [DataQuerySpec] {
+        let data = try await postRaw("/v1/parse-data-query", body: ["userMessage": userMessage])
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let queries = json["queries"] as? [[String: Any]] ?? []
+        return queries.compactMap { query in
+            guard let metric = query["metric"] as? String,
+                  let aggregation = query["aggregation"] as? String,
+                  let window = query["window"] as? String else {
+                return nil
+            }
+            return DataQuerySpec(
+                metric: metric,
+                aggregation: aggregation,
+                window: window,
+                days: query["days"] as? Int
+            )
+        }
     }
 
     // MARK: - Photo Analysis
@@ -470,6 +589,31 @@ struct RemoteAPIProvider: LLMProvider {
         ]
         let data = try await postRaw("/v1/analyze-photo", body: body, timeout: 30)
         return try JSONDecoder().decode(PhotoAnalysisResult.self, from: data)
+    }
+
+    func deleteCloudAnalytics() async throws -> Int {
+        await NomvaNetworkAnalytics.shared.clear()
+        guard let url = URL(string: baseURL + "/v1/privacy/analytics") else {
+            throw RemoteError.badURL
+        }
+        let identity = NomvaCloudIdentity.current()
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 15
+            return request
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw RemoteError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw RemoteError.serverError(http.statusCode)
+        }
+        let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return payload?["deleted"] as? Int ?? 0
     }
 
     // MARK: - Networking
@@ -999,6 +1143,12 @@ private actor NomvaNetworkAnalytics {
     private var isFlushing = false
     private var scheduledFlush: Task<Void, Never>?
 
+    func clear() {
+        scheduledFlush?.cancel()
+        scheduledFlush = nil
+        queue.removeAll()
+    }
+
     func enqueue(
         _ event: NomvaNetworkAnalyticsEvent,
         baseURL: String,
@@ -1091,7 +1241,8 @@ private func enqueueNomvaNetworkAnalytics(
     startedAt: Date,
     errorCode: String?
 ) {
-    guard request?.url?.path != "/v1/analytics/events" else { return }
+    guard request?.url?.path != "/v1/analytics/events",
+          request?.url?.path != "/v1/privacy/analytics" else { return }
 
     let http = response as? HTTPURLResponse
     let status = http?.statusCode

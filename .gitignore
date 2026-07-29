@@ -12,6 +12,7 @@ DerivedData/
 *.dSYM
 build/
 .build-xcode.log
+reports/
 
 # macOS
 .DS_Store

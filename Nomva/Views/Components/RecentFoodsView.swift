@@ -10,13 +10,14 @@ struct RecentFoodsView: View {
     var onQuickAdd: (FoodEntry) -> Void
 
     private var recentDistinct: [FoodEntry] {
-        // Only look at the last 50 entries to keep it fast
-        let subset = allEntries.prefix(50)
+        let favorites = allEntries.filter(\.isFavorite)
+        let subset = favorites + Array(allEntries.prefix(50))
         var seen = Set<String>()
         var result: [FoodEntry] = []
         for entry in subset {
-            if !seen.contains(entry.name) {
-                seen.insert(entry.name)
+            let key = "\(entry.brand ?? "")|\(entry.name)"
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if seen.insert(key).inserted {
                 result.append(entry)
                 if result.count >= 10 { break }
             }
@@ -28,10 +29,10 @@ struct RecentFoodsView: View {
         if !recentDistinct.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Quick add from recent meals")
+                    Text("Favorites & Recent")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    Text("Tap to reuse")
+                    Text("Choose a meal next")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -61,7 +62,7 @@ struct RecentFoodChip: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Image(systemName: "fork.knife")
+                    Image(systemName: entry.isFavorite ? "star.fill" : "fork.knife")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(NomvaTheme.accent)
                         .padding(8)

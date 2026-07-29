@@ -7,7 +7,9 @@ struct GoalsSettingsView: View {
     @State private var showRecalculateSheet = false
     @State private var confirmationMessage: String?
 
-    private var currentGoal: DailyGoal? { goals.first }
+    private var currentGoal: DailyGoal? {
+        goals.isEmpty ? nil : GoalService.currentGoal(from: goals)
+    }
 
     var body: some View {
         Form {
@@ -1053,7 +1055,8 @@ struct RecalculateGoalsView: View {
         let cal = projectedCalories
         let macros = projectedMacros
 
-        if let goal = goals.first {
+        if !goals.isEmpty {
+            let goal = GoalService.currentGoal(from: goals)
             goal.calories = cal
             goal.protein = macros.protein
             goal.carbs = macros.carbs

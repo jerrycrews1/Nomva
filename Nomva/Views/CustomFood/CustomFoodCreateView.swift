@@ -11,8 +11,13 @@ struct CustomFoodCreateView: View {
     @State private var carbsG: Double = 0
     @State private var fatG: Double = 0
     @State private var fiberG: Double = 0
+    @State private var barcode: String
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+
+    init(initialBarcode: String = "") {
+        _barcode = State(initialValue: initialBarcode)
+    }
 
     var body: some View {
         Form {
@@ -21,6 +26,10 @@ struct CustomFoodCreateView: View {
                     .accessibilityLabel("Food name")
                 TextField("Brand or Restaurant (optional)", text: $brand)
                     .accessibilityLabel("Brand name")
+                TextField("Barcode (optional)", text: $barcode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.none)
+                    .accessibilityLabel("Barcode")
             }
 
             Section("Serving Size") {
@@ -58,6 +67,7 @@ struct CustomFoodCreateView: View {
     }
 
     private func saveCustomFood() {
+        let trimmedBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
         let food = CustomFood(
             name: name.trimmingCharacters(in: .whitespaces),
             brand: brand.isEmpty ? nil : brand,
@@ -67,9 +77,11 @@ struct CustomFoodCreateView: View {
             proteinG: proteinG,
             carbsG: carbsG,
             fatG: fatG,
-            fiberG: fiberG
+            fiberG: fiberG,
+            barcode: trimmedBarcode.isEmpty ? nil : trimmedBarcode
         )
         modelContext.insert(food)
+        try? modelContext.save()
         dismiss()
     }
 }

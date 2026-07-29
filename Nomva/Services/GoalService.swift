@@ -2,6 +2,14 @@ import Foundation
 
 actor GoalService {
 
+    static func currentGoal(from goals: [DailyGoal]) -> DailyGoal {
+        goals
+            .filter(\.isActive)
+            .max(by: { $0.createdAt < $1.createdAt })
+            ?? goals.max(by: { $0.createdAt < $1.createdAt })
+            ?? defaultGoal()
+    }
+
     // MARK: - BMR Calculation (Mifflin-St Jeor)
 
     static func calculateBMR(
@@ -123,6 +131,46 @@ actor GoalService {
         guard referenceActiveCalories > 0 else { return baseGoalCalories }
         let adjusted = baseGoalCalories + (dailyActiveCalories - referenceActiveCalories)
         return max(adjusted, 1_000)
+    }
+
+    static func displayGoal(
+        base: DailyGoal,
+        selectedDate: Date,
+        activitySource: GoalActivitySource,
+        referenceActiveCalories: Double,
+        averageActiveCalories: Double?,
+        completedDayActiveCalories: Double?,
+        calendar: Calendar = .current
+    ) -> DailyGoal {
+        let calories: Double
+
+        if activitySource == .garmin || activitySource == .appleHealth {
+            let activityCalories: Double
+            if !calendar.isDateInToday(selectedDate),
+               let completedDayActiveCalories {
+                activityCalories = completedDayActiveCalories
+            } else if let averageActiveCalories, averageActiveCalories > 0 {
+                activityCalories = averageActiveCalories
+            } else {
+                activityCalories = referenceActiveCalories
+            }
+
+            calories = dynamicallyAdjustedCalories(
+                baseGoalCalories: base.calories,
+                dailyActiveCalories: activityCalories,
+                referenceActiveCalories: referenceActiveCalories
+            )
+        } else {
+            calories = base.calories
+        }
+
+        return DailyGoal(
+            calories: calories,
+            protein: base.protein,
+            carbs: base.carbs,
+            fat: base.fat,
+            fiber: base.fiber
+        )
     }
 
     // MARK: - Suggested Macros

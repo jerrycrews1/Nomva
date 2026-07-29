@@ -65,9 +65,15 @@ final class SubscriptionManager: ObservableObject {
     private let legacyDevOverrideKey = "is_premium_dev_override"
 
     private init() {
-        hasTestFlightAccess = SubscriptionAccessPolicy.grantsComplimentaryProAccess(
+        let receiptGrantsAccess = SubscriptionAccessPolicy.grantsComplimentaryProAccess(
             receiptURL: Bundle.main.appStoreReceiptURL
         )
+        #if DEBUG
+        let debugPowerTestAccess = ProcessInfo.processInfo.arguments.contains("-NomvaPowerTestAccess")
+        #else
+        let debugPowerTestAccess = false
+        #endif
+        hasTestFlightAccess = receiptGrantsAccess || debugPowerTestAccess
         UserDefaults.standard.removeObject(forKey: legacyDevOverrideKey)
 
         if !hasTestFlightAccess {

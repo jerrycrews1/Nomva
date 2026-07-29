@@ -2,21 +2,35 @@ import SwiftUI
 import SwiftData
 
 struct ManualFoodSearchView: View {
+    @Query(sort: \CustomFood.createdAt, order: .reverse) private var customFoods: [CustomFood]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     
-    @State private var searchText = ""
+    @State private var searchText: String
     @State private var results: [FoodItem] = []
     @State private var isSearching = false
     @State private var showScanner = false
     @State private var selectedFood: FoodItem? = nil
     @State private var scannerAlertText = ""
     @State private var showScannerAlert = false
+    @State private var pendingBarcode = ""
+    @State private var showCustomFoodCreate = false
     
     // To dismiss both this search sheet and the child detail sheet
     @Binding var isPresented: Bool
+    private let initialMeal: String?
     
     let db = DatabaseManager.shared
+
+    init(
+        isPresented: Binding<Bool>,
+        initialQuery: String = "",
+        initialMeal: String? = nil
+    ) {
+        _isPresented = isPresented
+        _searchText = State(initialValue: initialQuery)
+        self.initialMeal = initialMeal
+    }
     
     var body: some View {
         NavigationStack {
@@ -71,6 +85,9 @@ struct ManualFoodSearchView: View {
                 performSearch()
             }
             .onAppear {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    performSearch()
+                }
                 // @FocusState can't target .searchable's UISearchBar, so
                 // we find and activate it directly after the sheet animates in.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -78,13 +95,19 @@ struct ManualFoodSearchView: View {
                 }
             }
             .sheet(item: $selectedFood) { food in
-                ManualFoodDetailView(food: food) {
+                ManualFoodDetailView(food: food, meal: initialMeal) {
                     // This is called when food is logged
                     isPresented = false
                 }
             }
             .alert("Barcode Not Found", isPresented: $showScannerAlert) {
-                Button("OK", role: .cancel) {}
+                Button("Create Custom Food") {
+                    showCustomFoodCreate = true
+                }
+                Button("Search by Name") {
+                    searchText = ""
+                }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text(scannerAlertText)
             }
@@ -105,6 +128,11 @@ struct ManualFoodSearchView: View {
                     handleScannedBarcode(barcode)
                 }
             }
+            .sheet(isPresented: $showCustomFoodCreate) {
+                NavigationStack {
+                    CustomFoodCreateView(initialBarcode: pendingBarcode)
+                }
+            }
         }
     }
     
@@ -121,15 +149,23 @@ struct ManualFoodSearchView: View {
             let found: [FoodItem]
 
             if digits.count >= 8, digits.count == trimmed.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").count {
-                let outcome = await BarcodeLookupService.shared.lookup(barcode: trimmed)
-                switch outcome {
-                case let .found(food, _):
-                    found = [food]
-                case .notFound, .unavailable:
-                    found = []
+                if let custom = customFood(matchingBarcode: trimmed) {
+                    found = [foodItem(from: custom)]
+                } else {
+                    let outcome = await BarcodeLookupService.shared.lookup(barcode: trimmed)
+                    switch outcome {
+                    case let .found(food, _):
+                        found = [food]
+                    case .notFound, .unavailable:
+                        found = []
+                    }
                 }
             } else {
-                found = await FoodLoggingService.shared.searchFoodsForManualEntry(query: trimmed, limit: 30)
+                found = await FoodLoggingService.shared.searchFoodsForManualEntry(
+                    query: trimmed,
+                    customFoods: customFoods,
+                    limit: 30
+                )
             }
 
             await MainActor.run {
@@ -141,6 +177,12 @@ struct ManualFoodSearchView: View {
 
     private func handleScannedBarcode(_ barcode: String) {
         showScanner = false
+        pendingBarcode = barcode
+
+        if let custom = customFood(matchingBarcode: barcode) {
+            selectedFood = foodItem(from: custom)
+            return
+        }
 
         Task {
             let outcome = await BarcodeLookupService.shared.lookup(barcode: barcode)
@@ -149,14 +191,41 @@ struct ManualFoodSearchView: View {
                 case let .found(match, _):
                     selectedFood = match
                 case .notFound:
-                    scannerAlertText = "No food matched barcode \(barcode) in Nomva’s local food database yet. Try typing the food name instead."
+                    scannerAlertText = "No food matched barcode \(barcode). Create it once and Nomva will recognize this code next time."
                     showScannerAlert = true
                 case .unavailable:
-                    scannerAlertText = "Couldn’t look up barcode \(barcode) from the local food database right now. Try typing the food name instead."
+                    scannerAlertText = "Barcode lookup is unavailable. You can create this food with barcode \(barcode) already filled in."
                     showScannerAlert = true
                 }
             }
         }
+    }
+
+    private func customFood(matchingBarcode barcode: String) -> CustomFood? {
+        let digits = barcode.filter(\.isNumber)
+        guard !digits.isEmpty else { return nil }
+        return customFoods.first { $0.barcode?.filter(\.isNumber) == digits }
+    }
+
+    private func foodItem(from food: CustomFood) -> FoodItem {
+        FoodItem(
+            id: food.id.uuidString.unicodeScalars.reduce(1_000_000) {
+                (($0 &* 31) &+ Int($1.value)) & Int.max
+            },
+            name: food.name,
+            brand: food.brand,
+            source: "custom",
+            servingGrams: food.servingGrams,
+            servingDesc: food.servingDesc,
+            caloriesPerServing: food.calories,
+            proteinG: food.proteinG,
+            carbsG: food.carbsG,
+            fatG: food.fatG,
+            fiberG: food.fiberG,
+            sugarG: 0,
+            sodiumMg: 0,
+            barcode: food.barcode
+        )
     }
     
     private func logFood(_ food: FoodItem) {

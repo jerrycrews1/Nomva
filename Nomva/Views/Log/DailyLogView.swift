@@ -3,9 +3,11 @@ import SwiftData
 
 struct DailyLogView: View {
     @Query(sort: \FoodEntry.date) private var allEntries: [FoodEntry]
+    @Query(sort: \MealTemplate.createdAt, order: .reverse) private var mealTemplates: [MealTemplate]
     @Query                        private var goals: [DailyGoal]
     @Environment(\.modelContext)  private var modelContext
     @Environment(\.undoManager)   private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var garminManager: GarminManager
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
@@ -23,6 +25,14 @@ struct DailyLogView: View {
     @State private var targetedMeal: MealCategory? = nil
     @State private var showMoveError = false
     @State private var moveErrorMessage = ""
+    @State private var undoNotice: String? = nil
+    @State private var quickAddSource: FoodEntry? = nil
+    @State private var showQuickAddMealPicker = false
+    @State private var templateToLog: MealTemplate? = nil
+    @State private var showTemplateMealPicker = false
+    @State private var templateEntriesToSave: [FoodEntry] = []
+    @State private var newTemplateName = ""
+    @State private var showTemplateNamePrompt = false
 
     private var cal: Calendar { Calendar.current }
     private var isToday: Bool { cal.isDateInToday(selectedDate) }
@@ -33,7 +43,7 @@ struct DailyLogView: View {
         allEntries.filter { $0.date >= dayStart && $0.date < dayEnd }
     }
 
-    private var currentGoal: DailyGoal { goals.first ?? GoalService.defaultGoal() }
+    private var currentGoal: DailyGoal { GoalService.currentGoal(from: goals) }
     private var selectedActivitySource: GoalActivitySource {
         GoalActivitySource(rawValue: activitySourceRaw) ?? .manual
     }
@@ -41,40 +51,17 @@ struct DailyLogView: View {
         garminManager.summary(for: selectedDate)
     }
     private var displayGoal: DailyGoal {
-        let base = currentGoal
-        let calories: Double
-
-        if selectedActivitySource == .garmin || selectedActivitySource == .appleHealth {
-            // Use the rolling average of recent active calories — NOT today's
-            // partial real-time value. This keeps the goal stable all day so the
-            // user can plan meals in the morning without undereating.
-            // For past dates that have a completed summary, use that day's actual value.
-            let activityCalories: Double
-            if !isToday, let summary = garminSummaryForSelectedDate {
-                // Past date with a full day of data — use the actual value
-                activityCalories = summary.activeCalories
-            } else if let avg = garminManager.averageActiveCalories, avg > 0 {
-                // Today or any date without data — use rolling average
-                activityCalories = avg
-            } else {
-                activityCalories = activityReferenceActiveCalories
-            }
-
-            calories = GoalService.dynamicallyAdjustedCalories(
-                baseGoalCalories: base.calories,
-                dailyActiveCalories: activityCalories,
-                referenceActiveCalories: activityReferenceActiveCalories
-            )
-        } else {
-            calories = base.calories
-        }
-
-        return DailyGoal(
-            calories: calories,
-            protein: base.protein,
-            carbs: base.carbs,
-            fat: base.fat,
-            fiber: base.fiber
+        GoalService.displayGoal(
+            base: currentGoal,
+            selectedDate: selectedDate,
+            activitySource: selectedActivitySource,
+            referenceActiveCalories: activityReferenceActiveCalories,
+            averageActiveCalories: selectedActivitySource == .garmin
+                ? garminManager.averageActiveCalories
+                : nil,
+            completedDayActiveCalories: selectedActivitySource == .garmin
+                ? garminSummaryForSelectedDate?.activeCalories
+                : nil
         )
     }
     private var dayTotals: NutritionTotals { NutritionTotals.from(entries: selectedDayEntries) }
@@ -114,6 +101,19 @@ struct DailyLogView: View {
                     }
                     .listSectionSeparator(.hidden)
 
+                    if isToday {
+                        Section {
+                            RecentFoodsView { entry in
+                                quickAddSource = entry
+                                showQuickAddMealPicker = true
+                            }
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
+                        .listSectionSeparator(.hidden)
+                    }
+
                     if !selectedDayEntries.isEmpty {
                         ForEach(mealSections, id: \.0) { meal, mealEntries in
                             Section {
@@ -133,51 +133,9 @@ struct DailyLogView: View {
                                         )
                                 } else {
                                     ForEach(mealEntries) { entry in
-                                        FoodEntryRow(entry: entry)
-                                            .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
-                                            .listRowBackground(Color.clear)
-                                            .listRowSeparator(.hidden)
-                                            .contentShape(Rectangle())
-                                            .onTapGesture { selectedEntry = entry }
-                                            .draggable(entry.id.uuidString) {
-                                                FoodEntryDragPreview(entry: entry)
-                                            }
-                                            .dropDestination(
-                                                for: String.self,
-                                                action: { identifiers, _ in
-                                                    moveFoodEntries(with: identifiers, to: meal)
-                                                },
-                                                isTargeted: { isTargeted in
-                                                    updateDropTarget(meal, isTargeted: isTargeted)
-                                                }
-                                            )
-                                            .accessibilityHint("Drag to another meal to move this entry")
-                                            .accessibilityActions {
-                                                ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
-                                                    Button("Move to \(destination.title)") {
-                                                        _ = moveFoodEntries(
-                                                            with: [entry.id.uuidString],
-                                                            to: destination
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                                Button(role: .destructive) {
-                                                    deleteFoodEntry = entry
-                                                    showDeleteFoodConfirm = true
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash")
-                                                }
-                                                Button {
-                                                    selectedEntry = entry
-                                                } label: {
-                                                    Label("Edit", systemImage: "pencil")
-                                                }
-                                                .tint(.orange)
-                                            }
-                                        }
+                                        foodEntryListRow(entry, in: meal)
                                     }
+                                }
                             } header: {
                                 mealHeader(meal, entries: mealEntries)
                             }
@@ -238,12 +196,36 @@ struct DailyLogView: View {
                 ToolbarItem(placement: .principal) { dateNavigator }
                 if isToday {
                     ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showCustomFoodCreate = true
+                        Menu {
+                            Button {
+                                showCustomFoodCreate = true
+                            } label: {
+                                Label("Create Custom Food", systemImage: "square.and.pencil")
+                            }
+
+                            if !selectedDayEntries.isEmpty {
+                                Button {
+                                    beginSavingTemplate(entries: selectedDayEntries)
+                                } label: {
+                                    Label("Save Today as Template", systemImage: "square.and.arrow.down")
+                                }
+                            }
+
+                            if !mealTemplates.isEmpty {
+                                Divider()
+                                ForEach(mealTemplates) { template in
+                                    Button {
+                                        templateToLog = template
+                                        showTemplateMealPicker = true
+                                    } label: {
+                                        Label(template.name, systemImage: "rectangle.stack")
+                                    }
+                                }
+                            }
                         } label: {
-                            Image(systemName: "square.and.pencil")
+                            Image(systemName: "ellipsis.circle")
                         }
-                        .accessibilityLabel("Create custom food")
+                        .accessibilityLabel("Food and meal template actions")
                     }
                 }
             }
@@ -254,7 +236,10 @@ struct DailyLogView: View {
                 NavigationStack { CustomFoodCreateView() }
             }
             .sheet(isPresented: $showManualSearch) {
-                ManualFoodSearchView(isPresented: $showManualSearch)
+                ManualFoodSearchView(
+                    isPresented: $showManualSearch,
+                    initialMeal: selectedMealForSearch
+                )
             }
             .sheet(isPresented: $showHydrationSheet) {
                 HydrationSheetView(date: selectedDate)
@@ -269,7 +254,10 @@ struct DailyLogView: View {
             }
             .alert("Delete this entry?", isPresented: $showDeleteFoodConfirm) {
                 Button("Delete", role: .destructive) {
-                    if let entry = deleteFoodEntry { modelContext.delete(entry) }
+                    if let entry = deleteFoodEntry {
+                        modelContext.delete(entry)
+                        presentUndo("\(entry.name) removed")
+                    }
                     deleteFoodEntry = nil
                 }
                 Button("Cancel", role: .cancel) {
@@ -284,6 +272,46 @@ struct DailyLogView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(moveErrorMessage)
+            }
+            .alert("Save Meal Template", isPresented: $showTemplateNamePrompt) {
+                TextField("Template name", text: $newTemplateName)
+                Button("Save") {
+                    saveTemplate()
+                }
+                .disabled(newTemplateName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) {
+                    templateEntriesToSave = []
+                }
+            } message: {
+                Text("Save these foods and portions for one-tap reuse.")
+            }
+            .confirmationDialog(
+                "Add \(quickAddSource?.name ?? "food") to which meal?",
+                isPresented: $showQuickAddMealPicker,
+                titleVisibility: .visible
+            ) {
+                ForEach(MealCategory.allCases) { meal in
+                    Button(meal.title) {
+                        quickAdd(source: quickAddSource, to: meal)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    quickAddSource = nil
+                }
+            }
+            .confirmationDialog(
+                "Add \(templateToLog?.name ?? "template") to which meal?",
+                isPresented: $showTemplateMealPicker,
+                titleVisibility: .visible
+            ) {
+                ForEach(MealCategory.allCases) { meal in
+                    Button(meal.title) {
+                        logTemplate(templateToLog, to: meal)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    templateToLog = nil
+                }
             }
             .onAppear { modelContext.undoManager = undoManager }
             .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
@@ -311,8 +339,28 @@ struct DailyLogView: View {
                 await garminManager.refreshIfNeeded()
             }
             .safeAreaInset(edge: .bottom) {
-                if isToday {
-                    addFoodBar
+                VStack(spacing: 8) {
+                    if let undoNotice {
+                        HStack {
+                            Text(undoNotice)
+                                .font(.caption)
+                            Spacer()
+                            Button("Undo") {
+                                undoManager?.undo()
+                                try? modelContext.save()
+                                self.undoNotice = nil
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.horizontal, contentInset)
+                    }
+                    if isToday {
+                        addFoodBar
+                    }
                 }
             }
         }
@@ -352,6 +400,63 @@ struct DailyLogView: View {
     private var navTitle: String { isToday ? "Today's Log" : "Log" }
     private var hydrationTopInset: CGFloat { selectedDayEntries.isEmpty ? 0 : NomvaTheme.sectionGap }
 
+    private func foodEntryListRow(_ entry: FoodEntry, in meal: MealCategory) -> some View {
+        FoodEntryRow(entry: entry)
+            .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .contentShape(Rectangle())
+            .onTapGesture { selectedEntry = entry }
+            .draggable(entry.id.uuidString) {
+                FoodEntryDragPreview(entry: entry)
+            }
+            .dropDestination(
+                for: String.self,
+                action: { identifiers, _ in
+                    moveFoodEntries(with: identifiers, to: meal)
+                },
+                isTargeted: { isTargeted in
+                    updateDropTarget(meal, isTargeted: isTargeted)
+                }
+            )
+            .accessibilityHint("Double tap to edit. Use actions to move, favorite, or delete this food.")
+            .accessibilityActions {
+                ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
+                    Button("Move to \(destination.title)") {
+                        _ = moveFoodEntries(with: [entry.id.uuidString], to: destination)
+                    }
+                }
+                Button(entry.isFavorite ? "Remove Favorite" : "Add Favorite") {
+                    toggleFavorite(entry)
+                }
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deleteFoodEntry = entry
+                    showDeleteFoodConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                Button {
+                    selectedEntry = entry
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .tint(.orange)
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                Button {
+                    toggleFavorite(entry)
+                } label: {
+                    Label(
+                        entry.isFavorite ? "Unfavorite" : "Favorite",
+                        systemImage: entry.isFavorite ? "star.slash" : "star"
+                    )
+                }
+                .tint(.yellow)
+            }
+    }
+
     private func mealHeader(_ meal: MealCategory, entries: [FoodEntry]) -> some View {
         HStack {
             NomvaSectionHeaderText(title: meal.title)
@@ -364,16 +469,18 @@ struct DailyLogView: View {
                 .foregroundStyle(.secondary)
                 .textCase(nil)
 
-            Button {
-                selectedMealForSearch = meal.rawValue
-                showManualSearch = true
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.title3)
+            if isToday {
+                Button {
+                    selectedMealForSearch = meal.rawValue
+                    showManualSearch = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.title3)
+                }
+                .padding(.leading, 8)
+                .accessibilityLabel("Add food to \(meal.title)")
             }
-            .padding(.leading, 8)
-            .accessibilityLabel("Add food to \(meal.title)")
         }
         .padding(.horizontal, targetedMeal == meal ? 8 : 0)
         .background {
@@ -382,7 +489,7 @@ struct DailyLogView: View {
         }
         .contentShape(Rectangle())
         .nomvaSectionHeaderPadding()
-        .animation(.easeOut(duration: 0.16), value: targetedMeal)
+        .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: targetedMeal)
         .dropDestination(
             for: String.self,
             action: { identifiers, _ in
@@ -395,7 +502,7 @@ struct DailyLogView: View {
     }
 
     private func updateDropTarget(_ meal: MealCategory, isTargeted: Bool) {
-        withAnimation(.easeOut(duration: 0.16)) {
+        withAnimation(reduceMotion ? .none : .easeOut(duration: 0.16)) {
             if isTargeted {
                 targetedMeal = meal
             } else if targetedMeal == meal {
@@ -417,7 +524,7 @@ struct DailyLogView: View {
 
         let originalMeals = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.meal) })
 
-        withAnimation(.easeInOut(duration: 0.22)) {
+        withAnimation(reduceMotion ? .none : .easeInOut(duration: 0.22)) {
             entries.forEach { $0.meal = meal.rawValue }
             targetedMeal = nil
         }
@@ -434,6 +541,212 @@ struct DailyLogView: View {
             moveErrorMessage = "Your food stayed in its original meal. Please try again."
             showMoveError = true
             return false
+        }
+    }
+
+    private func toggleFavorite(_ entry: FoodEntry) {
+        let newValue = !entry.isFavorite
+        let identity = favoriteIdentity(for: entry)
+        for candidate in allEntries where favoriteIdentity(for: candidate) == identity {
+            candidate.isFavorite = newValue
+        }
+        do {
+            try modelContext.save()
+        } catch {
+            for candidate in allEntries where favoriteIdentity(for: candidate) == identity {
+                candidate.isFavorite = !newValue
+            }
+            moveErrorMessage = "Nomva couldn't update that favorite. Please try again."
+            showMoveError = true
+        }
+    }
+
+    private func favoriteIdentity(for entry: FoodEntry) -> String {
+        "\(entry.brand ?? "")|\(entry.name)"
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private func quickAdd(source: FoodEntry?, to meal: MealCategory) {
+        defer { quickAddSource = nil }
+        guard let source else { return }
+        let copy = copyEntry(source, meal: meal.rawValue, date: timestampForSelectedDay())
+        commitInsertedEntries([copy], undoMessage: "\(source.name) added")
+    }
+
+    private func beginSavingTemplate(entries: [FoodEntry]) {
+        guard !entries.isEmpty else { return }
+        templateEntriesToSave = entries
+        newTemplateName = isToday ? "Today's meals" : "\(dateLabel) meals"
+        showTemplateNamePrompt = true
+    }
+
+    private func saveTemplate() {
+        let name = newTemplateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !templateEntriesToSave.isEmpty else { return }
+
+        let items = templateEntriesToSave.map { entry in
+            MealTemplate.TemplateItem(
+                foodName: entry.name,
+                portionGrams: entry.portionGrams,
+                calories: entry.calories,
+                proteinG: entry.proteinG,
+                carbsG: entry.carbsG,
+                fatG: entry.fatG,
+                brand: entry.brand,
+                portionDescription: entry.portionDescription,
+                servings: entry.servings,
+                servingUnit: entry.servingUnit,
+                fiberG: entry.fiberG,
+                source: entry.source,
+                fdcId: entry.fdcId,
+                foodDatabaseId: entry.foodDatabaseId,
+                barcode: entry.barcode
+            )
+        }
+
+        if let existing = mealTemplates.first(where: {
+            $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }) {
+            existing.items = items
+            existing.createdAt = .now
+        } else {
+            modelContext.insert(MealTemplate(name: name, items: items))
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            moveErrorMessage = "Nomva couldn't save that meal template. Please try again."
+            showMoveError = true
+        }
+        templateEntriesToSave = []
+        newTemplateName = ""
+    }
+
+    private func logTemplate(_ template: MealTemplate?, to meal: MealCategory) {
+        defer { templateToLog = nil }
+        guard let template, !template.items.isEmpty else { return }
+        let start = timestampForSelectedDay()
+        let entries = template.items.enumerated().map { index, item in
+            let grams = max(item.portionGrams, 0)
+            let per100Factor = grams > 0 ? 100 / grams : 0
+            return FoodEntry(
+                name: item.foodName,
+                brand: item.brand,
+                meal: meal.rawValue,
+                date: start.addingTimeInterval(TimeInterval(index)),
+                portionGrams: grams,
+                portionDescription: item.portionDescription ?? "\(Int(grams.rounded())) g",
+                servings: item.servings ?? 1,
+                servingUnit: item.servingUnit ?? "serving",
+                calories: item.calories,
+                proteinG: item.proteinG,
+                carbsG: item.carbsG,
+                fatG: item.fatG,
+                fiberG: item.fiberG ?? 0,
+                caloriesPer100g: item.calories * per100Factor,
+                proteinPer100g: item.proteinG * per100Factor,
+                carbsPer100g: item.carbsG * per100Factor,
+                fatPer100g: item.fatG * per100Factor,
+                fiberPer100g: (item.fiberG ?? 0) * per100Factor,
+                rawUserInput: "Meal template: \(template.name)",
+                fdcId: item.fdcId,
+                foodDatabaseId: item.foodDatabaseId,
+                source: item.source,
+                barcode: item.barcode
+            )
+        }
+        commitInsertedEntries(entries, undoMessage: "\(template.name) added")
+    }
+
+    private func commitInsertedEntries(_ entries: [FoodEntry], undoMessage: String) {
+        guard !entries.isEmpty else { return }
+        undoManager?.beginUndoGrouping()
+        entries.forEach(modelContext.insert)
+        undoManager?.endUndoGrouping()
+
+        do {
+            try modelContext.save()
+            presentUndo(undoMessage)
+        } catch {
+            entries.forEach(modelContext.delete)
+            moveErrorMessage = "Nomva couldn't save those foods. Nothing was added."
+            showMoveError = true
+        }
+    }
+
+    private func copyEntry(_ source: FoodEntry, meal: String, date: Date) -> FoodEntry {
+        FoodEntry(
+            name: source.name,
+            brand: source.brand,
+            meal: meal,
+            date: date,
+            portionGrams: source.portionGrams,
+            portionDescription: source.portionDescription,
+            servings: source.servings,
+            servingUnit: source.servingUnit,
+            calories: source.calories,
+            proteinG: source.proteinG,
+            carbsG: source.carbsG,
+            fatG: source.fatG,
+            fiberG: source.fiberG,
+            sugarG: source.sugarG,
+            sodiumMg: source.sodiumMg,
+            saturatedFatG: source.saturatedFatG,
+            transFatG: source.transFatG,
+            cholesterolMg: source.cholesterolMg,
+            addedSugarG: source.addedSugarG,
+            vitaminDMcg: source.vitaminDMcg,
+            calciumMg: source.calciumMg,
+            ironMg: source.ironMg,
+            potassiumMg: source.potassiumMg,
+            vitaminAMcgRAE: source.vitaminAMcgRAE,
+            vitaminCMg: source.vitaminCMg,
+            vitaminB12Mcg: source.vitaminB12Mcg,
+            folateMcgDFE: source.folateMcgDFE,
+            magnesiumMg: source.magnesiumMg,
+            zincMg: source.zincMg,
+            caloriesPer100g: source.caloriesPer100g,
+            proteinPer100g: source.proteinPer100g,
+            carbsPer100g: source.carbsPer100g,
+            fatPer100g: source.fatPer100g,
+            fiberPer100g: source.fiberPer100g,
+            sugarPer100g: source.sugarPer100g,
+            sodiumPer100g: source.sodiumPer100g,
+            saturatedFatPer100g: source.saturatedFatPer100g,
+            transFatPer100g: source.transFatPer100g,
+            cholesterolPer100g: source.cholesterolPer100g,
+            addedSugarPer100g: source.addedSugarPer100g,
+            vitaminDPer100g: source.vitaminDPer100g,
+            calciumPer100g: source.calciumPer100g,
+            ironPer100g: source.ironPer100g,
+            potassiumPer100g: source.potassiumPer100g,
+            vitaminAPer100g: source.vitaminAPer100g,
+            vitaminCPer100g: source.vitaminCPer100g,
+            vitaminB12Per100g: source.vitaminB12Per100g,
+            folatePer100g: source.folatePer100g,
+            magnesiumPer100g: source.magnesiumPer100g,
+            zincPer100g: source.zincPer100g,
+            rawUserInput: "Quick add",
+            fdcId: source.fdcId,
+            foodDatabaseId: source.foodDatabaseId,
+            source: source.source,
+            barcode: source.barcode
+        )
+    }
+
+    private func timestampForSelectedDay() -> Date {
+        if isToday { return .now }
+        return cal.date(bySettingHour: 12, minute: 0, second: 0, of: selectedDate) ?? selectedDate
+    }
+
+    private func presentUndo(_ message: String) {
+        undoNotice = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if undoNotice == message {
+                undoNotice = nil
+            }
         }
     }
 
@@ -637,11 +950,21 @@ struct FoodEntryRow: View {
         .padding(.vertical, 10)
         .background(Color(UIColor.secondarySystemBackground).opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(entry.brand.map { "\(entry.name), \($0)" } ?? entry.name)
+        .accessibilityValue(
+            "\(entry.portionDescription), \(Int(entry.calories.rounded())) calories, "
+            + "\(Int(entry.proteinG.rounded())) grams protein, "
+            + "\(Int(entry.carbsG.rounded())) grams carbs, "
+            + "\(Int(entry.fatG.rounded())) grams fat"
+        )
+        .accessibilityHint("Double tap to edit. Additional actions can move or delete this food.")
     }
 }
 
 private struct EmptyMealDropZone: View {
     let isTargeted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -664,7 +987,7 @@ private struct EmptyMealDropZone: View {
                     style: StrokeStyle(lineWidth: 1, dash: [5, 5])
                 )
         }
-        .animation(.easeOut(duration: 0.16), value: isTargeted)
+        .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: isTargeted)
         .accessibilityLabel("Empty meal")
     }
 }

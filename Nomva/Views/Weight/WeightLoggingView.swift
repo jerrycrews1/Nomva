@@ -61,6 +61,7 @@ struct WeightLoggingView: View {
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager)  private var undoManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @ObservedObject private var subManager = SubscriptionManager.shared
 
@@ -71,6 +72,7 @@ struct WeightLoggingView: View {
     @State private var showDeleteConfirm = false
     @State private var showUnitPicker = false
     @State private var selectedChartWindow: ChartWindow = .days30
+    @State private var undoNotice: String?
 
     @AppStorage("weight_unit") private var unitRaw = WeightUnit.lbs.rawValue
     private var unit: WeightUnit { WeightUnit(rawValue: unitRaw) ?? .lbs }
@@ -277,7 +279,11 @@ struct WeightLoggingView: View {
             }
             .alert("Delete this entry?", isPresented: $showDeleteConfirm) {
                 Button("Delete", role: .destructive) {
-                    if let entry = deleteEntry { modelContext.delete(entry) }
+                    if let entry = deleteEntry {
+                        modelContext.delete(entry)
+                        try? modelContext.save()
+                        presentUndo("Weight entry removed")
+                    }
                     deleteEntry = nil
                 }
                 Button("Cancel", role: .cancel) {
@@ -301,13 +307,35 @@ struct WeightLoggingView: View {
                 Button("Cancel", role: .cancel) {}
             }
             .safeAreaInset(edge: .bottom) {
-                NomvaBottomActionBar {
-                    Button {
-                        showLogSheet = true
-                    } label: {
-                        Label("Log Weight", systemImage: "plus")
+                VStack(spacing: 8) {
+                    if let undoNotice {
+                        HStack {
+                            Text(undoNotice)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Undo") {
+                                undoManager?.undo()
+                                try? modelContext.save()
+                                self.undoNotice = nil
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.horizontal, contentInset)
                     }
-                    .buttonStyle(NomvaPrimaryButtonStyle())
+
+                    NomvaBottomActionBar {
+                        Button {
+                            showLogSheet = true
+                        } label: {
+                            Label("Log Weight", systemImage: "plus")
+                        }
+                        .buttonStyle(NomvaPrimaryButtonStyle())
+                    }
                 }
             }
             .onAppear { modelContext.undoManager = undoManager }
@@ -321,6 +349,16 @@ struct WeightLoggingView: View {
                 default:
                     break
                 }
+            }
+        }
+    }
+
+    private func presentUndo(_ message: String) {
+        undoNotice = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if undoNotice == message {
+                undoNotice = nil
             }
         }
     }
@@ -454,7 +492,7 @@ struct WeightLoggingView: View {
         .chartYScale(domain: .automatic(includesZero: false))
         .padding(.vertical, 6)
         .padding(.horizontal, 2)
-        .animation(.easeInOut(duration: 0.2), value: selectedChartWindow)
+        .animation(reduceMotion ? .none : .easeInOut(duration: 0.2), value: selectedChartWindow)
     }
 
     private var chartWindowPicker: some View {
