@@ -991,7 +991,7 @@ final class FoodLoggingService {
         guard let match = lower.range(of: pattern, options: .regularExpression) else { return nil }
 
         let matched = String(lower[match])
-        let found = meals.compactMap { meal -> (String, Range<String>.Index)? in
+        let found = meals.compactMap { meal -> (String, String.Index)? in
             guard let range = matched.range(of: meal) else { return nil }
             return (meal, range.lowerBound)
         }.sorted { $0.1 < $1.1 }
