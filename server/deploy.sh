@@ -32,8 +32,32 @@ FILES=(
 )
 
 # ── Local sanity: never ship with a red unit suite or a stale local DB ──────
+if [[ ! -d node_modules ]]; then
+  echo "→ node_modules missing — installing"
+  npm install --no-audit --no-fund
+fi
+
+run_tests() { npm test > /tmp/nomva-deploy-test.log 2>&1; }
+
 echo "→ Running unit tests before deploy"
-npm test >/dev/null 2>&1 || { echo "✗ Unit tests failed — fix before deploying (run: npm test)"; exit 1; }
+if ! run_tests; then
+  # Most common local failure: better-sqlite3 built against a different Node
+  # version. Rebuild once and retry before giving up.
+  if grep -qiE "better.sqlite3|NODE_MODULE_VERSION|invalid ELF|was compiled against" /tmp/nomva-deploy-test.log; then
+    echo "→ Tests failed loading better-sqlite3 — rebuilding native module for Node $(node --version)"
+    npm rebuild better-sqlite3 --no-audit --no-fund
+    run_tests || true
+  fi
+fi
+if ! grep -qE "^# fail[[:space:]]+0" /tmp/nomva-deploy-test.log; then
+  echo "✗ Unit tests failed — output below:"
+  echo "──────────────────────────────────────────────"
+  grep -E "^not ok|error:|failureType|Error \[|# (tests|pass|fail)" /tmp/nomva-deploy-test.log | head -25
+  echo "──────────────────────────────────────────────"
+  echo "  Full log: /tmp/nomva-deploy-test.log"
+  exit 1
+fi
+echo "  ✓ $(grep -E '^# pass' /tmp/nomva-deploy-test.log | head -1 | sed 's/# pass[[:space:]]*//') tests green"
 
 if [[ -f "$CANONICAL_DB" && -n "$EXPECTED_DB_SHA" ]]; then
   LOCAL_SHA=$(shasum -a 256 "$CANONICAL_DB" | cut -d' ' -f1)
