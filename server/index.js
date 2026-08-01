@@ -17,6 +17,14 @@ const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("
 const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
+const {
+  boundedNumber,
+  boundedServings,
+  boundedGrams,
+  boundedGoalValue,
+  sanitizePhotoAnalysis,
+  BOUNDS,
+} = require("./numericGuards");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1251,7 +1259,23 @@ app.use("/v1", (req, res, next) => {
 
 // ── OpenAI client ────────────────────────────────────────────────────────────
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Per-attempt timeout and a single SDK-level network retry. Without an
+// explicit timeout the SDK waits up to 10 minutes, which lets nginx and the
+// iOS client (15-30s budgets) give up first while tokens keep burning.
+const LLM_ATTEMPT_TIMEOUT_MS = Number(process.env.NOMVA_LLM_ATTEMPT_TIMEOUT_MS || 10_000);
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: LLM_ATTEMPT_TIMEOUT_MS,
+  maxRetries: 1,
+});
+
+class EmptyCompletionError extends Error {
+  constructor(model) {
+    super(`empty completion from ${model}`);
+    this.name = "EmptyCompletionError";
+    this.code = "llm_empty_completion";
+  }
+}
 
 async function ask(systemPrompt, userMessage, opts = {}) {
   const maxTokens = opts.maxTokens || 256;
@@ -1278,10 +1302,26 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       request.max_tokens = completionBudget;
     }
 
-    const response = await openai.chat.completions.create({
-      ...request,
-    });
-    const text = response.choices[0]?.message?.content?.trim();
+    // Reasoning-class models routinely return an empty content field when the
+    // token budget is consumed by reasoning. One immediate retry (with a
+    // larger budget) recovers most of those instead of failing the request.
+    let response = null;
+    let text = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt === 1 && /^gpt-5/i.test(requestModel)) {
+        request.max_completion_tokens = completionBudget * 2;
+      }
+      response = await openai.chat.completions.create(
+        { ...request },
+        opts.signal ? { signal: opts.signal } : undefined
+      );
+      text = response.choices?.[0]?.message?.content?.trim() || null;
+      if (text) break;
+      console.warn(`  ⚠ empty completion (${requestModel}, attempt ${attempt + 1})`);
+    }
+    if (!text) {
+      throw new EmptyCompletionError(requestModel);
+    }
     const usage = response.usage;
     console.log(`  ← OpenAI response | chars=${text?.length || 0} | tokens=${usage?.total_tokens || "?"}`);
     const parsed = JSON.parse(text);
@@ -1316,17 +1356,34 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       durationMs: Date.now() - startedAt,
       promptChars: userMessage.length,
       success: false,
-      errorCode: error instanceof SyntaxError || error instanceof TypeError
-        ? "llm_json_parse_error"
-        : error?.status
-          ? `openai_${error.status}`
-          : "openai_error",
+      errorCode: error instanceof EmptyCompletionError
+        ? "llm_empty_completion"
+        : error instanceof SyntaxError || error instanceof TypeError
+          ? "llm_json_parse_error"
+          : error?.status
+            ? `openai_${error.status}`
+            : "openai_error",
       properties: {
         maxTokens,
       },
     });
     throw error;
   }
+}
+
+// Distinguishes "the model is unavailable / returned nothing" (503, client
+// may auto-retry) from a genuine server fault (500). Never leaks err.message.
+function respondLLMFailure(res, err, code) {
+  console.error(`${code}:`, err.message);
+  const upstreamUnavailable = err instanceof EmptyCompletionError
+    || err?.status === 429
+    || (typeof err?.status === "number" && err.status >= 500)
+    || err?.name === "APIConnectionTimeoutError"
+    || err?.name === "APIConnectionError";
+  if (upstreamUnavailable) {
+    return res.status(503).json({ error: "llm_unavailable", source: code });
+  }
+  return res.status(500).json({ error: code });
 }
 
 function llmAnalyticsOptions(req, task, extra = {}) {
@@ -1348,7 +1405,7 @@ async function verifyResolvedFoodPick(req, {
   servingUnit,
   confident,
   hasExplicitPortion,
-}) {
+}, signal = undefined) {
   const brand = selectedFood.brand ? `\nSelected brand: ${selectedFood.brand}` : "";
   const serving = selectedFood.servingDescription ? `\nSelected serving: ${selectedFood.servingDescription}` : "";
   const grams = typeof selectedFood.servingGrams === "number" ? `\nSelected serving grams: ${Math.round(selectedFood.servingGrams)}` : "";
@@ -1372,12 +1429,13 @@ async function verifyResolvedFoodPick(req, {
     llmAnalyticsOptions(req, "verify_resolved_food_pick", {
       maxTokens: 220,
       model: FOOD_RESOLUTION_MODEL,
+      signal,
     })
   );
 
   return {
     accept: result.accept === true,
-    servings: typeof result.servings === "number" && result.servings > 0 ? result.servings : servings,
+    servings: boundedServings(result.servings, boundedServings(servings, 1)),
     portionDescription: typeof result.portionDescription === "string" && result.portionDescription.trim()
       ? result.portionDescription.trim()
       : portionDescription,
@@ -1398,7 +1456,14 @@ async function verifyResolvedFoodPick(req, {
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 // Health check (no auth required)
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/health", (_req, res) => res.json({
+  status: "ok",
+  foodDb: {
+    available: foodSearchStore.isAvailable,
+    rows: foodSearchStore.rowCount ?? null,
+    error: foodSearchStore.error || null,
+  },
+}));
 
 app.get("/analytics/summary", (req, res) => {
   if (!ANALYTICS_ADMIN_TOKEN) {
@@ -1802,8 +1867,7 @@ app.post("/v1/classify-intent", async (req, res) => {
     const result = await ask(prompts.CLASSIFY_INTENT, enriched, llmAnalyticsOptions(req, "classify_intent"));
     res.json({ intent: result.intent || "reply" });
   } catch (err) {
-    console.error("classify-intent error:", err.message);
-    res.status(500).json({ error: "classification_failed" });
+    return respondLLMFailure(res, err, "classification_failed");
   }
 });
 
@@ -1814,8 +1878,7 @@ app.post("/v1/split-foods", async (req, res) => {
     const result = await ask(prompts.SPLIT_FOODS, `User: ${userMessage}`, llmAnalyticsOptions(req, "split_foods"));
     res.json({ foods: sanitizeFoodMentions(userMessage, result.foods) });
   } catch (err) {
-    console.error("split-foods error:", err.message);
-    res.status(500).json({ error: "split_failed" });
+    return respondLLMFailure(res, err, "split_failed");
   }
 });
 
@@ -1833,24 +1896,32 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       return res.status(400).json({ error: "missing_food_mention" });
     }
 
+    // Stop paying for model calls the moment the phone hangs up, and finish
+    // within a bounded budget so the client's timeout never fires first.
+    const abort = new AbortController();
+    req.on("close", () => {
+      if (!res.writableEnded) abort.abort();
+    });
+
     const outcome = await runFoodResolver({
       userMessage,
       foodMention: trimmedMention,
       foodSearchStore,
+      deadlineMs: Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 12_000),
       askAgent: (userPrompt) => ask(
         prompts.RESOLVE_FOOD_CANDIDATE_AGENT,
         userPrompt,
         llmAnalyticsOptions(req, "resolve_food_candidate", {
           maxTokens: 360,
           model: FOOD_RESOLUTION_MODEL,
+          signal: abort.signal,
         })
       ),
-      verifyPick: (payload) => verifyResolvedFoodPick(req, payload),
+      verifyPick: (payload) => verifyResolvedFoodPick(req, payload, abort.signal),
     });
     return res.status(outcome.status).json(outcome.body);
   } catch (err) {
-    console.error("resolve-food-candidate error:", err.message);
-    res.status(500).json({ error: "food_resolution_failed" });
+    return respondLLMFailure(res, err, "food_resolution_failed");
   }
 });
 
@@ -1914,7 +1985,7 @@ app.post("/v1/validate-food-candidate", async (req, res) => {
     const result = await ask(prompts.VALIDATE_FOOD_CANDIDATE, userPrompt, llmAnalyticsOptions(req, "validate_food_candidate"));
     res.json({
       keepCurrentCandidate: result.keepCurrentCandidate !== false,
-      servings: result.servings ?? servingsInfo.servings ?? 1,
+      servings: boundedServings(result.servings, boundedServings(servingsInfo.servings, 1)),
       portionDescription: result.portionDescription || servingsInfo.portionDescription || "1 serving",
       servingUnit: result.servingUnit || servingsInfo.servingUnit || "serving",
       confident: result.confident ?? Boolean(servingsInfo.confident),
@@ -1953,15 +2024,14 @@ app.post("/v1/extract-servings", async (req, res) => {
       || hasExplicitPortion(foodMention)
       || hasExplicitPortion(portionDescription);
     res.json({
-      servings: result.servings ?? 1,
+      servings: boundedServings(result.servings, 1),
       portionDescription,
       servingUnit: result.servingUnit || "serving",
       confident: explicitPortion ? true : (result.confident ?? false),
       hasExplicitPortion: explicitPortion,
     });
   } catch (err) {
-    console.error("extract-servings error:", err.message);
-    res.status(500).json({ error: "servings_failed" });
+    return respondLLMFailure(res, err, "servings_failed");
   }
 });
 
@@ -1974,8 +2044,7 @@ app.post("/v1/extract-meal", async (req, res) => {
     const valid = ["breakfast", "lunch", "dinner", "snack"];
     res.json({ meal: valid.includes(meal) ? meal : null });
   } catch (err) {
-    console.error("extract-meal error:", err.message);
-    res.status(500).json({ error: "meal_failed" });
+    return respondLLMFailure(res, err, "meal_failed");
   }
 });
 
@@ -1986,14 +2055,13 @@ app.post("/v1/extract-water-mutation", async (req, res) => {
     const result = await ask(prompts.EXTRACT_WATER_MUTATION, `User: ${userMessage}`, llmAnalyticsOptions(req, "extract_water_mutation"));
     const action = String(result.action || "reply").toLowerCase();
     const valid = ["add", "delete_all", "update_total", "reply"];
-    const amountOz = typeof result.amountOz === "number" && result.amountOz > 0 ? result.amountOz : null;
+    const amountOz = boundedNumber(result.amountOz, BOUNDS.waterOz);
     res.json({
       action: valid.includes(action) ? action : "reply",
       amountOz,
     });
   } catch (err) {
-    console.error("extract-water-mutation error:", err.message);
-    res.status(500).json({ error: "water_mutation_failed" });
+    return respondLLMFailure(res, err, "water_mutation_failed");
   }
 });
 
@@ -2008,12 +2076,11 @@ app.post("/v1/extract-weight-mutation", async (req, res) => {
     const dateHint = ["today", "yesterday", "latest"].includes(dateHintRaw) ? dateHintRaw : null;
     res.json({
       action: valid.includes(action) ? action : "reply",
-      weightLbs: typeof result.weightLbs === "number" && result.weightLbs > 0 ? result.weightLbs : null,
+      weightLbs: boundedNumber(result.weightLbs, BOUNDS.weightLbs),
       dateHint,
     });
   } catch (err) {
-    console.error("extract-weight-mutation error:", err.message);
-    res.status(500).json({ error: "weight_mutation_failed" });
+    return respondLLMFailure(res, err, "weight_mutation_failed");
   }
 });
 
@@ -2152,14 +2219,15 @@ app.post("/v1/estimate-grams", async (req, res) => {
     }
     const userPrompt = promptLines.join("\n");
     const result = await ask(prompts.ESTIMATE_GRAMS, userPrompt, llmAnalyticsOptions(req, "estimate_grams"));
-    const grams = result.grams;
-    if (typeof grams !== "number" || grams <= 0) {
+    // Out-of-range means the model misread the portion (1e12 g is not a
+    // clamping problem, it is a wrong answer) — treat as unparseable.
+    const grams = boundedGrams(result.grams);
+    if (grams === null) {
       return res.status(422).json({ error: "invalid_grams" });
     }
     res.json({ grams });
   } catch (err) {
-    console.error("estimate-grams error:", err.message);
-    res.status(500).json({ error: "grams_failed" });
+    return respondLLMFailure(res, err, "grams_failed");
   }
 });
 
@@ -2227,7 +2295,7 @@ app.post("/v1/find-food-step", async (req, res) => {
         action: "pick",
         round,
         candidateIndex,
-        servings: typeof result.servings === "number" && result.servings > 0 ? result.servings : 1,
+        servings: boundedServings(result.servings, 1),
         portionDescription: typeof result.portionDescription === "string" && result.portionDescription.trim()
           ? result.portionDescription.trim()
           : "1 serving",
@@ -2264,8 +2332,16 @@ app.post("/v1/extract-goal", async (req, res) => {
       .filter((change) =>
         validMetrics.has(change.metric)
         && validOperations.has(change.operation)
-        && Number.isFinite(change.value)
-        && change.value > 0
+        && (
+          change.operation === "set"
+            ? boundedGoalValue(change.metric, change.value) !== null
+            // Relative nudges can legitimately be small (e.g. "add 10g
+            // protein"), so bound them by magnitude rather than by the
+            // absolute goal range.
+            : Number.isFinite(change.value)
+              && change.value > 0
+              && change.value <= (change.metric === "calories" ? 5000 : 500)
+        )
       );
     const legacyAbsoluteFields = {};
     for (const change of changes) {
@@ -2322,8 +2398,7 @@ app.post("/v1/general-reply", async (req, res) => {
     const result = await ask(prompts.GENERAL_REPLY, parts.join("\n\n"), llmAnalyticsOptions(req, "general_reply", { maxTokens: 512 }));
     res.json({ text: result.text || "I'm not sure how to answer that." });
   } catch (err) {
-    console.error("general-reply error:", err.message);
-    res.status(500).json({ error: "reply_failed" });
+    return respondLLMFailure(res, err, "reply_failed");
   }
 });
 
@@ -2395,7 +2470,9 @@ app.post("/v1/analyze-photo", async (req, res) => {
       },
     });
 
-    res.json(result);
+    // The vision model's JSON is untrusted input; validate and clamp every
+    // numeric field before it reaches the client.
+    res.json(sanitizePhotoAnalysis(result));
   } catch (err) {
     analyticsStore.record({
       source: "server",
@@ -2417,8 +2494,8 @@ app.post("/v1/analyze-photo", async (req, res) => {
         maxTokens: 1024,
       },
     });
-    console.error("analyze-photo error:", err.message);
-    res.status(500).json({ error: "photo_analysis_failed", detail: err.message });
+    // No err.message in the response body: internal detail stays in logs.
+    return respondLLMFailure(res, err, "photo_analysis_failed");
   }
 });
 

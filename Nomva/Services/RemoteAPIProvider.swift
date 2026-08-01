@@ -11,6 +11,14 @@ import UIKit
 /// Used as a fallback when Apple Foundation Models aren't available or misbehave.
 struct RemoteAPIProvider: LLMProvider {
 
+    /// Clamp a model-provided servings value to a sane, finite range. Calories
+    /// are computed by multiplying this number, and `Int(Double)` traps on
+    /// non-finite results, so no unbounded value may leave this file.
+    private func clampedServings(_ value: Double?, fallback: Double = 1) -> Double {
+        guard let value, value.isFinite else { return fallback }
+        return min(max(0.1, value), 100)
+    }
+
     // MARK: - Configuration
 
     /// Base URL of the Nomva API server (no trailing slash).
@@ -86,7 +94,10 @@ struct RemoteAPIProvider: LLMProvider {
         ]
         let data: Data
         do {
-            data = try await postRaw("/v1/resolve-food-candidate", body: body)
+            // Food resolution runs a multi-turn agent loop server-side with a
+            // 12s internal deadline; 30s here keeps the server, not this
+            // timeout, as the thing that decides the request's fate.
+            data = try await postRaw("/v1/resolve-food-candidate", body: body, timeout: 30)
         } catch RemoteError.serverError(422) {
             throw ResolveFoodCandidateError.noMatch
         } catch RemoteError.serverError(501) {
@@ -100,7 +111,10 @@ struct RemoteAPIProvider: LLMProvider {
             throw ResolveFoodCandidateError.invalidResponse
         }
 
-        let servings = max(0.1, json["servings"] as? Double ?? 1)
+        // Model-provided number: clamp both ends so downstream nutrition math
+        // can never overflow to infinity (Int(Double) traps on non-finite).
+        let rawServings = json["servings"] as? Double ?? 1
+        let servings = rawServings.isFinite ? min(max(0.1, rawServings), 100) : 1
         let portionDescription = (json["portionDescription"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let servingUnit = (json["servingUnit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -277,7 +291,7 @@ struct RemoteAPIProvider: LLMProvider {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         return FoodCandidateValidation(
             keepCurrentCandidate: json["keepCurrentCandidate"] as? Bool ?? true,
-            servings: json["servings"] as? Double ?? servingsInfo.servings,
+            servings: clampedServings(json["servings"] as? Double, fallback: clampedServings(servingsInfo.servings)),
             portionDescription: json["portionDescription"] as? String ?? servingsInfo.portionDescription,
             servingUnit: json["servingUnit"] as? String ?? servingsInfo.servingUnit,
             confident: json["confident"] as? Bool ?? servingsInfo.confident,
@@ -318,7 +332,7 @@ struct RemoteAPIProvider: LLMProvider {
         let data = try await postRaw("/v1/extract-servings", body: body)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         return ServingsInfo(
-            servings: json["servings"] as? Double ?? 1,
+            servings: clampedServings(json["servings"] as? Double),
             portionDescription: json["portionDescription"] as? String ?? "1 serving",
             servingUnit: json["servingUnit"] as? String ?? "serving",
             confident: json["confident"] as? Bool ?? false,
@@ -422,7 +436,7 @@ struct RemoteAPIProvider: LLMProvider {
         let data = try await postRaw("/v1/resolve-edit-request", body: body)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         return EditResolution(
-            servings: json["servings"] as? Double ?? 1,
+            servings: clampedServings(json["servings"] as? Double),
             portionDescription: json["portionDescription"] as? String ?? "1 serving",
             servingUnit: json["servingUnit"] as? String ?? "serving",
             confident: json["confident"] as? Bool ?? false,
@@ -451,7 +465,7 @@ struct RemoteAPIProvider: LLMProvider {
         }
         let data = try await postRaw("/v1/estimate-grams", body: mutableBody)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let grams = json["grams"] as? Double, grams > 0 else {
+        guard let grams = json["grams"] as? Double, grams.isFinite, grams > 0, grams <= 5000 else {
             throw RemoteError.invalidResponse
         }
         return grams
@@ -501,7 +515,7 @@ struct RemoteAPIProvider: LLMProvider {
                 throw FindFoodStepError.invalidResponse
             }
             let servingsInfo = ServingsInfo(
-                servings: max(0.1, json["servings"] as? Double ?? 1),
+                servings: clampedServings(json["servings"] as? Double),
                 portionDescription: (json["portionDescription"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "1 serving",
                 servingUnit: (json["servingUnit"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "serving",
                 confident: json["confident"] as? Bool ?? false,
@@ -588,7 +602,15 @@ struct RemoteAPIProvider: LLMProvider {
             "userMessage": userMessage,
         ]
         let data = try await postRaw("/v1/analyze-photo", body: body, timeout: 30)
-        return try JSONDecoder().decode(PhotoAnalysisResult.self, from: data)
+        let decoded = try JSONDecoder().decode(PhotoAnalysisResult.self, from: data)
+        // Server sanitizes vision output, but keep a client backstop: drop
+        // items whose numbers are non-finite or absurd before any Int math.
+        let safeFoods = decoded.foods.filter { food in
+            food.calories.isFinite && food.calories >= 0 && food.calories <= 5000
+                && food.grams.isFinite && food.grams > 0 && food.grams <= 5000
+                && food.protein.isFinite && food.carbs.isFinite && food.fat.isFinite
+        }
+        return PhotoAnalysisResult(notFood: decoded.notFood, foods: safeFoods)
     }
 
     func deleteCloudAnalytics() async throws -> Int {

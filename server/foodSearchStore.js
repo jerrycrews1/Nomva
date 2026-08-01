@@ -247,6 +247,33 @@ function createFoodSearchStore(options = {}) {
     };
   }
 
+  // Schema self-check at boot. A stale foods.sqlite (e.g. the pre-31-column
+  // build) opens successfully and only fails when the first user query runs,
+  // turning a packaging mistake into a total silent food-search outage. Probe
+  // the newest columns and the FTS index now so a bad file is refused loudly.
+  let rowCount = null;
+  try {
+    db.prepare("SELECT saturated_fat_g, vitamin_b12_mcg, portion_basis FROM foods LIMIT 1").get();
+    db.prepare("SELECT rowid FROM foods_fts LIMIT 1").get();
+    rowCount = db.prepare("SELECT COUNT(*) AS n FROM foods").get()?.n ?? null;
+    if (!rowCount) {
+      throw new Error("foods table is empty");
+    }
+  } catch (error) {
+    try { db.close(); } catch { /* ignore */ }
+    return {
+      isAvailable: false,
+      dbPath,
+      error: `foods.sqlite failed schema check (stale or truncated build?): ${error.message}`,
+      search() {
+        return [];
+      },
+      inspect() {
+        return null;
+      },
+    };
+  }
+
   function searchOne(query, { limit = 120 } = {}) {
     const trimmed = String(query || "").trim();
     const matchQuery = buildMatchQuery(trimmed);
@@ -352,6 +379,7 @@ function createFoodSearchStore(options = {}) {
   return {
     isAvailable: true,
     dbPath,
+    rowCount,
     search,
     inspect,
     close() {

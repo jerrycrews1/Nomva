@@ -1,3 +1,5 @@
+const { boundedServings } = require("./numericGuards");
+
 function renderFoodSearchRounds(rounds) {
   if (!rounds.length) {
     return "(no search rounds yet)";
@@ -172,9 +174,12 @@ async function resolveFoodCandidate({
   askAgent,
   verifyPick,
   maxTurns = 4,
+  deadlineMs = null,
   onEvent = () => {},
 }) {
   const trimmedMention = String(foodMention || "").trim();
+  const startedAt = Date.now();
+  const pastDeadline = () => typeof deadlineMs === "number" && Date.now() - startedAt > deadlineMs;
   const searchRounds = [{
     query: trimmedMention,
     offset: 0,
@@ -184,8 +189,17 @@ async function resolveFoodCandidate({
   const inspectedRows = new Map();
   const verifierFeedback = [];
   const seenSearches = new Set([`${trimmedMention.toLowerCase()}::0`]);
+  let agentFailures = 0;
 
   for (let turn = 0; turn < maxTurns; turn += 1) {
+    // Out of time: return the best deterministic answer we already have
+    // instead of letting nginx or the phone abandon a request we are still
+    // paying for.
+    if (pastDeadline()) {
+      onEvent({ type: "deadline", turn });
+      break;
+    }
+
     const userPrompt = [
       `User said: "${userMessage}"`,
       `Food mention: "${trimmedMention}"`,
@@ -200,7 +214,18 @@ async function resolveFoodCandidate({
       renderFoodVerifierFeedback(verifierFeedback),
     ].join("\n");
 
-    const result = await askAgent(userPrompt);
+    // A single failed model call (empty completion, timeout, upstream 5xx)
+    // must not abort the whole resolution: the seeded search already holds
+    // real candidates and the deterministic fallback below can use them.
+    let result;
+    try {
+      result = await askAgent(userPrompt);
+    } catch (error) {
+      agentFailures += 1;
+      onEvent({ type: "agent_error", turn, message: error.message });
+      if (agentFailures >= 2) break;
+      continue;
+    }
     const action = String(result?.action || "").toLowerCase();
     onEvent({ type: "agent", turn, action, result, searchRoundCount: searchRounds.length });
 
@@ -262,7 +287,7 @@ async function resolveFoodCandidate({
 
     if (action === "pick") {
       const rowId = Number.isInteger(result.rowId) ? result.rowId : null;
-      const servings = typeof result.servings === "number" && result.servings > 0 ? result.servings : 1;
+      const servings = boundedServings(result.servings, 1);
       const portionDescription = typeof result.portionDescription === "string" && result.portionDescription.trim()
         ? result.portionDescription.trim()
         : "1 serving";
@@ -289,16 +314,34 @@ async function resolveFoodCandidate({
         continue;
       }
 
-      const verification = await verifyPick({
-        userMessage,
-        foodMention: trimmedMention,
-        selectedFood,
-        servings,
-        portionDescription,
-        servingUnit,
-        confident,
-        hasExplicitPortion,
-      });
+      let verification;
+      try {
+        verification = await verifyPick({
+          userMessage,
+          foodMention: trimmedMention,
+          selectedFood,
+          servings,
+          portionDescription,
+          servingUnit,
+          confident,
+          hasExplicitPortion,
+        });
+      } catch (error) {
+        // Verifier unavailable: accept the pick with conservative confidence
+        // rather than dropping a fully resolved database row.
+        onEvent({ type: "verify_error", turn, rowId, message: error.message });
+        verification = {
+          accept: true,
+          servings,
+          portionDescription,
+          servingUnit,
+          confident: false,
+          hasExplicitPortion,
+          retryQuery: null,
+          feedback: null,
+        };
+      }
+      verification.servings = boundedServings(verification.servings, 1);
       onEvent({ type: "verification", turn, rowId, selectedName: selectedFood.name, verification });
 
       if (verification.accept) {

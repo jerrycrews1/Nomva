@@ -822,7 +822,7 @@ final class FoodLoggingService {
             }
 
             entries.append(builtEntry)
-            confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(Int(builtEntry.calories)) cal")
+            confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal")
         }
 
         if entries.isEmpty {
@@ -1408,7 +1408,8 @@ final class FoodLoggingService {
         }
 
         if let number = Double(countToken) {
-            return (number, number.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(number))" : "\(number)")
+            // User-typed token: "9999999999999999999999" must not trap Int().
+            return (number, number.truncatingRemainder(dividingBy: 1) == 0 ? "\(number.safeInt)" : "\(number)")
         }
 
         let words: [String: Double] = [
@@ -2339,7 +2340,7 @@ final class FoodLoggingService {
             return .reply(reply)
         } catch {
             let eaten = dayEntries.reduce(0.0) { $0 + $1.calories }
-            return .reply("You've eaten \(Int(eaten)) of \(Int(goals.calories)) calories on \(dayLabel).")
+            return .reply("You've eaten \(eaten.safeRoundedInt) of \(goals.calories.safeRoundedInt) calories on \(dayLabel).")
         }
     }
 
@@ -2490,7 +2491,7 @@ final class FoodLoggingService {
         var sections: [String] = []
 
         // ── 1. Goals ──────────────────────────────────────────────────────
-        sections.append("GOALS: \(Int(goals.calories)) cal, \(Int(goals.protein))g protein, \(Int(goals.carbs))g carbs, \(Int(goals.fat))g fat, \(Int(goals.fiber))g fiber.")
+        sections.append("GOALS: \(goals.calories.safeRoundedInt) cal, \(goals.protein.safeRoundedInt)g protein, \(goals.carbs.safeRoundedInt)g carbs, \(goals.fat.safeRoundedInt)g fat, \(goals.fiber.safeRoundedInt)g fiber.")
 
         // ── 2. Selected day — full detail ─────────────────────────────────
         let eaten    = dayEntries.reduce(0.0) { $0 + $1.calories }
@@ -2499,9 +2500,9 @@ final class FoodLoggingService {
         let fat      = dayEntries.reduce(0.0) { $0 + $1.fatG }
         let fiber    = dayEntries.reduce(0.0) { $0 + $1.fiberG }
 
-        var daySection = "SELECTED DAY (\(dayLabel)): \(Int(eaten))/\(Int(goals.calories)) cal, \(Int(protein))g protein, \(Int(carbs))g carbs, \(Int(fat))g fat, \(Int(fiber))g fiber. Remaining: \(Int(goals.calories - eaten)) cal."
+        var daySection = "SELECTED DAY (\(dayLabel)): \(eaten.safeRoundedInt)/\(goals.calories.safeRoundedInt) cal, \(protein.safeRoundedInt)g protein, \(carbs.safeRoundedInt)g carbs, \(fat.safeRoundedInt)g fat, \(fiber.safeRoundedInt)g fiber. Remaining: \((goals.calories - eaten).safeRoundedInt) cal."
         if !dayEntries.isEmpty {
-            let items = dayEntries.map { "\($0.name) (\($0.portionDescription)) — \(Int($0.calories)) cal, \(Int($0.proteinG))g P / \(Int($0.carbsG))g C / \(Int($0.fatG))g F [\($0.meal)]" }
+            let items = dayEntries.map { "\($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal, \($0.proteinG.safeRoundedInt)g P / \($0.carbsG.safeRoundedInt)g C / \($0.fatG.safeRoundedInt)g F [\($0.meal)]" }
             daySection += "\nItems: " + items.joined(separator: "; ")
         }
         sections.append(daySection)
@@ -2523,7 +2524,7 @@ final class FoodLoggingService {
             let dayFat     = entries.reduce(0.0) { $0 + $1.fatG }
             let label = Self.dayContextLabel(for: day)
             let topFoods = entries.prefix(6).map { $0.name }.joined(separator: ", ")
-            dailySummaries.append("  \(label): \(Int(dayCal)) cal, \(Int(dayProtein))g P, \(Int(dayCarbs))g C, \(Int(dayFat))g F — \(entries.count) items (\(topFoods))")
+            dailySummaries.append("  \(label): \(dayCal.safeRoundedInt) cal, \(dayProtein.safeRoundedInt)g P, \(dayCarbs.safeRoundedInt)g C, \(dayFat.safeRoundedInt)g F — \(entries.count) items (\(topFoods))")
         }
         if !dailySummaries.isEmpty {
             sections.append("FOOD HISTORY (last 30 days):\n" + dailySummaries.joined(separator: "\n"))
@@ -2551,9 +2552,9 @@ final class FoodLoggingService {
             let waterLines = sortedDays.prefix(30).map { day -> String in
                 let total = grouped[day]!.reduce(0) { $0 + $1.amountOz }
                 let label = Self.dayContextLabel(for: day)
-                return "  \(label): \(Int(total)) oz"
+                return "  \(label): \(total.safeRoundedInt) oz"
             }
-            sections.append("HYDRATION (goal: \(Int(goalDisplay)) oz/day, last 30 days):\n" + waterLines.joined(separator: "\n"))
+            sections.append("HYDRATION (goal: \(goalDisplay.safeRoundedInt) oz/day, last 30 days):\n" + waterLines.joined(separator: "\n"))
         }
 
         return sections.joined(separator: "\n\n")
@@ -2579,7 +2580,7 @@ final class FoodLoggingService {
                 }
                 return .init(
                     action: .setWaterTotal(oz: roundedTenth(targetOz)),
-                    reply: "✓ Set today's water total to \(Int(targetOz.rounded())) oz."
+                    reply: "✓ Set today's water total to \(targetOz.safeRoundedInt) oz."
                 )
             case "add":
                 if let amount = parsed.amountOz, amount > 0 {
@@ -2587,7 +2588,7 @@ final class FoodLoggingService {
                     let todayTotal = waterTotal(for: targetDate, entries: waterEntries) + roundedOz
                     return .init(
                         action: .logWater(oz: roundedOz),
-                        reply: "✓ Logged \(Int(roundedOz.rounded())) oz of water. Today's total: \(Int(todayTotal.rounded())) oz."
+                        reply: "✓ Logged \(roundedOz.safeRoundedInt) oz of water. Today's total: \(todayTotal.safeRoundedInt) oz."
                     )
                 }
             default:
@@ -2631,7 +2632,7 @@ final class FoodLoggingService {
 
         return .init(
             action: .logWater(oz: roundedOz),
-            reply: "✓ Logged \(Int(roundedOz)) oz of water. Today's total: \(Int(todayTotal)) oz."
+            reply: "✓ Logged \(roundedOz.safeRoundedInt) oz of water. Today's total: \(todayTotal.safeRoundedInt) oz."
         )
     }
 
@@ -2787,7 +2788,9 @@ final class FoodLoggingService {
             )
             return .reply(reply)
         } catch {
-            return .reply("Hi! I'm Nomva. Tell me what you ate and I'll log it for you.")
+            // A failed reply must look like a failure, not a cheerful greeting
+            // that pretends the question was never asked.
+            return handleProviderError(error)
         }
     }
 
@@ -2982,7 +2985,7 @@ final class FoodLoggingService {
             if let representedCount = countRepresentedByFixedServing(candidate: candidate, unit: requestedUnit) {
                 score += 140
                 if let requestedCount = requestedCount(in: query) {
-                    score -= min(Int(abs(representedCount - requestedCount) * 16), 160)
+                    score -= min((abs(representedCount - requestedCount) * 16).safeInt, 160)
                 }
             } else {
                 score -= 180
@@ -3512,4 +3515,25 @@ private extension String {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
+
+// MARK: - Trap-safe numeric conversion
+//
+// `Int(Double)` traps fatally on NaN, infinity, and values outside Int64's
+// range. Nutrition math multiplies model-provided numbers (servings, grams,
+// goals), so every Double that reaches an Int conversion for display or
+// storage must go through these instead. This is the client-side backstop for
+// the server's numericGuards bounds.
+extension Double {
+    /// Converts to Int without trapping: non-finite values become 0 and
+    /// out-of-range values clamp to Int's bounds.
+    var safeInt: Int {
+        guard isFinite else { return 0 }
+        if self >= Double(Int.max) { return Int.max }
+        if self <= Double(Int.min) { return Int.min }
+        return Int(self)
+    }
+
+    /// `rounded()` then trap-safe conversion.
+    var safeRoundedInt: Int { rounded().safeInt }
 }

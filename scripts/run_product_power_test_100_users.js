@@ -674,7 +674,7 @@ const workflowCases = [
     checks: [
       { file: "Nomva/Views/Settings/ExportSettingsView.swift", pattern: "Generate CSV Report", expectedCapability: "coach CSV" },
       { file: "Nomva/Views/Settings/ExportSettingsView.swift", pattern: "Export JSON Backup", expectedCapability: "full JSON backup" },
-      { file: "Nomva/Services/ExportService.swift", pattern: "waterEntries:", expectedCapability: "hydration included in the coach CSV" },
+      { file: "Nomva/Services/ExportService.swift", pattern: "Water \\(oz\\)", expectedCapability: "hydration included in the coach CSV" },
       { file: "Nomva/Services/SyncMigrationService.swift", pattern: "customFoods:|chatMessages:|userProfiles:", expectedCapability: "all user-created records included in the full backup" },
     ],
     feedback: "Include hydration, meal names, units, goals, and data provenance in exports.",

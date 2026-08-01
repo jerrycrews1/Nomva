@@ -739,7 +739,7 @@ struct ChatView: View {
                 persistEvidence(result.evidenceDrafts, for: uniqueEntries, dayStart: targetDayStart)
             }
             return uniqueEntries
-                .map { "✓ \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .map { "✓ \($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal" }
                 .joined(separator: "\n")
 
         case .replaceEntry(let deleteName, let newEntries):
@@ -763,7 +763,7 @@ struct ChatView: View {
             persistEvidence(result.evidenceDrafts, for: replacements, dayStart: targetDayStart)
             presentUndo("Food correction saved")
             return replacements
-                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal" }
                 .joined(separator: "\n")
 
         case .replaceEntryById(let deleteId, let newEntries):
@@ -787,7 +787,7 @@ struct ChatView: View {
             persistEvidence(result.evidenceDrafts, for: replacements, dayStart: targetDayStart)
             presentUndo("Food correction saved")
             return replacements
-                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \(Int($0.calories.rounded())) cal" }
+                .map { "✓ Replaced \(match.name) with \($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal" }
                 .joined(separator: "\n")
 
         case .log_weight(let entry):
@@ -886,7 +886,7 @@ struct ChatView: View {
                 return "I couldn't save that edit. \(match.name) was left unchanged."
             }
             presentUndo("\(match.name) updated")
-            return "Updated \(match.name) to \(newDesc) — \(Int(match.calories.rounded())) cal"
+            return "Updated \(match.name) to \(newDesc) — \(match.calories.safeRoundedInt) cal"
 
         case .moveEntry(let id, let destinationMeal):
             guard let entry = targetEntries.first(where: { $0.id == id }) else {
@@ -1022,33 +1022,33 @@ struct ChatView: View {
                         let old = goal.calories
                         let new = boundedGoalValue(apply: change, to: old, range: 1_000...10_000)
                         goal.calories = new
-                        parts.append("calories \(Int(old.rounded())) → \(Int(new.rounded()))")
+                        parts.append("calories \(old.safeRoundedInt) → \(new.safeRoundedInt)")
                     case "protein":
                         let old = goal.protein
                         let new = boundedGoalValue(apply: change, to: old, range: 0...1_000)
                         goal.protein = new
-                        parts.append("protein \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                        parts.append("protein \(old.safeRoundedInt)g → \(new.safeRoundedInt)g")
                     case "carbs":
                         let old = goal.carbs
                         let new = boundedGoalValue(apply: change, to: old, range: 0...1_500)
                         goal.carbs = new
-                        parts.append("carbs \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                        parts.append("carbs \(old.safeRoundedInt)g → \(new.safeRoundedInt)g")
                     case "fat":
                         let old = goal.fat
                         let new = boundedGoalValue(apply: change, to: old, range: 0...500)
                         goal.fat = new
-                        parts.append("fat \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                        parts.append("fat \(old.safeRoundedInt)g → \(new.safeRoundedInt)g")
                     case "fiber":
                         let old = goal.fiber
                         let new = boundedGoalValue(apply: change, to: old, range: 0...250)
                         goal.fiber = new
-                        parts.append("fiber \(Int(old.rounded()))g → \(Int(new.rounded()))g")
+                        parts.append("fiber \(old.safeRoundedInt)g → \(new.safeRoundedInt)g")
                     case "water_oz":
                         let stored = UserDefaults.standard.double(forKey: "water_goal_oz")
                         let old = stored > 0 ? stored : 64
                         let new = boundedGoalValue(apply: change, to: old, range: 1...512)
                         UserDefaults.standard.set(new, forKey: "water_goal_oz")
-                        parts.append("water \(Int(old.rounded())) oz → \(Int(new.rounded())) oz")
+                        parts.append("water \(old.safeRoundedInt) oz → \(new.safeRoundedInt) oz")
                     case "target_weight_lbs":
                         let stored = UserDefaults.standard.double(forKey: "target_weight_lbs")
                         let old = stored > 0
@@ -1397,7 +1397,7 @@ struct ChatView: View {
 
         let msg = ChatMessage(
             role: "assistant",
-            content: "✓ Added \(entry.name) (\(entry.portionDescription)) — \(Int(entry.calories)) cal",
+            content: "✓ Added \(entry.name) (\(entry.portionDescription)) — \(entry.calories.safeRoundedInt) cal",
             timestamp: timestampForSelectedDay(offsetBy: 1),
             dayDate: dayStart
         )
@@ -1507,8 +1507,8 @@ struct ChatView: View {
     private func postPhotoSummary(_ foods: [RemoteAPIProvider.PhotoFoodItem]) {
         guard !foods.isEmpty else { return }
         let targetDayStart = dayStart
-        let lines = foods.map { "✓ \($0.name.capitalized) (\($0.portion)) — \(Int($0.calories)) cal" }
-        let totalCal = foods.reduce(0) { $0 + Int($1.calories) }
+        let lines = foods.map { "✓ \($0.name.capitalized) (\($0.portion)) — \($0.calories.safeRoundedInt) cal" }
+        let totalCal = foods.reduce(0) { $0 + $1.calories.safeRoundedInt }
         let reply = lines.joined(separator: "\n") + "\n\nTotal: \(totalCal) cal"
         let assistantMsg = ChatMessage(
             role: "assistant",
