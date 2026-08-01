@@ -903,6 +903,22 @@ struct ChatView: View {
             presentUndo("\(entry.name) moved")
             return "Moved \(entry.name) to \(MealCategory(storedValue: destinationMeal).title)."
 
+        case .moveMeal(let from, let to):
+            let movers = targetEntries.filter { $0.meal == from }
+            guard !movers.isEmpty else {
+                return "There's nothing in \(MealCategory(storedValue: from).title.lowercased()) to move."
+            }
+            guard commitMutation({
+                for entry in movers { entry.meal = to }
+            }, verify: {
+                movers.allSatisfy { $0.meal == to }
+            }) else {
+                return "I couldn't save that move, so your \(MealCategory(storedValue: from).title.lowercased()) foods stayed put."
+            }
+            presentUndo("\(movers.count) food\(movers.count == 1 ? "" : "s") moved")
+            let names = movers.map(\.name).joined(separator: ", ")
+            return "✓ Moved \(movers.count) item\(movers.count == 1 ? "" : "s") (\(names)) from \(MealCategory(storedValue: from).title) to \(MealCategory(storedValue: to).title)."
+
         case .deleteEntry(let names):
             var removed: [FoodEntry] = []
             var notFound: [String] = []

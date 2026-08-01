@@ -207,6 +207,7 @@ final class FoodLoggingService {
         case replaceEntryById(deleteId: UUID, newEntries: [FoodEntry])
         case editEntry(foodName: String, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String)
         case moveEntry(id: UUID, destinationMeal: String)
+        case moveMeal(from: String, to: String)
         case deleteEntry(foodNames: [String])
         case deleteEntries(ids: [UUID])
         case deleteMeal(meal: String)
@@ -919,6 +920,18 @@ final class FoodLoggingService {
             return .reply("Your \(dayLabel) food log is empty.")
         }
 
+        // Deterministic fast path: "move (all) breakfast (foods) to lunch",
+        // "move everything from breakfast to lunch", "put my breakfast in
+        // lunch". An explicit whole-meal move needs no model round-trip and no
+        // confirmation question — it executes immediately and is undoable.
+        if let bulkMove = parseWholeMealMove(userMessage) {
+            let sourceEntries = dayEntries.filter { $0.meal == bulkMove.from }
+            guard !sourceEntries.isEmpty else {
+                return .reply("There's nothing logged in \(MealCategory(storedValue: bulkMove.from).title.lowercased()) \(dayLabel) to move.")
+            }
+            return .init(action: .moveMeal(from: bulkMove.from, to: bulkMove.to), reply: "")
+        }
+
         let logSummary = dayEntries.map { "\($0.name) (\($0.meal))" }.joined(separator: "\n")
         do {
             let mutation = try await provider.extractFoodMove(
@@ -931,6 +944,22 @@ final class FoodLoggingService {
                 let question = mutation.clarificationQuestion ?? "Which meal should I move it to?"
                 return .init(action: .askClarification(question), reply: question)
             }
+
+            // The model can now answer a whole-meal move (including a bare
+            // "yes" to its own confirmation question, resolved from history).
+            if mutation.moveAll {
+                let source = mutation.sourceMeal.flatMap { meal in
+                    MealCategory(storedValue: meal).rawValue == meal ? meal : nil
+                }
+                if let source, source != destination {
+                    let sourceEntries = dayEntries.filter { $0.meal == source }
+                    guard !sourceEntries.isEmpty else {
+                        return .reply("There's nothing logged in \(MealCategory(storedValue: source).title.lowercased()) \(dayLabel) to move.")
+                    }
+                    return .init(action: .moveMeal(from: source, to: destination), reply: "")
+                }
+            }
+
             guard let name = mutation.foodName,
                   let entry = resolveEntry(named: name, in: dayEntries) else {
                 let question = mutation.clarificationQuestion ?? "Which food should I move?"
@@ -946,6 +975,32 @@ final class FoodLoggingService {
         } catch {
             return .reply("I couldn't safely move that item. Please name the food and destination meal.")
         }
+    }
+
+    /// Detects an explicit whole-meal move ("move all my breakfast foods to
+    /// lunch", "move everything from breakfast to lunch", "switch breakfast to
+    /// lunch") without a model call. Returns nil when the message names a
+    /// specific food or is not clearly meal-to-meal.
+    private func parseWholeMealMove(_ userMessage: String) -> (from: String, to: String)? {
+        let meals = ["breakfast", "lunch", "dinner", "snack"]
+        let lower = userMessage.lowercased()
+        let moveWords = ["move", "put", "switch", "shift", "change"]
+        guard moveWords.contains(where: { lower.contains($0) }) else { return nil }
+
+        let pattern = #"(?:move|put|switch|shift|change)\s+(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+)?(?:everything\s+(?:from\s+)?)?(breakfast|lunch|dinner|snacks?)(?:\s+(?:foods?|items?|entries|stuff|log))?\s+(?:over\s+)?(?:to|into|in)\s+(breakfast|lunch|dinner|snacks?)\b"#
+        guard let match = lower.range(of: pattern, options: .regularExpression) else { return nil }
+
+        let matched = String(lower[match])
+        let found = meals.compactMap { meal -> (String, Range<String>.Index)? in
+            guard let range = matched.range(of: meal) else { return nil }
+            return (meal, range.lowerBound)
+        }.sorted { $0.1 < $1.1 }
+        guard found.count >= 2, found[0].0 != found[1].0 else { return nil }
+
+        // A named single food ("move the eggs from breakfast to lunch") must
+        // not match — the regex requires the meal word directly after the verb
+        // chain, so food-first phrasings fall through to the model path.
+        return (from: found[0].0, to: found[1].0)
     }
 
     private func deduplicatedFoodMentions(_ mentions: [FastFoodMention]) -> [FastFoodMention] {

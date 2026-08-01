@@ -83,6 +83,8 @@ struct FoodMoveMutation: Sendable {
     let foodName: String?
     let destinationMeal: String?
     let clarificationQuestion: String?
+    var moveAll: Bool = false
+    var sourceMeal: String? = nil
 }
 
 struct GoalChange: Sendable {

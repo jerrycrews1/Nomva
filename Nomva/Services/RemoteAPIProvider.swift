@@ -382,7 +382,9 @@ struct RemoteAPIProvider: LLMProvider {
         return FoodMoveMutation(
             foodName: json["foodName"] as? String,
             destinationMeal: json["destinationMeal"] as? String,
-            clarificationQuestion: json["clarificationQuestion"] as? String
+            clarificationQuestion: json["clarificationQuestion"] as? String,
+            moveAll: json["moveAll"] as? Bool ?? false,
+            sourceMeal: json["sourceMeal"] as? String
         )
     }
 

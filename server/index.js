@@ -2106,17 +2106,19 @@ app.post("/v1/extract-food-move", async (req, res) => {
     const matchedEntry = entries.find((entry) => normalizeText(entry.name) === normalizeText(requestedName));
     const destination = String(result.destinationMeal || "").toLowerCase();
     const validMeals = ["breakfast", "lunch", "dinner", "snack"];
+    const sourceMeal = String(result.sourceMeal || "").toLowerCase();
 
     res.json({
       foodName: matchedEntry?.name || null,
       destinationMeal: validMeals.includes(destination) ? destination : null,
+      moveAll: result.moveAll === true && validMeals.includes(sourceMeal),
+      sourceMeal: validMeals.includes(sourceMeal) ? sourceMeal : null,
       clarificationQuestion: typeof result.clarificationQuestion === "string"
         ? result.clarificationQuestion
         : null,
     });
   } catch (err) {
-    console.error("extract-food-move error:", err.message);
-    res.status(500).json({ error: "food_move_failed" });
+    return respondLLMFailure(res, err, "food_move_failed");
   }
 });
 

@@ -230,15 +230,19 @@ Examples:
 
 Respond with ONLY a JSON object: {"action":"<add|update|delete|delete_all|reply>","weightLbs":<number or null>,"dateHint":"<today|yesterday|latest|null>"}`;
 
-const EXTRACT_FOOD_MOVE = `Parse a request to move ONE existing food-log entry to a different meal.
+const EXTRACT_FOOD_MOVE = `Parse a request to move existing food-log entries to a different meal.
 The supplied food log is the source of truth. Return foodName exactly as written in the log.
 destinationMeal must be breakfast, lunch, dinner, or snack.
 Use recent conversation to resolve "that", "it", or similar references.
-If the food or destination is ambiguous, return a short clarificationQuestion and null for the unresolved field.
+
+Whole-meal moves: if the user asks to move ALL foods of one meal ("move all breakfast foods to lunch", "move everything from breakfast to lunch", "move my breakfast to lunch"), set moveAll to true, set sourceMeal to that meal, set foodName to null, and do NOT ask for confirmation — the request is already explicit.
+Affirmative follow-ups: if the previous assistant message asked whether to move a group of items and the user replies "yes", "yep", "sure", "do it", or similar, treat that as consent to the exact pending move from the conversation. For a pending whole-meal or multi-item move, set moveAll true with the correct sourceMeal. Never respond to a "yes" with another question about the same move.
+Single-food moves: set foodName to the one entry and moveAll to false.
+If the food or destination is genuinely ambiguous, return a short clarificationQuestion and null for the unresolved field.
 Do not claim that anything was moved.
 
 Respond with ONLY a JSON object:
-{"foodName":"<exact log name or null>","destinationMeal":"<breakfast|lunch|dinner|snack|null>","clarificationQuestion":"<text or null>"}`;
+{"foodName":"<exact log name or null>","destinationMeal":"<breakfast|lunch|dinner|snack|null>","moveAll":<true|false>,"sourceMeal":"<breakfast|lunch|dinner|snack|null>","clarificationQuestion":"<text or null>"}`;
 
 const PICK_DELETE_TARGETS = `The user wants to delete entries from their food log. Return the EXACT food names from the log that should be deleted.
 The provided Food log is the source of truth. Do not omit a listed item because recent conversation suggests it was replaced unless the item is absent from the Food log.
