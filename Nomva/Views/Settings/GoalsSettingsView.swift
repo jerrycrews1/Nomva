@@ -171,7 +171,7 @@ struct GoalSliderRow: View {
                 Text(label)
                     .font(.headline)
                 Spacer()
-                Text("\(Int(value)) \(unit)")
+                Text("\(value.safeRoundedInt) \(unit)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .monospacedDigit()
@@ -275,12 +275,12 @@ struct RecalculateGoalsView: View {
             return "Using your \(activityLevel.displayName.lowercased()) activity estimate."
         case .appleHealth:
             if let appleHealthSummary {
-                return "Using Apple Health average activity: \(Int(appleHealthSummary.averageActiveCalories.rounded())) active kcal/day."
+                return "Using Apple Health average activity: \(appleHealthSummary.averageActiveCalories.safeRoundedInt) active kcal/day."
             }
             return "Connect Apple Health to use recent activity data."
         case .garmin:
             if let average = garminManager.averageActiveCalories {
-                return "Using Garmin average activity: \(Int(average.rounded())) active kcal/day."
+                return "Using Garmin average activity: \(average.safeRoundedInt) active kcal/day."
             }
             if garminManager.isConnected {
                 return "Waiting for Garmin daily summaries to sync."
@@ -297,7 +297,7 @@ struct RecalculateGoalsView: View {
             return "Connect Apple Health to use recent active calories."
         case .ready:
             if let appleHealthSummary {
-                return "\(Int(appleHealthSummary.averageActiveCalories.rounded())) active kcal/day average."
+                return "\(appleHealthSummary.averageActiveCalories.safeRoundedInt) active kcal/day average."
             }
             return GoalActivitySource.appleHealth.subtitle
         case .noData:
@@ -331,7 +331,7 @@ struct RecalculateGoalsView: View {
             return "Garmin isn't set up on Nomva Cloud yet."
         }
         if let average = garminManager.averageActiveCalories {
-            return "\(Int(average.rounded())) active kcal/day average from Garmin."
+            return "\(average.safeRoundedInt) active kcal/day average from Garmin."
         }
         if garminManager.isConnected {
             return "Connected. Waiting for daily summaries."
@@ -364,7 +364,7 @@ struct RecalculateGoalsView: View {
 
                         HStack(spacing: 24) {
                             VStack(spacing: 4) {
-                                Text("\(Int(projectedCalories))")
+                                Text("\(projectedCalories.safeRoundedInt)")
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(.orange)
                                     .contentTransition(.numericText())
@@ -614,7 +614,7 @@ struct RecalculateGoalsView: View {
                         HStack(spacing: 12) {
                             summaryTile(
                                 title: "Avg Active",
-                                value: "\(Int(appleHealthSummary.averageActiveCalories.rounded()))",
+                                value: "\(appleHealthSummary.averageActiveCalories.safeRoundedInt)",
                                 detail: "kcal / day"
                             )
                             summaryTile(
@@ -722,7 +722,7 @@ struct RecalculateGoalsView: View {
                     HStack(spacing: 12) {
                         summaryTile(
                             title: "Avg Active",
-                            value: "\(Int((garminManager.averageActiveCalories ?? 0).rounded()))",
+                            value: "\((garminManager.averageActiveCalories ?? 0).safeRoundedInt)",
                             detail: "kcal / day"
                         )
                         summaryTile(
@@ -736,7 +736,7 @@ struct RecalculateGoalsView: View {
                         HStack(spacing: 12) {
                             summaryTile(
                                 title: "Latest Day",
-                                value: "\(Int(latest.activeCalories.rounded()))",
+                                value: "\(latest.activeCalories.safeRoundedInt)",
                                 detail: "\(latest.date)"
                             )
                             summaryTile(
@@ -778,7 +778,7 @@ struct RecalculateGoalsView: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text("\(Int(value))g")
+            Text("\(value.safeRoundedInt)g")
                 .font(.headline.monospacedDigit())
                 .foregroundStyle(color)
                 .contentTransition(.numericText())
@@ -1037,7 +1037,7 @@ struct RecalculateGoalsView: View {
 
     private func formattedWeight(_ weight: Double) -> String {
         if weight.rounded() == weight {
-            return String(Int(weight))
+            return String(weight.safeRoundedInt)
         }
         return weight.formatted(.number.precision(.fractionLength(1)))
     }

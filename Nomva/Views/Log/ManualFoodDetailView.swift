@@ -42,7 +42,7 @@ struct ManualFoodDetailView: View {
                 HStack(spacing: 20) {
                     RingView(
                         progress: 0.7, // Mock progress for visual flair
-                        label: "\(Int(nutrition.calories))",
+                        label: "\(nutrition.calories.safeRoundedInt)",
                         sublabel: "cal",
                         color: .orange,
                         size: 80
@@ -121,7 +121,7 @@ struct ManualFoodDetailView: View {
                                     Button {
                                         quantity = val
                                     } label: {
-                                        Text(inputMode == .servings ? formatServing(val) : "\(Int(val))g")
+                                        Text(inputMode == .servings ? formatServing(val) : "\(val.safeRoundedInt)g")
                                             .font(.subheadline.bold())
                                             .padding(.horizontal, 16)
                                             .padding(.vertical, 8)
@@ -178,7 +178,7 @@ struct ManualFoodDetailView: View {
             Text(label)
                 .font(.caption2.bold())
                 .foregroundColor(.secondary)
-            Text("\(Int(val))g")
+            Text("\(val.safeRoundedInt)g")
                 .font(.headline.monospacedDigit())
                 .foregroundColor(color)
         }
@@ -200,7 +200,7 @@ struct ManualFoodDetailView: View {
         
         let displayPortion = inputMode == .servings 
             ? "\(quantity.formatted()) \(food.servingDesc ?? "serving")"
-            : "\(Int(quantity))g"
+            : "\(quantity.safeRoundedInt)g"
 
         let entry = FoodEntry(
             name: food.name,

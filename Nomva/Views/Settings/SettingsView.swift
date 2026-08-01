@@ -358,7 +358,7 @@ struct SettingsView: View {
             return "Nomva Cloud setup required"
         }
         if let average = garminManager.averageActiveCalories {
-            return "Connected • \(Int(average.rounded())) active kcal/day avg"
+            return "Connected • \(average.safeRoundedInt) active kcal/day avg"
         }
         if garminManager.isConnected {
             return "Connected • waiting for synced summaries"
@@ -527,7 +527,7 @@ private struct GarminSettingsDetailView: View {
                             HStack(spacing: 12) {
                                 SettingsStatTile(
                                     title: "Avg Active",
-                                    value: "\(Int(average.rounded())) kcal"
+                                    value: "\(average.safeRoundedInt) kcal"
                                 )
                                 SettingsStatTile(
                                     title: "Sample Days",
@@ -540,7 +540,7 @@ private struct GarminSettingsDetailView: View {
                             HStack(spacing: 12) {
                                 SettingsStatTile(
                                     title: "Latest Calories",
-                                    value: "\(Int(latest.activeCalories.rounded()))"
+                                    value: "\(latest.activeCalories.safeRoundedInt)"
                                 )
                                 SettingsStatTile(
                                     title: "Latest Steps",
@@ -710,7 +710,7 @@ private struct AppleHealthSettingsDetailView: View {
                             HStack(spacing: 12) {
                                 SettingsStatTile(
                                     title: "Avg Active",
-                                    value: "\(Int(summary.averageActiveCalories.rounded())) kcal"
+                                    value: "\(summary.averageActiveCalories.safeRoundedInt) kcal"
                                 )
                                 SettingsStatTile(
                                     title: "Sample Days",
@@ -804,7 +804,7 @@ private struct AppleHealthSettingsDetailView: View {
             return "Apple Health is not available on this device."
         }
         if let summary {
-            return "Avg \(Int(summary.averageActiveCalories.rounded())) active kcal/day over \(summary.sampledDays) days"
+            return "Avg \(summary.averageActiveCalories.safeRoundedInt) active kcal/day over \(summary.sampledDays) days"
         }
         if isConnected {
             return "Connected — waiting for activity data"
@@ -885,7 +885,7 @@ struct CustomFoodsListView: View {
                     if let brand = food.brand {
                         Text(brand).font(.caption).foregroundColor(.secondary)
                     }
-                    Text("\(Int(food.calories)) cal per \(food.servingDesc)")
+                    Text("\(food.calories.safeRoundedInt) cal per \(food.servingDesc)")
                         .font(.caption).foregroundColor(.secondary)
                 }
             }

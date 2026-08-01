@@ -68,7 +68,7 @@ struct ManualFoodSearchView: View {
                                     }
                                 }
                                 Spacer()
-                                Text("\(Int(food.caloriesPerServing)) cal")
+                                Text("\(food.caloriesPerServing.safeRoundedInt) cal")
                                     .font(.subheadline.monospacedDigit())
                                     .foregroundStyle(.orange)
                             }

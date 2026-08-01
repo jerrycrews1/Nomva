@@ -26,7 +26,7 @@ struct WaterTrackerSection: View {
                     Text("Hydration")
                         .font(.subheadline.weight(.semibold))
 
-                    Text("\(Int(totalOz)) / \(Int(goalOz)) oz")
+                    Text("\(totalOz.safeRoundedInt) / \(goalOz.safeRoundedInt) oz")
                         .font(.title3.weight(.bold))
                         .monospacedDigit()
                 }
@@ -53,7 +53,7 @@ struct WaterTrackerSection: View {
                         try? modelContext.save()
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     } label: {
-                        Text("+\(Int(oz))")
+                        Text("+\(oz.safeRoundedInt)")
                             .font(.caption2.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, NomvaTheme.chipHorizontalPadding)

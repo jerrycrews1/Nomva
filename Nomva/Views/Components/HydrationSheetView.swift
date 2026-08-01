@@ -104,9 +104,9 @@ struct HydrationSheetView: View {
                     Image(systemName: "drop.fill")
                         .font(.title2)
                         .foregroundStyle(.blue)
-                    Text("\(Int(totalOz))")
+                    Text("\(totalOz.safeRoundedInt)")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
-                    Text("of \(Int(goalOz)) oz")
+                    Text("of \(goalOz.safeRoundedInt) oz")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -136,7 +136,7 @@ struct HydrationSheetView: View {
                     Button {
                         addWater(oz: oz)
                     } label: {
-                        Text("+\(Int(oz)) oz")
+                        Text("+\(oz.safeRoundedInt) oz")
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -201,7 +201,7 @@ struct HydrationSheetView: View {
                     Button {
                         goalOz = target
                     } label: {
-                        Text("\(Int(target))")
+                        Text("\(target.safeRoundedInt)")
                             .font(.caption.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -229,7 +229,7 @@ struct HydrationSheetView: View {
                         Image(systemName: "drop.fill")
                             .font(.caption)
                             .foregroundStyle(.blue)
-                        Text("\(Int(entry.amountOz)) oz")
+                        Text("\(entry.amountOz.safeRoundedInt) oz")
                             .font(.subheadline.weight(.medium))
                         Spacer()
                         Text(entry.date.formatted(date: .omitted, time: .shortened))
@@ -239,7 +239,7 @@ struct HydrationSheetView: View {
                         Button(role: .destructive) {
                             modelContext.delete(entry)
                             try? modelContext.save()
-                            presentUndo("\(Int(entry.amountOz)) oz removed")
+                            presentUndo("\(entry.amountOz.safeRoundedInt) oz removed")
                         } label: {
                             Image(systemName: "minus.circle.fill")
                                 .font(.body)

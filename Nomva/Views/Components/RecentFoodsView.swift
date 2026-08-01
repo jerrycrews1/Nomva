@@ -39,7 +39,7 @@ struct RecentFoodsView: View {
                 .padding(.horizontal)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
                         ForEach(recentDistinct) { entry in
                             RecentFoodChip(entry: entry, onTap: onQuickAdd)
                         }
@@ -69,22 +69,26 @@ struct RecentFoodChip: View {
                         .background(NomvaTheme.accent.opacity(0.10))
                         .clipShape(Circle())
                     Spacer()
-                    Text("\(Int(entry.calories)) cal")
+                    Text("\(entry.calories.safeRoundedInt) cal")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
 
+                // Always reserve two lines for the name and one for the
+                // portion so every chip in the row is the same size, whether
+                // the name is "Mayo" or "Chicken Breast Burrito Bowl".
                 Text(entry.name)
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
+                    .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                 Text(entry.portionDescription)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
-            .frame(width: 170, alignment: .leading)
+            .frame(width: 170, alignment: .topLeading)
             .nomvaCard(.subtle, padding: 14)
         }
-        .accessibilityLabel("Quick add \(entry.name), \(Int(entry.calories)) calories")
+        .accessibilityLabel("Quick add \(entry.name), \(entry.calories.safeRoundedInt) calories")
     }
 }

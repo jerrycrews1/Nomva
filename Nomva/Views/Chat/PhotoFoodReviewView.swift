@@ -163,8 +163,8 @@ private struct PhotoFoodRow: View {
 
             Spacer()
 
-            let calText: String = "\(Int(food.calories)) cal"
-            let macroText: String = "\(Int(food.protein))P · \(Int(food.carbs))C · \(Int(food.fat))F"
+            let calText: String = "\(food.calories.safeRoundedInt) cal"
+            let macroText: String = "\(food.protein.safeRoundedInt)P · \(food.carbs.safeRoundedInt)C · \(food.fat.safeRoundedInt)F"
 
             VStack(alignment: .trailing, spacing: 2) {
                 Text(calText)

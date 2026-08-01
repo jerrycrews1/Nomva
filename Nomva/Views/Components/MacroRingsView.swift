@@ -13,7 +13,7 @@ struct MacroRingsView: View {
     }
 
     private var remainingCalories: Int {
-        max(Int((goal.calories - consumed.calories).rounded()), 0)
+        max((goal.calories - consumed.calories).safeRoundedInt, 0)
     }
 
     private var calorieStatus: String {
@@ -29,14 +29,14 @@ struct MacroRingsView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Nutrition summary: \(Int(consumed.calories)) of \(Int(goal.calories)) calories")
+        .accessibilityLabel("Nutrition summary: \(consumed.calories.safeRoundedInt) of \(goal.calories.safeRoundedInt) calories")
     }
 
     private var compactSummary: some View {
         HStack(spacing: 14) {
             RingView(
                 progress: calorieProgress,
-                label: "\(Int(consumed.calories))",
+                label: "\(consumed.calories.safeRoundedInt)",
                 sublabel: "cal",
                 color: NomvaTheme.accent,
                 size: 56
@@ -98,8 +98,8 @@ struct MacroRingsView: View {
             HStack(spacing: 20) {
                 RingView(
                     progress: calorieProgress,
-                    label: "\(Int(consumed.calories))",
-                    sublabel: "of \(Int(goal.calories))",
+                    label: "\(consumed.calories.safeRoundedInt)",
+                    sublabel: "of \(goal.calories.safeRoundedInt)",
                     color: NomvaTheme.accent,
                     size: 104
                 )
@@ -136,9 +136,9 @@ struct MacroRingsView: View {
             }
 
             HStack(spacing: 10) {
-                MacroStatPill(label: "Protein", value: Int(consumed.protein), tint: .blue)
-                MacroStatPill(label: "Carbs", value: Int(consumed.carbs), tint: .green)
-                MacroStatPill(label: "Fat", value: Int(consumed.fat), tint: .yellow)
+                MacroStatPill(label: "Protein", value: consumed.protein.safeRoundedInt, tint: .blue)
+                MacroStatPill(label: "Carbs", value: consumed.carbs.safeRoundedInt, tint: .green)
+                MacroStatPill(label: "Fat", value: consumed.fat.safeRoundedInt, tint: .yellow)
             }
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
@@ -150,7 +150,7 @@ struct MacroRingsView: View {
                 .font(.caption2.bold())
                 .foregroundColor(color)
 
-            Text("\(Int(val))g")
+            Text("\(val.safeRoundedInt)g")
                 .font(.caption2.monospacedDigit())
                 .foregroundColor(.primary)
         }
@@ -219,7 +219,7 @@ struct MacroBarView: View {
 
                 Spacer()
 
-                Text("\(Int(consumed)) / \(Int(goal))\(unit)")
+                Text("\(consumed.safeRoundedInt) / \(goal.safeRoundedInt)\(unit)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.secondary)
                     .monospacedDigit()
@@ -239,7 +239,7 @@ struct MacroBarView: View {
             .frame(height: 8)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label): \(Int(consumed)) of \(Int(goal)) grams")
+        .accessibilityLabel("\(label): \(consumed.safeRoundedInt) of \(goal.safeRoundedInt) grams")
     }
 }
 

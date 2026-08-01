@@ -28,9 +28,9 @@ struct NutritionDetailView: View {
 
     private var calorieDeltaText: String {
         if calorieDelta >= 0 {
-            return "\(Int(calorieDelta.rounded())) cal left"
+            return "\(calorieDelta.safeRoundedInt) cal left"
         }
-        return "\(Int(abs(calorieDelta).rounded())) cal over"
+        return "\(abs(calorieDelta).safeRoundedInt) cal over"
     }
 
     private var loggedMealNames: [String] {
@@ -147,10 +147,10 @@ struct NutritionDetailView: View {
 
             HStack(alignment: .bottom, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("\(Int(totals.calories.rounded()))")
+                    Text("\(totals.calories.safeRoundedInt)")
                         .font(.system(size: 46, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                    Text("of \(Int(goal.calories.rounded())) calories")
+                    Text("of \(goal.calories.safeRoundedInt) calories")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -169,9 +169,9 @@ struct NutritionDetailView: View {
             )
 
             HStack(spacing: 10) {
-                OverviewPill(title: "Protein", value: "\(Int(totals.protein.rounded()))g", tint: .blue)
-                OverviewPill(title: "Fiber", value: "\(Int(totals.fiber.rounded()))g", tint: .green)
-                OverviewPill(title: "Sodium", value: "\(Int(totals.sodium.rounded()))mg", tint: .orange)
+                OverviewPill(title: "Protein", value: "\(totals.protein.safeRoundedInt)g", tint: .blue)
+                OverviewPill(title: "Fiber", value: "\(totals.fiber.safeRoundedInt)g", tint: .green)
+                OverviewPill(title: "Sodium", value: "\(totals.sodium.safeRoundedInt)mg", tint: .orange)
             }
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
@@ -375,9 +375,9 @@ struct NutritionDetailView: View {
             subtitle: "The foods driving the biggest numbers for this day."
         ) {
             VStack(spacing: 14) {
-                TopContributorGroup(title: "Calories", entries: topEntries(for: \.calories), value: { "\(Int($0.calories.rounded())) cal" })
-                TopContributorGroup(title: "Sodium", entries: topEntries(for: \.sodiumMg), value: { "\(Int($0.sodiumMg.rounded())) mg" })
-                TopContributorGroup(title: "Fiber", entries: topEntries(for: \.fiberG), value: { "\(Int($0.fiberG.rounded())) g" })
+                TopContributorGroup(title: "Calories", entries: topEntries(for: \.calories), value: { "\($0.calories.safeRoundedInt) cal" })
+                TopContributorGroup(title: "Sodium", entries: topEntries(for: \.sodiumMg), value: { "\($0.sodiumMg.safeRoundedInt) mg" })
+                TopContributorGroup(title: "Fiber", entries: topEntries(for: \.fiberG), value: { "\($0.fiberG.safeRoundedInt) g" })
                 TopContributorGroup(title: "Saturated Fat", entries: topOptionalEntries(for: \.saturatedFatG), value: { "\(formattedOptional($0.saturatedFatG, unit: "g"))" })
                 TopContributorGroup(title: "Potassium", entries: topOptionalEntries(for: \.potassiumMg), value: { "\(formattedOptional($0.potassiumMg, unit: "mg"))" })
             }
@@ -434,7 +434,7 @@ struct NutritionDetailView: View {
     private func formattedOptional(_ value: Double?, unit: String) -> String {
         guard let value else { return "Unknown" }
         if unit == "mg" || value >= 100 {
-            return "\(Int(value.rounded())) \(unit)"
+            return "\(value.safeRoundedInt) \(unit)"
         }
         return "\(value.formatted(.number.precision(.fractionLength(0...1)))) \(unit)"
     }
@@ -570,7 +570,7 @@ private struct NutrientProgressRow: View {
             ProgressBar(progress: percent.map { min(max($0, 0), 1.25) } ?? 0, tint: barTint)
 
             if let percent {
-                Text("\(Int((percent * 100).rounded()))% \(targetLabel ?? "target")")
+                Text("\((percent * 100).safeRoundedInt)% \(targetLabel ?? "target")")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -592,7 +592,7 @@ private struct NutrientProgressRow: View {
 
     private func formatted(_ value: Double) -> String {
         if value >= 100 || unit == "mg" || unit == "cal" {
-            return "\(Int(value.rounded()))"
+            return "\(value.safeRoundedInt)"
         }
         return value.formatted(.number.precision(.fractionLength(0...1)))
     }
@@ -639,7 +639,7 @@ private struct TrackedNutrientProgressRow: View {
 
     private func formatted(_ value: Double) -> String {
         if unit == "mg" || unit == "mcg" || value >= 100 {
-            return "\(Int(value.rounded()))"
+            return "\(value.safeRoundedInt)"
         }
         return value.formatted(.number.precision(.fractionLength(0...1)))
     }
@@ -752,7 +752,7 @@ private struct TrendComparisonRow: View {
     }
 
     private func formatted(_ value: Double) -> String {
-        unit == "mg" || unit == "cal" ? "\(Int(value.rounded()))" : "\(Int(value.rounded()))"
+        unit == "mg" || unit == "cal" ? "\(value.safeRoundedInt)" : "\(value.safeRoundedInt)"
     }
 }
 

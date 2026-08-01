@@ -1,5 +1,47 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+/// UIKit-backed drop handling for meal targets. SwiftUI's `.dropDestination`
+/// attached to rows inside a `List` competes with the List's own scroll,
+/// swipe-action, and tap recognizers and frequently never receives the drop
+/// on device; `DropDelegate` + `.onDrop` rides UIKit's drag interaction and
+/// works reliably in Lists.
+private struct MealDropDelegate: DropDelegate {
+    let meal: MealCategory
+    let setTargeted: (MealCategory?) -> Void
+    let performMove: ([String]) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [UTType.plainText, UTType.text])
+    }
+
+    func dropEntered(info: DropInfo) {
+        setTargeted(meal)
+    }
+
+    func dropExited(info: DropInfo) {
+        setTargeted(nil)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let providers = info.itemProviders(for: [UTType.plainText, UTType.text])
+        guard !providers.isEmpty else { return false }
+        for provider in providers {
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let identifier = object as? String else { return }
+                DispatchQueue.main.async {
+                    performMove([identifier])
+                }
+            }
+        }
+        return true
+    }
+}
 
 struct DailyLogView: View {
     @Query(sort: \FoodEntry.date) private var allEntries: [FoodEntry]
@@ -122,15 +164,11 @@ struct DailyLogView: View {
                                         .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
-                                        .dropDestination(
-                                            for: String.self,
-                                            action: { identifiers, _ in
-                                                moveFoodEntries(with: identifiers, to: meal)
-                                            },
-                                            isTargeted: { isTargeted in
-                                                updateDropTarget(meal, isTargeted: isTargeted)
-                                            }
-                                        )
+                                        .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
+                                            meal: meal,
+                                            setTargeted: { setDropTarget($0) },
+                                            performMove: { moveFoodEntries(with: $0, to: meal) }
+                                        ))
                                 } else {
                                     ForEach(mealEntries) { entry in
                                         foodEntryListRow(entry, in: meal)
@@ -407,18 +445,38 @@ struct DailyLogView: View {
             .listRowSeparator(.hidden)
             .contentShape(Rectangle())
             .onTapGesture { selectedEntry = entry }
-            .draggable(entry.id.uuidString) {
+            // .onDrag (not .draggable): the UIKit-backed drag interaction is
+            // the one that reliably lifts rows inside a List that also has
+            // tap gestures and swipe actions.
+            .onDrag {
+                NSItemProvider(object: entry.id.uuidString as NSString)
+            } preview: {
                 FoodEntryDragPreview(entry: entry)
             }
-            .dropDestination(
-                for: String.self,
-                action: { identifiers, _ in
-                    moveFoodEntries(with: identifiers, to: meal)
-                },
-                isTargeted: { isTargeted in
-                    updateDropTarget(meal, isTargeted: isTargeted)
+            .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
+                meal: meal,
+                setTargeted: { setDropTarget($0) },
+                performMove: { moveFoodEntries(with: $0, to: meal) }
+            ))
+            // Visible fallback for everyone who doesn't discover drag:
+            // long-press offers the same move targets.
+            .contextMenu {
+                ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
+                    Button {
+                        _ = moveFoodEntries(with: [entry.id.uuidString], to: destination)
+                    } label: {
+                        Label("Move to \(destination.title)", systemImage: "arrow.turn.down.right")
+                    }
                 }
-            )
+                Button {
+                    toggleFavorite(entry)
+                } label: {
+                    Label(
+                        entry.isFavorite ? "Remove Favorite" : "Add Favorite",
+                        systemImage: entry.isFavorite ? "star.slash" : "star"
+                    )
+                }
+            }
             .accessibilityHint("Double tap to edit. Use actions to move, favorite, or delete this food.")
             .accessibilityActions {
                 ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
@@ -490,24 +548,16 @@ struct DailyLogView: View {
         .contentShape(Rectangle())
         .nomvaSectionHeaderPadding()
         .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: targetedMeal)
-        .dropDestination(
-            for: String.self,
-            action: { identifiers, _ in
-                moveFoodEntries(with: identifiers, to: meal)
-            },
-            isTargeted: { isTargeted in
-                updateDropTarget(meal, isTargeted: isTargeted)
-            }
-        )
+        .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
+            meal: meal,
+            setTargeted: { setDropTarget($0) },
+            performMove: { moveFoodEntries(with: $0, to: meal) }
+        ))
     }
 
-    private func updateDropTarget(_ meal: MealCategory, isTargeted: Bool) {
+    private func setDropTarget(_ meal: MealCategory?) {
         withAnimation(reduceMotion ? .none : .easeOut(duration: 0.16)) {
-            if isTargeted {
-                targetedMeal = meal
-            } else if targetedMeal == meal {
-                targetedMeal = nil
-            }
+            targetedMeal = meal
         }
     }
 
@@ -636,7 +686,7 @@ struct DailyLogView: View {
                 meal: meal.rawValue,
                 date: start.addingTimeInterval(TimeInterval(index)),
                 portionGrams: grams,
-                portionDescription: item.portionDescription ?? "\(Int(grams.rounded())) g",
+                portionDescription: item.portionDescription ?? "\(grams.safeRoundedInt) g",
                 servings: item.servings ?? 1,
                 servingUnit: item.servingUnit ?? "serving",
                 calories: item.calories,
@@ -817,7 +867,7 @@ struct DailyLogView: View {
                 HStack(spacing: 12) {
                     GarminLogStat(
                         title: "Active Calories",
-                        value: "\(Int(summary.activeCalories.rounded()))",
+                        value: "\(summary.activeCalories.safeRoundedInt)",
                         detail: isToday ? "so far" : "kcal"
                     )
                     GarminLogStat(
@@ -884,7 +934,7 @@ struct DailyLogView: View {
                 dailyActiveCalories: summary.activeCalories,
                 referenceActiveCalories: activityReferenceActiveCalories
             ) - base
-            let rounded = Int(delta.rounded())
+            let rounded = delta.safeRoundedInt
             if rounded == 0 {
                 return "Your calorie goal matched your Garmin baseline for this day."
             } else if rounded > 0 {
@@ -901,8 +951,8 @@ struct DailyLogView: View {
                 dailyActiveCalories: avg,
                 referenceActiveCalories: activityReferenceActiveCalories
             ) - base
-            let rounded = Int(delta.rounded())
-            let avgRounded = Int(avg.rounded())
+            let rounded = delta.safeRoundedInt
+            let avgRounded = avg.safeRoundedInt
             if rounded == 0 {
                 return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day)."
             } else if rounded > 0 {
@@ -953,10 +1003,10 @@ struct FoodEntryRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.brand.map { "\(entry.name), \($0)" } ?? entry.name)
         .accessibilityValue(
-            "\(entry.portionDescription), \(Int(entry.calories.rounded())) calories, "
-            + "\(Int(entry.proteinG.rounded())) grams protein, "
-            + "\(Int(entry.carbsG.rounded())) grams carbs, "
-            + "\(Int(entry.fatG.rounded())) grams fat"
+            "\(entry.portionDescription), \(entry.calories.safeRoundedInt) calories, "
+            + "\(entry.proteinG.safeRoundedInt) grams protein, "
+            + "\(entry.carbsG.safeRoundedInt) grams carbs, "
+            + "\(entry.fatG.safeRoundedInt) grams fat"
         )
         .accessibilityHint("Double tap to edit. Additional actions can move or delete this food.")
     }

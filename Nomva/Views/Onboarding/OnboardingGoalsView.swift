@@ -33,10 +33,10 @@ struct OnboardingGoalsView: View {
                     .onChange(of: weightGoal) { recalculateGoals() }
 
                     HStack(spacing: 12) {
-                        goalPreviewTile(title: "Calories", value: "\(Int(calorieGoal))", unit: "kcal", tint: NomvaTheme.accent)
-                        goalPreviewTile(title: "Protein", value: "\(Int(proteinGoal))", unit: "g", tint: .blue)
-                        goalPreviewTile(title: "Carbs", value: "\(Int(carbGoal))", unit: "g", tint: .green)
-                        goalPreviewTile(title: "Fat", value: "\(Int(fatGoal))", unit: "g", tint: .yellow)
+                        goalPreviewTile(title: "Calories", value: "\(calorieGoal.safeRoundedInt)", unit: "kcal", tint: NomvaTheme.accent)
+                        goalPreviewTile(title: "Protein", value: "\(proteinGoal.safeRoundedInt)", unit: "g", tint: .blue)
+                        goalPreviewTile(title: "Carbs", value: "\(carbGoal.safeRoundedInt)", unit: "g", tint: .green)
+                        goalPreviewTile(title: "Fat", value: "\(fatGoal.safeRoundedInt)", unit: "g", tint: .yellow)
                     }
                 }
             }
