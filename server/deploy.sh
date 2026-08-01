@@ -68,10 +68,29 @@ if [[ -f "$CANONICAL_DB" && -n "$EXPECTED_DB_SHA" ]]; then
   fi
 fi
 
-if [[ "${1:-}" == "--with-db" ]]; then
+upload_db() {
   echo "→ Uploading foods.sqlite ($(du -h "$CANONICAL_DB" | cut -f1)) — this can take a while"
   ssh -i "$KEY" "$HOST" "mkdir -p ~/Nomva/Resources"
   scp -i "$KEY" "$CANONICAL_DB" "$HOST:~/Nomva/Resources/foods.sqlite"
+}
+
+# Runs the same store bootstrap the server itself runs, INCLUDING .env, so the
+# check sees FOODS_DB_PATH exactly the way pm2 does.
+verify_remote_db() {
+  ssh -i "$KEY" "$HOST" "cd ~/$REMOTE_DIR && node -r dotenv/config -e '
+    const { createFoodSearchStore } = require(\"./foodSearchStore\");
+    const store = createFoodSearchStore({ dbPath: process.env.FOODS_DB_PATH });
+    if (!store.isAvailable) {
+      console.error(\"REMOTE FOOD DB CHECK FAILED: \" + store.error);
+      process.exit(1);
+    }
+    console.log(\"remote food db ok: \" + store.dbPath + \" (\" + store.rowCount + \" rows)\");
+    store.close();
+  '"
+}
+
+if [[ "${1:-}" == "--with-db" ]]; then
+  upload_db
 fi
 
 echo "→ Uploading ${#FILES[@]} files to $HOST:~/$REMOTE_DIR/"
@@ -79,17 +98,11 @@ scp -i "$KEY" "${FILES[@]}" "$HOST:~/$REMOTE_DIR/"
 
 # ── Remote DB gate: refuse to restart onto a stale or missing food database ──
 echo "→ Verifying the food database on the server"
-ssh -i "$KEY" "$HOST" "cd ~/$REMOTE_DIR && node -e '
-  const { createFoodSearchStore } = require(\"./foodSearchStore\");
-  const store = createFoodSearchStore({});
-  if (!store.isAvailable) {
-    console.error(\"REMOTE FOOD DB CHECK FAILED: \" + store.error);
-    console.error(\"Run ./deploy.sh --with-db to upload the current database.\");
-    process.exit(1);
-  }
-  console.log(\"remote food db ok: \" + store.dbPath + \" (\" + store.rowCount + \" rows)\");
-  store.close();
-'" || exit 1
+if ! verify_remote_db; then
+  echo "→ Remote food DB missing or failed the schema check — uploading the canonical database"
+  upload_db
+  verify_remote_db || { echo "✗ Remote DB still failing after upload — not restarting. Investigate on the server."; exit 1; }
+fi
 
 echo "→ Installing any new npm deps + restarting pm2"
 ssh -i "$KEY" "$HOST" "cd ~/$REMOTE_DIR && npm install --omit=dev --no-audit --no-fund && pm2 restart nomva-api && pm2 logs nomva-api --lines 40 --nostream"
