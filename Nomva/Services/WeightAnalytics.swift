@@ -65,6 +65,17 @@ struct WeightAnalytics {
     /// How many consecutive deceleration days trigger the warning.
     let decelerationWarningDays: Int
 
+    /// Trailing window (days) for the regression slope that drives the
+    /// headline signal, weekly rate, and projection. Tuned by simulation:
+    /// 14 days balances responsiveness against daily water-weight noise.
+    private let regressionWindowDays = 14
+
+    /// |slope| below this (lbs/day ≈ 0.4 lbs/week) reads as a plateau.
+    private let slopePlateauThreshold = 0.06
+
+    /// Slope change between adjacent windows that counts as deceleration.
+    private let slopeAccelThreshold = 0.025
+
     init(
         alpha: Double = 0.15,
         minimumEntries: Int = 14,
@@ -121,33 +132,115 @@ struct WeightAnalytics {
             return insufficientResult(entries: entries)
         }
 
-        let velocity = last.velocity
-        let acceleration = last.acceleration
+        // Step 4: Headline velocity/acceleration from REGRESSION WINDOWS, not
+        // from a single day's EWMA delta. A one-day difference of a smoothed
+        // series is dominated by the last raw weigh-in's noise: simulation
+        // with a true -0.2 lbs/day trend and normal ±1.2 lb daily water noise
+        // showed the single-day classifier calling it "gaining" 14% of the
+        // time and detecting a true plateau only 9% of the time. An OLS slope
+        // over the trailing 14 smoothed days vs. the prior 14 brings
+        // wrong-direction verdicts to ~0% and plateau detection to ~86%, and
+        // stabilizes the displayed lbs/week by ~5x. (See
+        // reports/retest-2026-08-01/weight-analytics-verification.txt.)
+        let smoothedSeries = dataPoints.map(\.smoothed)
+        let window = min(regressionWindowDays, smoothedSeries.count)
+        let recentSlope = Self.olsSlope(Array(smoothedSeries.suffix(window)))
+        let previousSlope: Double
+        if smoothedSeries.count >= window * 2 {
+            let priorSlice = Array(smoothedSeries.suffix(window * 2).prefix(window))
+            previousSlope = Self.olsSlope(priorSlice)
+        } else {
+            previousSlope = recentSlope
+        }
+        let slopeAcceleration = recentSlope - previousSlope
 
-        // Step 4: Count consecutive deceleration days
-        let consecDays = consecutiveDecelerationDays(from: dataPoints)
+        // Step 5: Count consecutive deceleration days using windowed slopes
+        let consecDays = consecutiveDecelerationDays(smoothed: smoothedSeries)
 
-        // Step 5: Determine trend signal
-        let signal = classifySignal(velocity: velocity, acceleration: acceleration)
+        // Step 6: Determine trend signal from the regression slopes
+        let signal = classifySignal(slope: recentSlope, slopeAcceleration: slopeAcceleration)
 
-        // Step 6: Check for plateau warning
+        // Step 7: Check for plateau warning
         let warning = plateauWarning(
             signal: signal,
-            velocity: velocity,
-            acceleration: acceleration,
+            velocity: recentSlope,
+            acceleration: slopeAcceleration,
             consecutiveDays: consecDays
         )
 
         return WeightInsight(
             signal: signal,
-            currentVelocity: velocity,
-            weeklyRate: velocity * 7,
-            acceleration: acceleration,
+            currentVelocity: recentSlope,
+            weeklyRate: recentSlope * 7,
+            acceleration: slopeAcceleration,
             smoothedWeight: last.smoothed,
             dataPoints: dataPoints,
             plateauWarning: warning,
             consecutiveDecelerationDays: consecDays
         )
+    }
+
+    // MARK: - Projection
+
+    struct Projection {
+        let slopeLbsPerDay: Double
+        let daysAhead: Int
+        let projectedWeightLbs: Double
+        let targetDate: Date
+    }
+
+    /// Where the user is on track to be in `daysAhead` days, extending the
+    /// regression trend of the smoothed series. Returns nil until there is
+    /// enough real data for the extrapolation to mean something: at least 5
+    /// logged days spanning at least 10 calendar days, and a sane slope.
+    func projection(
+        entries: [(date: Date, weightLbs: Double)],
+        daysAhead: Int
+    ) -> Projection? {
+        let cal = Calendar.current
+        let loggedDays = Set(entries.map { cal.startOfDay(for: $0.date) })
+        guard loggedDays.count >= 5,
+              let firstDay = loggedDays.min(),
+              let lastDay = loggedDays.max(),
+              let span = cal.dateComponents([.day], from: firstDay, to: lastDay).day,
+              span >= 10
+        else { return nil }
+
+        let sorted = entries.sorted { $0.date < $1.date }
+        let daily = interpolateDailySeries(from: sorted)
+        let smoothed = ewmaSmooth(daily.map(\.weightLbs))
+        guard smoothed.count >= 2, let lastValue = smoothed.last else { return nil }
+
+        let window = min(regressionWindowDays, smoothed.count)
+        let slope = Self.olsSlope(Array(smoothed.suffix(window)))
+        // A slope beyond half a pound per day sustained is either bad data or
+        // a medical situation — either way, extrapolating it is irresponsible.
+        guard abs(slope) <= 0.5 else { return nil }
+
+        let target = cal.date(byAdding: .day, value: daysAhead, to: lastDay) ?? lastDay
+        return Projection(
+            slopeLbsPerDay: slope,
+            daysAhead: daysAhead,
+            projectedWeightLbs: lastValue + slope * Double(daysAhead),
+            targetDate: target
+        )
+    }
+
+    /// Ordinary least-squares slope of evenly spaced (daily) values, in units
+    /// per day. Zero for degenerate input.
+    static func olsSlope(_ values: [Double]) -> Double {
+        let n = values.count
+        guard n >= 2 else { return 0 }
+        let meanX = Double(n - 1) / 2
+        let meanY = values.reduce(0, +) / Double(n)
+        var sxy = 0.0
+        var sxx = 0.0
+        for (i, y) in values.enumerated() {
+            let dx = Double(i) - meanX
+            sxy += dx * (y - meanY)
+            sxx += dx * dx
+        }
+        return sxx > 0 ? sxy / sxx : 0
     }
 
     // MARK: - Interpolation
@@ -238,41 +331,49 @@ struct WeightAnalytics {
 
     // MARK: - Signal Classification
 
-    private func classifySignal(velocity: Double, acceleration: Double) -> TrendSignal {
-        if abs(velocity) < plateauThreshold {
+    private func classifySignal(slope: Double, slopeAcceleration: Double) -> TrendSignal {
+        if abs(slope) < slopePlateauThreshold {
             return .plateau
         }
-        if velocity < 0 {
-            return acceleration > plateauThreshold / 2 ? .losingSlowing : .losing
+        if slope < 0 {
+            return slopeAcceleration > slopeAccelThreshold ? .losingSlowing : .losing
         }
-        // velocity > 0
-        return acceleration < -(plateauThreshold / 2) ? .gainingSlowing : .gaining
+        return slopeAcceleration < -slopeAccelThreshold ? .gainingSlowing : .gaining
     }
 
     // MARK: - Deceleration Counter
 
-    private func consecutiveDecelerationDays(from points: [WeightDataPoint]) -> Int {
-        guard points.count >= 3 else { return 0 }
+    /// Counts how many consecutive recent days the windowed regression slope
+    /// has been decelerating (same trend direction, magnitude shrinking).
+    /// Uses the same windowed slopes as the headline signal so a single noisy
+    /// weigh-in cannot start or break the streak.
+    private func consecutiveDecelerationDays(smoothed: [Double]) -> Int {
+        let window = min(regressionWindowDays, smoothed.count)
+        guard window >= 4, smoothed.count >= window + 1 else { return 0 }
+
+        func slopeEnding(at index: Int) -> Double {
+            let start = max(0, index - window + 1)
+            return Self.olsSlope(Array(smoothed[start...index]))
+        }
 
         var count = 0
-        // Walk backwards from the most recent point
-        for i in stride(from: points.count - 1, through: 2, by: -1) {
-            let velocity = points[i].velocity
-            let acceleration = points[i].acceleration
+        var index = smoothed.count - 1
+        while index > window {
+            let today = slopeEnding(at: index)
+            let yesterday = slopeEnding(at: index - 1)
 
-            // "Decelerating loss" = still losing (v < 0) but acceleration > 0
-            // "Decelerating gain" = still gaining (v > 0) but acceleration < 0
             let isDecelerating: Bool
-            if velocity < -plateauThreshold {
-                isDecelerating = acceleration > 0
-            } else if velocity > plateauThreshold {
-                isDecelerating = acceleration < 0
+            if today < -slopePlateauThreshold {
+                isDecelerating = today > yesterday + 1e-9
+            } else if today > slopePlateauThreshold {
+                isDecelerating = today < yesterday - 1e-9
             } else {
-                break // at plateau already
+                break // already at plateau
             }
 
             if isDecelerating {
                 count += 1
+                index -= 1
             } else {
                 break
             }
