@@ -2,22 +2,56 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-/// UIKit-backed drop handling for meal targets. SwiftUI's `.dropDestination`
-/// attached to rows inside a `List` competes with the List's own scroll,
-/// swipe-action, and tap recognizers and frequently never receives the drop
-/// on device; `DropDelegate` + `.onDrop` rides UIKit's drag interaction and
-/// works reliably in Lists.
+private extension UTType {
+    static let nomvaFoodEntryID = UTType(exportedAs: "com.nomva.app.food-entry-id")
+}
+
+private enum MealDropLayout {
+    static let coordinateSpace = "DailyLogMealDropSpace"
+}
+
+private struct MealDropFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [MealCategory: CGRect] = [:]
+
+    static func reduce(
+        value: inout [MealCategory: CGRect],
+        nextValue: () -> [MealCategory: CGRect]
+    ) {
+        for (meal, frame) in nextValue() {
+            value[meal] = value[meal].map { $0.union(frame) } ?? frame
+        }
+    }
+}
+
+private extension View {
+    func reportsDropFrame(for meal: MealCategory) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: MealDropFramePreferenceKey.self,
+                    value: [meal: proxy.frame(in: .named(MealDropLayout.coordinateSpace))]
+                )
+            }
+        }
+    }
+}
+
+/// SwiftUI doesn't reliably deliver drops to child views inside a `List`.
+/// A single destination on the list receives the session, while visible row
+/// frames determine which meal is under the user's finger.
 private struct MealDropDelegate: DropDelegate {
-    let meal: MealCategory
+    let mealFrames: [MealCategory: CGRect]
+    let draggedIdentifier: () -> String?
     let setTargeted: (MealCategory?) -> Void
-    let performMove: ([String]) -> Void
+    let performMove: ([String], MealCategory) -> Bool
+    let finishDrag: () -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.plainText, UTType.text])
+        draggedIdentifier() != nil && info.hasItemsConforming(to: [.nomvaFoodEntryID])
     }
 
     func dropEntered(info: DropInfo) {
-        setTargeted(meal)
+        setTargeted(destinationMeal(at: info.location))
     }
 
     func dropExited(info: DropInfo) {
@@ -25,21 +59,30 @@ private struct MealDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        guard let meal = destinationMeal(at: info.location) else {
+            setTargeted(nil)
+            return DropProposal(operation: .forbidden)
+        }
+        setTargeted(meal)
+        // The model performs the move itself. Advertising a copy operation
+        // keeps the system from rejecting the plain item-provider session.
+        return DropProposal(operation: .copy)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        let providers = info.itemProviders(for: [UTType.plainText, UTType.text])
-        guard !providers.isEmpty else { return false }
-        for provider in providers {
-            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                guard let identifier = object as? String else { return }
-                DispatchQueue.main.async {
-                    performMove([identifier])
-                }
-            }
+        defer {
+            setTargeted(nil)
+            finishDrag()
         }
-        return true
+        guard let meal = destinationMeal(at: info.location),
+              let identifier = draggedIdentifier() else { return false }
+        return performMove([identifier], meal)
+    }
+
+    private func destinationMeal(at location: CGPoint) -> MealCategory? {
+        mealFrames.first { _, frame in
+            frame.insetBy(dx: -4, dy: -3).contains(location)
+        }?.key
     }
 }
 
@@ -65,6 +108,8 @@ struct DailyLogView: View {
     @State private var showDeleteFoodConfirm  = false
     @State private var showNutritionDetail    = false
     @State private var targetedMeal: MealCategory? = nil
+    @State private var draggedEntryID: UUID? = nil
+    @State private var mealDropFrames: [MealCategory: CGRect] = [:]
     @State private var showMoveError = false
     @State private var moveErrorMessage = ""
     @State private var undoNotice: String? = nil
@@ -164,11 +209,7 @@ struct DailyLogView: View {
                                         .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
-                                        .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
-                                            meal: meal,
-                                            setTargeted: { setDropTarget($0) },
-                                            performMove: { moveFoodEntries(with: $0, to: meal) }
-                                        ))
+                                        .reportsDropFrame(for: meal)
                                 } else {
                                     ForEach(mealEntries) { entry in
                                         foodEntryListRow(entry, in: meal)
@@ -227,6 +268,19 @@ struct DailyLogView: View {
                 .refreshable {
                     await garminManager.refresh(forceSync: true)
                 }
+                .coordinateSpace(name: MealDropLayout.coordinateSpace)
+                .onPreferenceChange(MealDropFramePreferenceKey.self) { frames in
+                    mealDropFrames = frames
+                }
+                .onDrop(of: [.nomvaFoodEntryID], delegate: MealDropDelegate(
+                    mealFrames: mealDropFrames,
+                    draggedIdentifier: { draggedEntryID?.uuidString },
+                    setTargeted: { setDropTarget($0) },
+                    performMove: { identifiers, meal in
+                        moveFoodEntries(with: identifiers, to: meal)
+                    },
+                    finishDrag: { draggedEntryID = nil }
+                ))
             }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -449,15 +503,21 @@ struct DailyLogView: View {
             // the one that reliably lifts rows inside a List that also has
             // tap gestures and swipe actions.
             .onDrag {
-                NSItemProvider(object: entry.id.uuidString as NSString)
+                let identifier = entry.id.uuidString
+                draggedEntryID = entry.id
+                let provider = NSItemProvider()
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: UTType.nomvaFoodEntryID.identifier,
+                    visibility: .ownProcess
+                ) { completion in
+                    completion(Data(identifier.utf8), nil)
+                    return nil
+                }
+                return provider
             } preview: {
                 FoodEntryDragPreview(entry: entry)
             }
-            .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
-                meal: meal,
-                setTargeted: { setDropTarget($0) },
-                performMove: { moveFoodEntries(with: $0, to: meal) }
-            ))
+            .reportsDropFrame(for: meal)
             // Visible fallback for everyone who doesn't discover drag:
             // long-press offers the same move targets.
             .contextMenu {
@@ -548,11 +608,7 @@ struct DailyLogView: View {
         .contentShape(Rectangle())
         .nomvaSectionHeaderPadding()
         .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: targetedMeal)
-        .onDrop(of: [UTType.plainText, UTType.text], delegate: MealDropDelegate(
-            meal: meal,
-            setTargeted: { setDropTarget($0) },
-            performMove: { moveFoodEntries(with: $0, to: meal) }
-        ))
+        .reportsDropFrame(for: meal)
     }
 
     private func setDropTarget(_ meal: MealCategory?) {
