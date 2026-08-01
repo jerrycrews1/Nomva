@@ -2,10 +2,6 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-private extension UTType {
-    static let nomvaFoodEntryID = UTType(exportedAs: "com.nomva.app.food-entry-id")
-}
-
 private enum MealDropLayout {
     static let coordinateSpace = "DailyLogMealDropSpace"
 }
@@ -41,13 +37,12 @@ private extension View {
 /// frames determine which meal is under the user's finger.
 private struct MealDropDelegate: DropDelegate {
     let mealFrames: [MealCategory: CGRect]
-    let draggedIdentifier: () -> String?
+    let currentTarget: () -> MealCategory?
     let setTargeted: (MealCategory?) -> Void
     let performMove: ([String], MealCategory) -> Bool
-    let finishDrag: () -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        draggedIdentifier() != nil && info.hasItemsConforming(to: [.nomvaFoodEntryID])
+        info.hasItemsConforming(to: [.plainText, .text])
     }
 
     func dropEntered(info: DropInfo) {
@@ -64,19 +59,30 @@ private struct MealDropDelegate: DropDelegate {
             return DropProposal(operation: .forbidden)
         }
         setTargeted(meal)
-        // The model performs the move itself. Advertising a copy operation
-        // keeps the system from rejecting the plain item-provider session.
-        return DropProposal(operation: .copy)
+        return DropProposal(operation: .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        defer {
+        // Preserve the last highlighted target because a tiny movement while
+        // lifting the finger can put the final coordinate into a section gap.
+        guard let meal = destinationMeal(at: info.location) ?? currentTarget(),
+              let provider = info.itemProviders(for: [.plainText, .text]).first else {
             setTargeted(nil)
-            finishDrag()
+            return false
         }
-        guard let meal = destinationMeal(at: info.location),
-              let identifier = draggedIdentifier() else { return false }
-        return performMove([identifier], meal)
+
+        // A drop destination must begin loading its item provider before
+        // returning true. Accept the drop immediately, then apply the model
+        // move on the main actor when the identifier is available.
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let identifier = object as? NSString else { return }
+            let identifierString = identifier as String
+            DispatchQueue.main.async {
+                _ = performMove([identifierString], meal)
+            }
+        }
+        setTargeted(nil)
+        return true
     }
 
     private func destinationMeal(at location: CGPoint) -> MealCategory? {
@@ -108,7 +114,6 @@ struct DailyLogView: View {
     @State private var showDeleteFoodConfirm  = false
     @State private var showNutritionDetail    = false
     @State private var targetedMeal: MealCategory? = nil
-    @State private var draggedEntryID: UUID? = nil
     @State private var mealDropFrames: [MealCategory: CGRect] = [:]
     @State private var showMoveError = false
     @State private var moveErrorMessage = ""
@@ -272,14 +277,13 @@ struct DailyLogView: View {
                 .onPreferenceChange(MealDropFramePreferenceKey.self) { frames in
                     mealDropFrames = frames
                 }
-                .onDrop(of: [.nomvaFoodEntryID], delegate: MealDropDelegate(
+                .onDrop(of: [.plainText, .text], delegate: MealDropDelegate(
                     mealFrames: mealDropFrames,
-                    draggedIdentifier: { draggedEntryID?.uuidString },
+                    currentTarget: { targetedMeal },
                     setTargeted: { setDropTarget($0) },
                     performMove: { identifiers, meal in
                         moveFoodEntries(with: identifiers, to: meal)
-                    },
-                    finishDrag: { draggedEntryID = nil }
+                    }
                 ))
             }
             .navigationTitle(navTitle)
@@ -503,17 +507,7 @@ struct DailyLogView: View {
             // the one that reliably lifts rows inside a List that also has
             // tap gestures and swipe actions.
             .onDrag {
-                let identifier = entry.id.uuidString
-                draggedEntryID = entry.id
-                let provider = NSItemProvider()
-                provider.registerDataRepresentation(
-                    forTypeIdentifier: UTType.nomvaFoodEntryID.identifier,
-                    visibility: .ownProcess
-                ) { completion in
-                    completion(Data(identifier.utf8), nil)
-                    return nil
-                }
-                return provider
+                NSItemProvider(object: entry.id.uuidString as NSString)
             } preview: {
                 FoodEntryDragPreview(entry: entry)
             }
@@ -600,21 +594,18 @@ struct DailyLogView: View {
                 .accessibilityLabel("Add food to \(meal.title)")
             }
         }
-        .padding(.horizontal, targetedMeal == meal ? 8 : 0)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(targetedMeal == meal ? NomvaTheme.accent.opacity(0.15) : Color.clear)
+                .padding(.horizontal, -8)
         }
         .contentShape(Rectangle())
         .nomvaSectionHeaderPadding()
-        .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: targetedMeal)
         .reportsDropFrame(for: meal)
     }
 
     private func setDropTarget(_ meal: MealCategory?) {
-        withAnimation(reduceMotion ? .none : .easeOut(duration: 0.16)) {
-            targetedMeal = meal
-        }
+        targetedMeal = meal
     }
 
     @discardableResult
