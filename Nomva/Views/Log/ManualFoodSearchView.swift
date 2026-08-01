@@ -1,16 +1,32 @@
 import SwiftUI
 import SwiftData
+import UIKit
+
+private enum ManualFoodSearchScope: String, CaseIterable, Identifiable {
+    case all = "All Foods"
+    case history = "History"
+
+    var id: Self { self }
+}
+
+private struct ManualFoodSelection: Identifiable {
+    let id = UUID()
+    let food: FoodItem
+    let initialQuantity: Double
+}
 
 struct ManualFoodSearchView: View {
     @Query(sort: \CustomFood.createdAt, order: .reverse) private var customFoods: [CustomFood]
+    @Query(sort: \FoodEntry.date, order: .reverse) private var foodHistory: [FoodEntry]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     
     @State private var searchText: String
     @State private var results: [FoodItem] = []
     @State private var isSearching = false
+    @State private var searchScope: ManualFoodSearchScope = .all
     @State private var showScanner = false
-    @State private var selectedFood: FoodItem? = nil
+    @State private var selectedFood: ManualFoodSelection? = nil
     @State private var scannerAlertText = ""
     @State private var showScannerAlert = false
     @State private var pendingBarcode = ""
@@ -35,75 +51,87 @@ struct ManualFoodSearchView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                if results.isEmpty && searchText.isEmpty {
+            List {
+                Section {
+                    Picker("Search Source", selection: $searchScope) {
+                        ForEach(ManualFoodSearchScope.allCases) { scope in
+                            Text(scope.rawValue).tag(scope)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+
+                if trimmedSearchText.isEmpty && matchingHistory.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 60))
                             .foregroundStyle(.orange.opacity(0.3))
-                        Text("Search for foods or scan a barcode")
+                        Text(searchScope == .history
+                             ? "Your previously logged foods will appear here"
+                             : "Search for foods or scan a barcode")
                             .font(.headline)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 56)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+
+                if !matchingHistory.isEmpty {
+                    Section("Previously Logged") {
+                        ForEach(matchingHistory) { entry in
+                            historyResultRow(entry)
+                        }
                     }
                 }
-                
-                List {
-                    if results.isEmpty && !searchText.isEmpty && !isSearching {
-                        // No dead ends: the recovery action is right where
-                        // the user is looking.
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("No results found for \"\(searchText)\"")
-                                .foregroundStyle(.secondary)
+
+                if searchScope == .all, isSearching {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Searching all foods...")
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+
+                if searchScope == .all, !results.isEmpty {
+                    Section("Food Database") {
+                        ForEach(results) { food in
+                            databaseResultRow(food)
+                        }
+                    }
+                }
+
+                if !trimmedSearchText.isEmpty && !hasVisibleResults && !isSearching {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("No results found for \"\(trimmedSearchText)\"")
+                            .foregroundStyle(.secondary)
+
+                        if searchScope == .history {
+                            Button {
+                                searchScope = .all
+                            } label: {
+                                Label("Search All Foods", systemImage: "magnifyingglass")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                        } else {
                             Button {
                                 showCustomFoodCreate = true
                             } label: {
-                                Label("Create \"\(searchText)\" as a Custom Food", systemImage: "square.and.pencil")
+                                Label("Create \"\(trimmedSearchText)\" as a Custom Food", systemImage: "square.and.pencil")
                                     .font(.subheadline.weight(.semibold))
                             }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
                     }
-
-                    ForEach(results) { food in
-                        Button {
-                            selectedFood = food
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(food.name)
-                                        .font(.headline)
-                                        .lineLimit(2)
-                                    HStack(spacing: 4) {
-                                        if let brand = food.brand {
-                                            Text(brand)
-                                        }
-                                        if let serving = food.servingDesc, !serving.isEmpty {
-                                            if food.brand != nil { Text("·") }
-                                            Text(serving)
-                                        }
-                                    }
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                // "214 cal" of what? Always anchor the number
-                                // to its serving.
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text("\(food.caloriesPerServing.safeRoundedInt) cal")
-                                        .font(.subheadline.monospacedDigit())
-                                        .foregroundStyle(.orange)
-                                    Text("per serving")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .foregroundColor(.primary)
-                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
-                .listStyle(.plain)
             }
+            .listStyle(.plain)
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search foods...")
@@ -117,6 +145,15 @@ struct ManualFoodSearchView: View {
                     performSearch()
                 }
             }
+            .onChange(of: searchScope) { _, newScope in
+                searchDebounceTask?.cancel()
+                if newScope == .all {
+                    performSearch()
+                } else {
+                    results = []
+                    isSearching = false
+                }
+            }
             .onAppear {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     performSearch()
@@ -127,8 +164,12 @@ struct ManualFoodSearchView: View {
                     focusSearchBar()
                 }
             }
-            .sheet(item: $selectedFood) { food in
-                ManualFoodDetailView(food: food, meal: initialMeal) {
+            .sheet(item: $selectedFood) { selection in
+                ManualFoodDetailView(
+                    food: selection.food,
+                    meal: initialMeal,
+                    initialQuantity: selection.initialQuantity
+                ) {
                     // This is called when food is logged
                     isPresented = false
                 }
@@ -171,24 +212,231 @@ struct ManualFoodSearchView: View {
             }
         }
     }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var distinctHistory: [FoodEntry] {
+        var seen = Set<String>()
+
+        return foodHistory.filter { entry in
+            let key = "\(normalizedSearchText(entry.name))|\(normalizedSearchText(entry.brand ?? ""))"
+            guard key != "|" else { return false }
+            return seen.insert(key).inserted
+        }
+    }
+
+    private var matchingHistory: [FoodEntry] {
+        let entries = distinctHistory
+        let queryTokens = normalizedSearchText(trimmedSearchText)
+            .split(separator: " ")
+            .map(String.init)
+
+        guard !queryTokens.isEmpty else {
+            return Array(entries.prefix(20))
+        }
+
+        return Array(entries.lazy.filter { entry in
+            let searchable = normalizedSearchText("\(entry.name) \(entry.brand ?? "")")
+            return queryTokens.allSatisfy(searchable.contains)
+        }.prefix(40))
+    }
+
+    private var hasVisibleResults: Bool {
+        !matchingHistory.isEmpty || (searchScope == .all && !results.isEmpty)
+    }
+
+    private func historyResultRow(_ entry: FoodEntry) -> some View {
+        Button {
+            selectedFood = selection(from: entry)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.name)
+                        .font(.headline)
+                        .lineLimit(2)
+
+                    HStack(spacing: 4) {
+                        if let brand = entry.brand, !brand.isEmpty {
+                            Text(brand)
+                        }
+                        if !entry.portionDescription.isEmpty {
+                            if let brand = entry.brand, !brand.isEmpty { Text("·") }
+                            Text(entry.portionDescription)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(entry.calories.safeRoundedInt) cal")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.orange)
+                    Text("last logged")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = entry.name
+            } label: {
+                Label("Copy Food Name", systemImage: "doc.on.doc")
+            }
+        }
+    }
+
+    private func databaseResultRow(_ food: FoodItem) -> some View {
+        Button {
+            selectedFood = ManualFoodSelection(food: food, initialQuantity: 1)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(food.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        if let brand = food.brand {
+                            Text(brand)
+                        }
+                        if let serving = food.servingDesc, !serving.isEmpty {
+                            if food.brand != nil { Text("·") }
+                            Text(serving)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(food.caloriesPerServing.safeRoundedInt) cal")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.orange)
+                    Text("per serving")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
+    }
+
+    private func selection(from entry: FoodEntry) -> ManualFoodSelection {
+        let servingCount = entry.servings.isFinite && entry.servings > 0 ? entry.servings : 1
+        let gramsPerServing = entry.portionGrams.isFinite && entry.portionGrams > 0
+            ? entry.portionGrams / servingCount
+            : 100
+        let divisor = max(servingCount, 0.01)
+
+        let food = FoodItem(
+            id: entry.foodDatabaseId ?? historyFoodID(for: entry.id),
+            fdcId: entry.fdcId,
+            name: entry.name,
+            brand: entry.brand,
+            source: entry.source ?? "history",
+            servingGrams: gramsPerServing,
+            servingDesc: historyServingDescription(from: entry.servingUnit),
+            caloriesPerServing: entry.calories / divisor,
+            proteinG: entry.proteinG / divisor,
+            carbsG: entry.carbsG / divisor,
+            fatG: entry.fatG / divisor,
+            fiberG: entry.fiberG / divisor,
+            sugarG: entry.sugarG / divisor,
+            sodiumMg: entry.sodiumMg / divisor,
+            saturatedFatG: entry.saturatedFatG.map { $0 / divisor },
+            transFatG: entry.transFatG.map { $0 / divisor },
+            cholesterolMg: entry.cholesterolMg.map { $0 / divisor },
+            addedSugarG: entry.addedSugarG.map { $0 / divisor },
+            vitaminDMcg: entry.vitaminDMcg.map { $0 / divisor },
+            calciumMg: entry.calciumMg.map { $0 / divisor },
+            ironMg: entry.ironMg.map { $0 / divisor },
+            potassiumMg: entry.potassiumMg.map { $0 / divisor },
+            vitaminAMcgRAE: entry.vitaminAMcgRAE.map { $0 / divisor },
+            vitaminCMg: entry.vitaminCMg.map { $0 / divisor },
+            vitaminB12Mcg: entry.vitaminB12Mcg.map { $0 / divisor },
+            folateMcgDFE: entry.folateMcgDFE.map { $0 / divisor },
+            magnesiumMg: entry.magnesiumMg.map { $0 / divisor },
+            zincMg: entry.zincMg.map { $0 / divisor },
+            barcode: entry.barcode,
+            portionBasis: .grams,
+            servingSource: .explicitServing
+        )
+
+        return ManualFoodSelection(food: food, initialQuantity: servingCount)
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func historyFoodID(for id: UUID) -> Int {
+        id.uuidString.unicodeScalars.reduce(2_000_000) {
+            (($0 &* 31) &+ Int($1.value)) & Int.max
+        }
+    }
+
+    private func historyServingDescription(from rawValue: String) -> String {
+        var words = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+
+        if let first = words.first,
+           Double(first.replacingOccurrences(of: ",", with: "")) != nil {
+            words.removeFirst()
+        }
+
+        let unit = words.joined(separator: " ").lowercased()
+        guard !unit.isEmpty else { return "serving" }
+
+        if unit.hasSuffix("ies"), unit.count > 3 {
+            return String(unit.dropLast(3)) + "y"
+        }
+        if ["ches", "shes", "xes", "zes"].contains(where: unit.hasSuffix) {
+            return String(unit.dropLast(2))
+        }
+        if unit.hasSuffix("s"), unit.count > 1, !unit.hasSuffix("ss") {
+            return String(unit.dropLast())
+        }
+        return unit
+    }
     
     private func performSearch() {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        let requestedQuery = trimmedSearchText
+        guard searchScope == .all, !requestedQuery.isEmpty else {
             results = []
+            isSearching = false
             return
         }
 
+        results = []
         isSearching = true
         Task {
-            let digits = trimmed.filter(\.isNumber)
+            let digits = requestedQuery.filter(\.isNumber)
             let found: [FoodItem]
 
-            if digits.count >= 8, digits.count == trimmed.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").count {
-                if let custom = customFood(matchingBarcode: trimmed) {
+            if digits.count >= 8, digits.count == requestedQuery.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").count {
+                if let custom = customFood(matchingBarcode: requestedQuery) {
                     found = [foodItem(from: custom)]
                 } else {
-                    let outcome = await BarcodeLookupService.shared.lookup(barcode: trimmed)
+                    let outcome = await BarcodeLookupService.shared.lookup(barcode: requestedQuery)
                     switch outcome {
                     case let .found(food, _):
                         found = [food]
@@ -198,13 +446,14 @@ struct ManualFoodSearchView: View {
                 }
             } else {
                 found = await FoodLoggingService.shared.searchFoodsForManualEntry(
-                    query: trimmed,
+                    query: requestedQuery,
                     customFoods: customFoods,
                     limit: 30
                 )
             }
 
             await MainActor.run {
+                guard searchScope == .all, trimmedSearchText == requestedQuery else { return }
                 self.results = found
                 self.isSearching = false
             }
@@ -216,7 +465,7 @@ struct ManualFoodSearchView: View {
         pendingBarcode = barcode
 
         if let custom = customFood(matchingBarcode: barcode) {
-            selectedFood = foodItem(from: custom)
+            selectedFood = ManualFoodSelection(food: foodItem(from: custom), initialQuantity: 1)
             return
         }
 
@@ -225,7 +474,7 @@ struct ManualFoodSearchView: View {
             await MainActor.run {
                 switch outcome {
                 case let .found(match, _):
-                    selectedFood = match
+                    selectedFood = ManualFoodSelection(food: match, initialQuantity: 1)
                 case .notFound:
                     scannerAlertText = "No food matched barcode \(barcode). Create it once and Nomva will recognize this code next time."
                     showScannerAlert = true

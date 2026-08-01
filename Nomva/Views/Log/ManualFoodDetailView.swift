@@ -17,9 +17,16 @@ struct ManualFoodDetailView: View {
         case weight = "Weight (g)"
     }
     
-    init(food: FoodItem, meal: String? = nil, onLog: (() -> Void)? = nil) {
+    init(
+        food: FoodItem,
+        meal: String? = nil,
+        initialQuantity: Double = 1,
+        onLog: (() -> Void)? = nil
+    ) {
         self.food = food
         self.onLog = onLog
+        let safeQuantity = initialQuantity.isFinite && initialQuantity > 0 ? initialQuantity : 1
+        _quantity = State(initialValue: safeQuantity)
         _selectedMeal = State(initialValue: meal ?? "lunch")
     }
     

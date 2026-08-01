@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct FoodEntryEditView: View {
     let entry: FoodEntry
@@ -7,6 +8,7 @@ struct FoodEntryEditView: View {
     @State private var servings: Double
     @State private var mealSelection: String
     @State private var showDeleteConfirm = false
+    @State private var didCopyFoodName = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -60,11 +62,29 @@ struct FoodEntryEditView: View {
         NavigationStack {
             Form {
                 Section("Food") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.name).font(.headline)
-                        if let brand = entry.brand {
-                            Text(brand).foregroundColor(.secondary).font(.subheadline)
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.name)
+                                .font(.headline)
+                                .textSelection(.enabled)
+                            if let brand = entry.brand {
+                                Text(brand)
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
+                            }
                         }
+
+                        Spacer(minLength: 8)
+
+                        Button(action: copyFoodName) {
+                            Image(systemName: didCopyFoodName ? "checkmark" : "doc.on.doc")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(didCopyFoodName ? .green : .orange)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(didCopyFoodName ? "Food name copied" : "Copy food name")
                     }
                 }
 
@@ -150,6 +170,20 @@ struct FoodEntryEditView: View {
                     dismiss()
                 }
                 Button("Cancel", role: .cancel) { }
+            }
+        }
+    }
+
+    private func copyFoodName() {
+        UIPasteboard.general.string = entry.name
+        withAnimation(.easeInOut(duration: 0.15)) {
+            didCopyFoodName = true
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation(.easeInOut(duration: 0.15)) {
+                didCopyFoodName = false
             }
         }
     }
