@@ -15,6 +15,7 @@ struct ManualFoodSearchView: View {
     @State private var showScannerAlert = false
     @State private var pendingBarcode = ""
     @State private var showCustomFoodCreate = false
+    @State private var searchDebounceTask: Task<Void, Never>? = nil
     
     // To dismiss both this search sheet and the child detail sheet
     @Binding var isPresented: Bool
@@ -48,29 +49,54 @@ struct ManualFoodSearchView: View {
                 
                 List {
                     if results.isEmpty && !searchText.isEmpty && !isSearching {
-                        Text("No results found for \"\(searchText)\"")
-                            .foregroundStyle(.secondary)
-                            .listRowBackground(Color.clear)
+                        // No dead ends: the recovery action is right where
+                        // the user is looking.
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("No results found for \"\(searchText)\"")
+                                .foregroundStyle(.secondary)
+                            Button {
+                                showCustomFoodCreate = true
+                            } label: {
+                                Label("Create \"\(searchText)\" as a Custom Food", systemImage: "square.and.pencil")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
-                    
+
                     ForEach(results) { food in
                         Button {
                             selectedFood = food
                         } label: {
                             HStack {
-                                VStack(alignment: .leading) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(food.name)
                                         .font(.headline)
-                                    if let brand = food.brand {
-                                        Text(brand)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                    HStack(spacing: 4) {
+                                        if let brand = food.brand {
+                                            Text(brand)
+                                        }
+                                        if let serving = food.servingDesc, !serving.isEmpty {
+                                            if food.brand != nil { Text("·") }
+                                            Text(serving)
+                                        }
                                     }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text("\(food.caloriesPerServing.safeRoundedInt) cal")
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.orange)
+                                // "214 cal" of what? Always anchor the number
+                                // to its serving.
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(food.caloriesPerServing.safeRoundedInt) cal")
+                                        .font(.subheadline.monospacedDigit())
+                                        .foregroundStyle(.orange)
+                                    Text("per serving")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .foregroundColor(.primary)
@@ -82,7 +108,14 @@ struct ManualFoodSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search foods...")
             .onChange(of: searchText) { oldValue, newValue in
-                performSearch()
+                // Debounce: two synchronous SQLite queries per keystroke
+                // causes typing jank and result flicker on older devices.
+                searchDebounceTask?.cancel()
+                searchDebounceTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard !Task.isCancelled else { return }
+                    performSearch()
+                }
             }
             .onAppear {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -130,7 +163,10 @@ struct ManualFoodSearchView: View {
             }
             .sheet(isPresented: $showCustomFoodCreate) {
                 NavigationStack {
-                    CustomFoodCreateView(initialBarcode: pendingBarcode)
+                    CustomFoodCreateView(
+                        initialBarcode: pendingBarcode,
+                        initialName: pendingBarcode.isEmpty ? searchText.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                    )
                 }
             }
         }

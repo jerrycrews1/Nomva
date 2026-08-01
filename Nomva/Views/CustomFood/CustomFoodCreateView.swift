@@ -15,8 +15,9 @@ struct CustomFoodCreateView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    init(initialBarcode: String = "") {
+    init(initialBarcode: String = "", initialName: String = "") {
         _barcode = State(initialValue: initialBarcode)
+        _name = State(initialValue: initialName)
     }
 
     var body: some View {

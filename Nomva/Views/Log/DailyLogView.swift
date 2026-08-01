@@ -303,7 +303,7 @@ struct DailyLogView: View {
                 }
             } message: {
                 if let entry = deleteFoodEntry {
-                    Text("\(entry.name) — \(Int(entry.calories)) cal")
+                    Text("\(entry.name) — \(entry.calories.safeRoundedInt) cal")
                 }
             }
             .alert("Couldn’t Move Food", isPresented: $showMoveError) {
@@ -522,7 +522,7 @@ struct DailyLogView: View {
 
             Spacer()
 
-            Text("\(Int(entries.reduce(0.0) { $0 + $1.calories })) cal")
+            Text("\(entries.reduce(0.0) { $0 + $1.calories }.safeRoundedInt) cal")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .textCase(nil)
@@ -981,9 +981,9 @@ struct FoodEntryRow: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(entry.calories)) cal").font(.subheadline).bold()
+                Text("\(entry.calories.safeRoundedInt) cal").font(.subheadline).bold()
                     .foregroundColor(.primary)
-                Text("\(Int(entry.proteinG))g P · \(Int(entry.carbsG))g C · \(Int(entry.fatG))g F").font(.caption2).foregroundColor(.secondary)
+                Text("\(entry.proteinG.safeRoundedInt)g P · \(entry.carbsG.safeRoundedInt)g C · \(entry.fatG.safeRoundedInt)g F").font(.caption2).foregroundColor(.secondary)
             }
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal")
@@ -1053,7 +1053,7 @@ private struct FoodEntryDragPreview: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text("\(Int(entry.calories)) cal")
+            Text("\(entry.calories.safeRoundedInt) cal")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
         }

@@ -155,6 +155,12 @@ struct FoodEntryEditView: View {
     }
 
     private func saveChanges() {
+        // Clamp typed portions to the same sane bounds the AI pipeline uses
+        // (servings 0.05–100, grams 1–5,000) so a stray keystroke can't
+        // create a 3-million-calorie day.
+        servings = servings.isFinite ? min(max(servings, 0.05), 100) : 1
+        portionGrams = portionGrams.isFinite ? min(max(portionGrams, 1), 5000) : entry.portionGrams
+
         let nutrition = scaledNutrition
         entry.portionGrams = portionGrams
         entry.servings = servings

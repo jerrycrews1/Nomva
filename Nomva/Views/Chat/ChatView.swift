@@ -47,6 +47,7 @@ struct ChatView: View {
     @State private var photoAnalysisResult: [RemoteAPIProvider.PhotoFoodItem]? = nil
     @State private var photoError: String?   = nil
     @State private var showPremiumAlert      = false
+    @State private var showPaywall           = false
 
     @FocusState private var isInputFocused: Bool
 
@@ -276,15 +277,18 @@ struct ChatView: View {
             Text(photoError ?? "")
         }
         .alert("Premium Feature", isPresented: $showPremiumAlert) {
-            Button("OK") {}
+            Button("See Nomva Pro") { showPaywall = true }
+            Button("Not Now", role: .cancel) {}
         } message: {
             Text("Photo food scanning is a premium feature. Upgrade to scan meals with your camera.")
         }
-        .onAppear { modelContext.undoManager = undoManager }
-        .onDisappear {
-            activeRequestTask?.cancel()
-            activeRequestTask = nil
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
         }
+        .onAppear { modelContext.undoManager = undoManager }
+        // Deliberately no cancellation onDisappear: switching to the Log tab
+        // to watch a food appear must not kill the in-flight request. The
+        // explicit Stop button remains the way to cancel.
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if isToday { selectedDate = .now }
         }
@@ -331,16 +335,24 @@ struct ChatView: View {
     // MARK: - Message List
 
     private var messageList: some View {
-        ScrollViewReader { proxy in
+        let dayMessages = messages
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if messages.isEmpty {
+                    if dayMessages.isEmpty {
                         emptyChatPrompt
                     }
 
-                    ForEach(messages) { message in
-                        ChatBubble(message: message)
-                            .id(message.id)
+                    ForEach(Array(dayMessages.enumerated()), id: \.element.id) { index, message in
+                        // Timestamp only at the end of a time cluster (last
+                        // message, or >5 min before the next) — one "10:44"
+                        // under every bubble is noise.
+                        ChatBubble(
+                            message: message,
+                            showsTimestamp: index == dayMessages.count - 1
+                                || dayMessages[index + 1].timestamp.timeIntervalSince(message.timestamp) > 300
+                        )
+                        .id(message.id)
                     }
 
                     if isProcessing {
@@ -529,6 +541,7 @@ struct ChatView: View {
                 }
                 .padding(2)
                 .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
+                .accessibilityLabel("Scan food photo")
 
                 // Barcode scanner button
                 Button {
@@ -543,10 +556,11 @@ struct ChatView: View {
                 }
                 .padding(2)
                 .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
+                .accessibilityLabel("Scan barcode")
 
                 HStack(alignment: .bottom, spacing: 10) {
                     TextField(
-                        isToday ? "What did you eat?" : "What did you eat on \(dateLabel)?",
+                        isToday ? "Log food, water, or weight…" : "What did you eat on \(dateLabel)?",
                         text: $inputText,
                         axis: .vertical
                     )
@@ -563,6 +577,7 @@ struct ChatView: View {
                             .frame(width: NomvaTheme.iconControlSize, height: NomvaTheme.iconControlSize)
                     }
                     .disabled(!canSend)
+                    .accessibilityLabel("Send message")
                     .scaleEffect(canSend ? 1.0 : 0.92)
                     .animation(
                         reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.6),
@@ -1593,6 +1608,7 @@ struct ChatView: View {
 
 struct ChatBubble: View {
     let message: ChatMessage
+    var showsTimestamp: Bool = true
     var isUser: Bool { message.role == "user" }
     var isScanner: Bool { message.role == "scanner" }
     private var title: String { isScanner ? "Scanner" : "Nomva" }
@@ -1632,10 +1648,12 @@ struct ChatBubble: View {
                         }
                     }
 
-                Text(message.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
+                if showsTimestamp {
+                    Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                }
             }
             .frame(maxWidth: 290, alignment: isUser ? .trailing : .leading)
 
