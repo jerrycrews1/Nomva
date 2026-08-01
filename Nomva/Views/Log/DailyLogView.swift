@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
 
 private enum MealDropLayout {
     static let coordinateSpace = "DailyLogMealDropSpace"
@@ -32,66 +31,6 @@ private extension View {
     }
 }
 
-/// SwiftUI doesn't reliably deliver drops to child views inside a `List`.
-/// A single destination on the list receives the session, while visible row
-/// frames determine which meal is under the user's finger.
-private struct MealDropDelegate: DropDelegate {
-    let mealFrames: [MealCategory: CGRect]
-    let currentTarget: () -> MealCategory?
-    let setTargeted: (MealCategory?) -> Void
-    let performMove: ([String], MealCategory) -> Bool
-
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.plainText, .text])
-    }
-
-    func dropEntered(info: DropInfo) {
-        setTargeted(destinationMeal(at: info.location))
-    }
-
-    func dropExited(info: DropInfo) {
-        setTargeted(nil)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard let meal = destinationMeal(at: info.location) else {
-            setTargeted(nil)
-            return DropProposal(operation: .forbidden)
-        }
-        setTargeted(meal)
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        // Preserve the last highlighted target because a tiny movement while
-        // lifting the finger can put the final coordinate into a section gap.
-        guard let meal = destinationMeal(at: info.location) ?? currentTarget(),
-              let provider = info.itemProviders(for: [.plainText, .text]).first else {
-            setTargeted(nil)
-            return false
-        }
-
-        // A drop destination must begin loading its item provider before
-        // returning true. Accept the drop immediately, then apply the model
-        // move on the main actor when the identifier is available.
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let identifier = object as? NSString else { return }
-            let identifierString = identifier as String
-            DispatchQueue.main.async {
-                _ = performMove([identifierString], meal)
-            }
-        }
-        setTargeted(nil)
-        return true
-    }
-
-    private func destinationMeal(at location: CGPoint) -> MealCategory? {
-        mealFrames.first { _, frame in
-            frame.insetBy(dx: -4, dy: -3).contains(location)
-        }?.key
-    }
-}
-
 struct DailyLogView: View {
     @Query(sort: \FoodEntry.date) private var allEntries: [FoodEntry]
     @Query(sort: \MealTemplate.createdAt, order: .reverse) private var mealTemplates: [MealTemplate]
@@ -115,6 +54,8 @@ struct DailyLogView: View {
     @State private var showNutritionDetail    = false
     @State private var targetedMeal: MealCategory? = nil
     @State private var mealDropFrames: [MealCategory: CGRect] = [:]
+    @State private var draggedEntryID: UUID? = nil
+    @State private var dragLocation: CGPoint? = nil
     @State private var showMoveError = false
     @State private var moveErrorMessage = ""
     @State private var undoNotice: String? = nil
@@ -277,14 +218,20 @@ struct DailyLogView: View {
                 .onPreferenceChange(MealDropFramePreferenceKey.self) { frames in
                     mealDropFrames = frames
                 }
-                .onDrop(of: [.plainText, .text], delegate: MealDropDelegate(
-                    mealFrames: mealDropFrames,
-                    currentTarget: { targetedMeal },
-                    setTargeted: { setDropTarget($0) },
-                    performMove: { identifiers, meal in
-                        moveFoodEntries(with: identifiers, to: meal)
+
+                if let draggedEntryID,
+                   let dragLocation,
+                   let entry = selectedDayEntries.first(where: { $0.id == draggedEntryID }) {
+                    GeometryReader { proxy in
+                        FoodEntryDragPreview(entry: entry)
+                            .position(
+                                x: min(max(dragLocation.x, 140), proxy.size.width - 140),
+                                y: max(dragLocation.y - 38, 30)
+                            )
                     }
-                ))
+                    .allowsHitTesting(false)
+                    .zIndex(20)
+                }
             }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -497,20 +444,22 @@ struct DailyLogView: View {
     private var hydrationTopInset: CGFloat { selectedDayEntries.isEmpty ? 0 : NomvaTheme.sectionGap }
 
     private func foodEntryListRow(_ entry: FoodEntry, in meal: MealCategory) -> some View {
-        FoodEntryRow(entry: entry)
+        FoodEntryRow(
+            entry: entry,
+            isMoving: draggedEntryID == entry.id,
+            onMoveChanged: { location in
+                updateFoodDrag(entry: entry, from: meal, location: location)
+            },
+            onMoveEnded: { location in
+                finishFoodDrag(entry: entry, from: meal, location: location)
+            }
+        )
             .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .contentShape(Rectangle())
             .onTapGesture { selectedEntry = entry }
-            // .onDrag (not .draggable): the UIKit-backed drag interaction is
-            // the one that reliably lifts rows inside a List that also has
-            // tap gestures and swipe actions.
-            .onDrag {
-                NSItemProvider(object: entry.id.uuidString as NSString)
-            } preview: {
-                FoodEntryDragPreview(entry: entry)
-            }
+            .opacity(draggedEntryID == entry.id ? 0.3 : 1)
             .reportsDropFrame(for: meal)
             // Visible fallback for everyone who doesn't discover drag:
             // long-press offers the same move targets.
@@ -606,6 +555,42 @@ struct DailyLogView: View {
 
     private func setDropTarget(_ meal: MealCategory?) {
         targetedMeal = meal
+    }
+
+    private func updateFoodDrag(
+        entry: FoodEntry,
+        from sourceMeal: MealCategory,
+        location: CGPoint
+    ) {
+        draggedEntryID = entry.id
+        dragLocation = location
+        let destination = destinationMeal(at: location)
+        setDropTarget(destination == sourceMeal ? nil : destination)
+    }
+
+    private func finishFoodDrag(
+        entry: FoodEntry,
+        from sourceMeal: MealCategory,
+        location: CGPoint
+    ) {
+        let destination = destinationMeal(at: location) ?? targetedMeal
+        draggedEntryID = nil
+        dragLocation = nil
+        targetedMeal = nil
+
+        guard let destination, destination != sourceMeal else { return }
+        _ = moveFoodEntries(with: [entry.id.uuidString], to: destination)
+    }
+
+    private func destinationMeal(at location: CGPoint) -> MealCategory? {
+        mealDropFrames
+            .filter { _, frame in
+                frame.insetBy(dx: -8, dy: -6).contains(location)
+            }
+            .min { lhs, rhs in
+                abs(lhs.value.midY - location.y) < abs(rhs.value.midY - location.y)
+            }?
+            .key
     }
 
     @discardableResult
@@ -1016,6 +1001,10 @@ struct DailyLogView: View {
 
 struct FoodEntryRow: View {
     let entry: FoodEntry
+    let isMoving: Bool
+    let onMoveChanged: (CGPoint) -> Void
+    let onMoveEnded: (CGPoint) -> Void
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -1035,7 +1024,10 @@ struct FoodEntryRow: View {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary.opacity(0.7))
+                    .foregroundStyle(isMoving ? NomvaTheme.accent : .secondary.opacity(0.7))
+                    .frame(width: 36, height: 44)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(moveGesture)
                     .accessibilityHidden(true)
                 Image(systemName: "chevron.right")
                     .font(.caption)
@@ -1056,6 +1048,19 @@ struct FoodEntryRow: View {
             + "\(entry.fatG.safeRoundedInt) grams fat"
         )
         .accessibilityHint("Double tap to edit. Additional actions can move or delete this food.")
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture(
+            minimumDistance: 2,
+            coordinateSpace: .named(MealDropLayout.coordinateSpace)
+        )
+        .onChanged { value in
+            onMoveChanged(value.location)
+        }
+        .onEnded { value in
+            onMoveEnded(value.location)
+        }
     }
 }
 
