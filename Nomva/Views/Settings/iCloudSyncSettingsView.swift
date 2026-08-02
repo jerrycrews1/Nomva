@@ -8,7 +8,7 @@ struct iCloudSyncSettingsView: View {
             Section {
                 HStack(spacing: 16) {
                     Image(systemName: syncManager.iCloudEnabled ? "icloud.fill" : "iphone")
-                        .foregroundColor(syncManager.iCloudEnabled ? .blue : .secondary)
+                        .foregroundColor(syncManager.iCloudEnabled ? NomvaTheme.info : .secondary)
                         .font(.title2)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -33,7 +33,7 @@ struct iCloudSyncSettingsView: View {
                         }
                     }
                 ))
-                .tint(.blue)
+                .tint(NomvaTheme.info)
                 .disabled(syncManager.isBusy || (!syncManager.isAccountAvailable && !syncManager.iCloudEnabled))
 
                 if syncManager.isBusy, let message = syncManager.syncStatus.message {
@@ -48,15 +48,15 @@ struct iCloudSyncSettingsView: View {
                 if case .success(let message) = syncManager.syncStatus {
                     Label(message, systemImage: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(NomvaTheme.success)
                 } else if case .error(let message) = syncManager.syncStatus {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(NomvaTheme.warning)
                 } else if !syncManager.isAccountAvailable && !syncManager.iCloudEnabled {
                     Label("Sign in to iCloud on this device to turn sync on. Nomva will keep your data here for now.", systemImage: "person.crop.circle.badge.exclamationmark")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(NomvaTheme.warning)
                 }
             } footer: {
                 Text("Turn sync on to merge this device into iCloud. Turn it off to keep a copy here without deleting the iCloud copy.")
@@ -85,7 +85,7 @@ struct iCloudSyncSettingsView: View {
                     if let issue = syncManager.lastErrorMessage {
                         Label(issue, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(NomvaTheme.warning)
                     }
                 }
             }

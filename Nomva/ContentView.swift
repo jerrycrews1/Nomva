@@ -2,13 +2,23 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @State private var selectedTab: Tab = .chat
+    @State private var selectedTab: Tab = Self.initialTab
     @StateObject private var subManager = SubscriptionManager.shared
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
 
     enum Tab {
         case chat, log, weight, settings
+    }
+
+    private static var initialTab: Tab {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-NomvaStartSettings") { return .settings }
+        if arguments.contains("-NomvaStartLog") { return .log }
+        if arguments.contains("-NomvaStartWeight") { return .weight }
+        #endif
+        return .chat
     }
 
     var body: some View {

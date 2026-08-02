@@ -67,7 +67,7 @@ struct ExportSettingsView: View {
                                 Toggle("Weight History", isOn: $includeWeight)
                                 Toggle("Hydration", isOn: $includeWater)
                             }
-                            .tint(.orange)
+                            .tint(NomvaTheme.accent)
                         }
                     }
                     
@@ -98,8 +98,8 @@ struct ExportSettingsView: View {
                                     Image(systemName: "square.and.arrow.up")
                                 }
                                 .padding()
-                                .background(Color.orange.opacity(0.1))
-                                .foregroundColor(.orange)
+                                .background(NomvaTheme.accent.opacity(0.1))
+                                .foregroundColor(NomvaTheme.accent)
                                 .cornerRadius(12)
                             }
                         }
@@ -119,8 +119,8 @@ struct ExportSettingsView: View {
                                     Image(systemName: "square.and.arrow.up")
                                 }
                                 .padding()
-                                .background(Color.blue.opacity(0.1))
-                                .foregroundColor(.blue)
+                                .background(NomvaTheme.info.opacity(0.1))
+                                .foregroundColor(NomvaTheme.info)
                                 .cornerRadius(12)
                             }
                             
@@ -133,8 +133,8 @@ struct ExportSettingsView: View {
                                     Spacer()
                                 }
                                 .padding()
-                                .background(Color.green.opacity(0.1))
-                                .foregroundColor(.green)
+                                .background(NomvaTheme.success.opacity(0.1))
+                                .foregroundColor(NomvaTheme.success)
                                 .cornerRadius(12)
                             }
                         }
@@ -143,7 +143,7 @@ struct ExportSettingsView: View {
                     if let error = importError {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(NomvaTheme.danger)
                             .padding()
                     }
                 }

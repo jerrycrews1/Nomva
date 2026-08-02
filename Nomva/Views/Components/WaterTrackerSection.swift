@@ -35,14 +35,14 @@ struct WaterTrackerSection: View {
 
                 Image(systemName: "drop.fill")
                     .font(.caption.weight(.semibold))
-                    .foregroundColor(.blue)
+                    .foregroundColor(NomvaTheme.info)
                     .padding(7)
-                    .background(Color.blue.opacity(0.10))
+                    .background(NomvaTheme.info.opacity(0.10))
                     .clipShape(Circle())
             }
 
             ProgressView(value: min(totalOz / goalOz, 1.0))
-                .tint(.blue)
+                .tint(NomvaTheme.info)
                 .scaleEffect(x: 1, y: 0.65)
 
             HStack(spacing: 6) {
@@ -58,8 +58,8 @@ struct WaterTrackerSection: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, NomvaTheme.chipHorizontalPadding)
                             .padding(.vertical, NomvaTheme.chipVerticalPadding)
-                            .background(Color.blue.opacity(0.10))
-                            .foregroundColor(.blue)
+                            .background(NomvaTheme.info.opacity(0.10))
+                            .foregroundColor(NomvaTheme.info)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.borderless)

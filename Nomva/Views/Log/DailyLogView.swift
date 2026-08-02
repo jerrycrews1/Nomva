@@ -503,7 +503,7 @@ struct DailyLogView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .tint(.orange)
+                .tint(NomvaTheme.accent)
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                 Button {
@@ -514,7 +514,7 @@ struct DailyLogView: View {
                         systemImage: entry.isFavorite ? "star.slash" : "star"
                     )
                 }
-                .tint(.yellow)
+                .tint(NomvaTheme.warning)
             }
     }
 
@@ -536,7 +536,7 @@ struct DailyLogView: View {
                     showManualSearch = true
                 } label: {
                     Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                         .font(.title3)
                 }
                 .padding(.leading, 8)
@@ -879,9 +879,9 @@ struct DailyLogView: View {
                 } else {
                     Image(systemName: "figure.walk.motion")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                         .frame(width: 40, height: 40)
-                        .background(Color.orange.opacity(0.12))
+                        .background(NomvaTheme.accent.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
@@ -935,7 +935,7 @@ struct DailyLogView: View {
                     } label: {
                         Label("Sync Now", systemImage: "arrow.trianglehead.2.clockwise")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(NomvaTheme.accent)
                     }
                 }
             } else {
@@ -1136,7 +1136,7 @@ private struct GarminLogStat: View {
                 .foregroundStyle(.primary)
             Text(detail)
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(NomvaTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, NomvaTheme.chipHorizontalPadding)

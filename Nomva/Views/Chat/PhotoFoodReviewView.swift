@@ -88,7 +88,7 @@ struct PhotoFoodReviewView: View {
             if loggedIndices.count == foods.count {
                 Text("All done!")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(NomvaTheme.success)
             }
         }
         .padding(.horizontal, 24)
@@ -109,7 +109,7 @@ struct PhotoFoodReviewView: View {
                 dismiss()
             }
             .fontWeight(.semibold)
-            .foregroundStyle(.orange)
+            .foregroundStyle(NomvaTheme.accent)
             .disabled(loggedIndices.isEmpty)
         }
     }
@@ -149,7 +149,7 @@ private struct PhotoFoodRow: View {
     private var rowContent: some View {
         HStack(spacing: 12) {
             Image(systemName: isLogged ? "checkmark.circle.fill" : "plus.circle")
-                .foregroundStyle(isLogged ? .green : .orange)
+                .foregroundStyle(isLogged ? NomvaTheme.success : NomvaTheme.accent)
                 .font(.title3)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -169,7 +169,7 @@ private struct PhotoFoodRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(calText)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(isLogged ? Color.secondary : Color.orange)
+                    .foregroundStyle(isLogged ? Color.secondary : NomvaTheme.accent)
                 Text(macroText)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)

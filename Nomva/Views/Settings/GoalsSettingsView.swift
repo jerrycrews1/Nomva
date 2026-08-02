@@ -80,11 +80,12 @@ struct GoalsSettingsView: View {
             }
         }
         .navigationTitle("Goals")
+        .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top, spacing: 8) {
             if let confirmationMessage {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(NomvaTheme.success)
                     Text(confirmationMessage)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -95,7 +96,7 @@ struct GoalsSettingsView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay {
                     Capsule()
-                        .stroke(Color.white.opacity(0.4), lineWidth: 1)
+                        .stroke(NomvaTheme.line, lineWidth: 1)
                 }
                 .shadow(color: Color.black.opacity(0.08), radius: 12, y: 6)
                 .padding(.horizontal, 16)
@@ -178,7 +179,7 @@ struct GoalSliderRow: View {
             }
 
             Slider(value: $value, in: range, step: step)
-                .tint(.orange)
+                .tint(NomvaTheme.accent)
         }
         .padding(.vertical, 4)
     }
@@ -366,7 +367,7 @@ struct RecalculateGoalsView: View {
                             VStack(spacing: 4) {
                                 Text("\(projectedCalories.safeRoundedInt)")
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(NomvaTheme.accent)
                                     .contentTransition(.numericText())
                                 Text("kcal / day")
                                     .font(.caption)
@@ -377,9 +378,9 @@ struct RecalculateGoalsView: View {
                                 .frame(height: 50)
 
                             HStack(spacing: 16) {
-                                macroStat(label: "Pro", value: projectedMacros.protein, color: .blue)
-                                macroStat(label: "Carb", value: projectedMacros.carbs, color: .green)
-                                macroStat(label: "Fat", value: projectedMacros.fat, color: .yellow)
+                                macroStat(label: "Pro", value: projectedMacros.protein, color: NomvaTheme.macroProtein)
+                                macroStat(label: "Carb", value: projectedMacros.carbs, color: NomvaTheme.macroCarbs)
+                                macroStat(label: "Fat", value: projectedMacros.fat, color: NomvaTheme.macroFat)
                             }
                         }
 
@@ -468,7 +469,7 @@ struct RecalculateGoalsView: View {
                                         }
                                     }
                                     .pickerStyle(.menu)
-                                    .tint(.orange)
+                                    .tint(NomvaTheme.accent)
                                 }
 
                                 thinDivider()
@@ -479,7 +480,7 @@ struct RecalculateGoalsView: View {
                                             ForEach(4...7, id: \.self) { Text("\($0)").tag($0) }
                                         }
                                         .pickerStyle(.menu)
-                                        .tint(.orange)
+                                        .tint(NomvaTheme.accent)
                                         .fixedSize()
 
                                         Text("ft")
@@ -491,7 +492,7 @@ struct RecalculateGoalsView: View {
                                             ForEach(0...11, id: \.self) { Text("\($0)").tag($0) }
                                         }
                                         .pickerStyle(.menu)
-                                        .tint(.orange)
+                                        .tint(NomvaTheme.accent)
                                         .fixedSize()
 
                                         Text("in")
@@ -510,7 +511,7 @@ struct RecalculateGoalsView: View {
                                         TextField("160", text: $weightInput)
                                             .keyboardType(.decimalPad)
                                             .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(NomvaTheme.accent)
                                             .multilineTextAlignment(.trailing)
                                             .frame(width: 80)
                                             .onChange(of: weightInput) { oldValue, newValue in
@@ -550,7 +551,7 @@ struct RecalculateGoalsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { apply() }
                         .fontWeight(.bold)
-                        .foregroundStyle(applyDisabled ? Color.secondary : .orange)
+                        .foregroundStyle(applyDisabled ? Color.secondary : NomvaTheme.accent)
                         .disabled(applyDisabled)
                 }
             }
@@ -603,7 +604,7 @@ struct RecalculateGoalsView: View {
                         Task { await connectAppleHealth() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .tint(NomvaTheme.accent)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -628,7 +629,7 @@ struct RecalculateGoalsView: View {
                             Task { await refreshAppleHealthStatus(forceFetch: true) }
                         }
                         .buttonStyle(.bordered)
-                        .tint(.orange)
+                        .tint(NomvaTheme.accent)
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
@@ -644,7 +645,7 @@ struct RecalculateGoalsView: View {
                         Task { await refreshAppleHealthStatus(forceFetch: true) }
                     }
                     .buttonStyle(.bordered)
-                    .tint(.orange)
+                    .tint(NomvaTheme.accent)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -666,7 +667,7 @@ struct RecalculateGoalsView: View {
                         Task { await refreshAppleHealthStatus(forceFetch: true) }
                     }
                     .buttonStyle(.bordered)
-                    .tint(.orange)
+                    .tint(NomvaTheme.accent)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -707,7 +708,7 @@ struct RecalculateGoalsView: View {
                         Task { await garminManager.connect() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .tint(NomvaTheme.accent)
 
                     if garminManager.isConfigured, let lastError = garminManager.lastErrorMessage, !lastError.isEmpty {
                         Text(lastError)
@@ -752,7 +753,7 @@ struct RecalculateGoalsView: View {
                             Task { await garminManager.refresh() }
                         }
                         .buttonStyle(.bordered)
-                        .tint(.orange)
+                        .tint(NomvaTheme.accent)
 
                         Button("Disconnect") {
                             Task { await garminManager.disconnect() }
@@ -811,8 +812,8 @@ struct RecalculateGoalsView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .foregroundStyle(isSelected ? .white : .primary)
-            .background(isSelected ? Color.orange : Color(.tertiarySystemGroupedBackground))
+            .foregroundStyle(isSelected ? NomvaTheme.onAccent : Color.primary)
+            .background(isSelected ? NomvaTheme.accentFill : Color(.tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -843,7 +844,7 @@ struct RecalculateGoalsView: View {
             HStack(spacing: 12) {
                 Image(systemName: source.systemImage)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? .orange : .secondary)
+                    .foregroundStyle(isSelected ? NomvaTheme.accent : Color.secondary)
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -861,20 +862,20 @@ struct RecalculateGoalsView: View {
                 if let badge {
                     Text(badge)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(isSelected ? .orange : .secondary)
+                        .foregroundStyle(isSelected ? NomvaTheme.accent : Color.secondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.orange.opacity(isSelected ? 0.14 : 0.08))
+                        .background(NomvaTheme.accent.opacity(isSelected ? 0.14 : 0.08))
                         .clipShape(Capsule())
                 }
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? .orange : Color(.tertiaryLabel))
+                    .foregroundStyle(isSelected ? NomvaTheme.accent : Color(.tertiaryLabel))
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
-            .background(isSelected ? Color.orange.opacity(0.08) : .clear)
+            .background(isSelected ? NomvaTheme.accent.opacity(0.08) : .clear)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -887,7 +888,7 @@ struct RecalculateGoalsView: View {
             HStack(spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? .orange : Color(.tertiaryLabel))
+                    .foregroundStyle(isSelected ? NomvaTheme.accent : Color(.tertiaryLabel))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(level.displayName)
@@ -903,7 +904,7 @@ struct RecalculateGoalsView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
-            .background(isSelected ? Color.orange.opacity(0.08) : .clear)
+            .background(isSelected ? NomvaTheme.accent.opacity(0.08) : .clear)
         }
         .buttonStyle(.plain)
     }
@@ -918,7 +919,7 @@ struct RecalculateGoalsView: View {
                 .foregroundStyle(.primary)
             Text(detail)
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(NomvaTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -930,7 +931,7 @@ struct RecalculateGoalsView: View {
         HStack(spacing: 6) {
             Text(text)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(NomvaTheme.accent)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 

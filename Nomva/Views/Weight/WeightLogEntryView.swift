@@ -79,8 +79,8 @@ struct WeightLogEntryView: View {
                                     .font(.caption.bold())
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
-                                    .background(unit == u ? Color.orange : Color(.systemGray5))
-                                    .foregroundStyle(unit == u ? .white : .secondary)
+                                    .background(unit == u ? NomvaTheme.accentFill : Color(.systemGray5))
+                                    .foregroundStyle(unit == u ? NomvaTheme.onAccent : Color.secondary)
                                     .clipShape(Capsule())
                             }
                             .buttonStyle(.plain)
@@ -125,7 +125,7 @@ struct WeightLogEntryView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .fontWeight(.semibold)
-                        .foregroundStyle(parsedLbs != nil ? .orange : .secondary)
+                        .foregroundStyle(parsedLbs != nil ? NomvaTheme.accent : Color.secondary)
                         .disabled(parsedLbs == nil)
                 }
             }

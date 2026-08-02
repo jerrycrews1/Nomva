@@ -79,7 +79,7 @@ struct FoodEntryEditView: View {
                         Button(action: copyFoodName) {
                             Image(systemName: didCopyFoodName ? "checkmark" : "doc.on.doc")
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(didCopyFoodName ? .green : .orange)
+                                .foregroundStyle(didCopyFoodName ? NomvaTheme.success : NomvaTheme.accent)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -144,7 +144,7 @@ struct FoodEntryEditView: View {
                                 entry.isFavorite ? "Remove Favorite" : "Add to Favorites",
                                 systemImage: entry.isFavorite ? "heart.fill" : "heart"
                             )
-                            .foregroundColor(entry.isFavorite ? .red : .secondary)
+                            .foregroundColor(entry.isFavorite ? NomvaTheme.danger : .secondary)
                         }
                     }
 

@@ -66,7 +66,7 @@ struct ManualFoodSearchView: View {
                     VStack(spacing: 20) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 60))
-                            .foregroundStyle(.orange.opacity(0.3))
+                            .foregroundStyle(NomvaTheme.accent.opacity(0.45))
                         Text(searchScope == .history
                              ? "Your previously logged foods will appear here"
                              : "Search for foods or scan a barcode")
@@ -254,7 +254,7 @@ struct ManualFoodSearchView: View {
             HStack(spacing: 12) {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(NomvaTheme.accent)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -281,7 +281,7 @@ struct ManualFoodSearchView: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(entry.calories.safeRoundedInt) cal")
                         .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                     Text("last logged")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -323,7 +323,7 @@ struct ManualFoodSearchView: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(food.caloriesPerServing.safeRoundedInt) cal")
                         .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                     Text("per serving")
                         .font(.caption2)
                         .foregroundStyle(.secondary)

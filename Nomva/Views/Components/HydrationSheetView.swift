@@ -78,7 +78,7 @@ struct HydrationSheetView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .fontWeight(.semibold)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(NomvaTheme.info)
                 }
             }
         }
@@ -93,17 +93,17 @@ struct HydrationSheetView: View {
         VStack(spacing: 10) {
             ZStack {
                 Circle()
-                    .stroke(Color.blue.opacity(0.15), lineWidth: 10)
+                    .stroke(NomvaTheme.info.opacity(0.15), lineWidth: 10)
                 Circle()
                     .trim(from: 0, to: min(totalOz / goalOz, 1.0))
-                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(NomvaTheme.info, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(reduceMotion ? .none : .spring(), value: totalOz)
 
                 VStack(spacing: 2) {
                     Image(systemName: "drop.fill")
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(NomvaTheme.info)
                     Text("\(totalOz.safeRoundedInt)")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                     Text("of \(goalOz.safeRoundedInt) oz")
@@ -116,7 +116,7 @@ struct HydrationSheetView: View {
             if totalOz >= goalOz {
                 Text("Goal reached!")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(NomvaTheme.info)
             }
         }
         .frame(maxWidth: .infinity)
@@ -140,8 +140,8 @@ struct HydrationSheetView: View {
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .background(Color.blue.opacity(0.10))
-                            .foregroundColor(.blue)
+                            .background(NomvaTheme.info.opacity(0.10))
+                            .foregroundColor(NomvaTheme.info)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -181,7 +181,7 @@ struct HydrationSheetView: View {
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(NomvaTheme.info)
                 }
                 .disabled(Double(customAmount) == nil || (Double(customAmount) ?? 0) <= 0)
             }
@@ -205,8 +205,8 @@ struct HydrationSheetView: View {
                             .font(.caption.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .background(goalOz == target ? Color.blue : Color(UIColor.secondarySystemBackground))
-                            .foregroundColor(goalOz == target ? .white : .primary)
+                            .background(goalOz == target ? NomvaTheme.infoFill : Color(UIColor.secondarySystemBackground))
+                            .foregroundColor(goalOz == target ? NomvaTheme.onAccent : .primary)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -228,7 +228,7 @@ struct HydrationSheetView: View {
                     HStack {
                         Image(systemName: "drop.fill")
                             .font(.caption)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(NomvaTheme.info)
                         Text("\(entry.amountOz.safeRoundedInt) oz")
                             .font(.subheadline.weight(.medium))
                         Spacer()
@@ -243,7 +243,7 @@ struct HydrationSheetView: View {
                         } label: {
                             Image(systemName: "minus.circle.fill")
                                 .font(.body)
-                                .foregroundStyle(.red.opacity(0.7))
+                                .foregroundStyle(NomvaTheme.danger)
                         }
                         .buttonStyle(.plain)
                     }

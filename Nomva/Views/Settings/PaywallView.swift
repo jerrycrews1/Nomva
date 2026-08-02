@@ -92,7 +92,7 @@ struct PaywallView: View {
             HStack {
                 Image(systemName: "sparkles")
                     .font(.title.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(NomvaTheme.onAccent)
                     .frame(width: 56, height: 56)
                     .background(NomvaTheme.accentGradient)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -101,7 +101,7 @@ struct PaywallView: View {
 
                 NomvaTag(
                     text: subManager.hasTestFlightAccess ? "TestFlight" : "Pro",
-                    tint: subManager.hasTestFlightAccess ? .green : NomvaTheme.accent
+                    tint: subManager.hasTestFlightAccess ? NomvaTheme.success : NomvaTheme.accent
                 )
             }
 
@@ -141,7 +141,7 @@ struct PaywallView: View {
             if subManager.hasTestFlightAccess {
                 Label("No purchase required", systemImage: "checkmark.seal.fill")
                     .font(.headline)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(NomvaTheme.success)
             } else if let product = subManager.product {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(product.displayPrice)
@@ -164,7 +164,7 @@ struct PaywallView: View {
             Button(action: purchase) {
                 HStack(spacing: 10) {
                     if case .purchasing = subManager.purchaseState {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(NomvaTheme.onAccent)
                         Text("Processing...")
                     } else {
                         Text(buttonTitle)
@@ -192,7 +192,7 @@ struct PaywallView: View {
             if let message = subManager.purchaseState.feedbackMessage {
                 Text(message)
                     .font(.footnote.weight(.medium))
-                    .foregroundStyle(subManager.purchaseState.isError ? Color.red : Color.secondary)
+                    .foregroundStyle(subManager.purchaseState.isError ? NomvaTheme.danger : Color.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -203,7 +203,7 @@ struct PaywallView: View {
         VStack(spacing: 12) {
             Label("Pro is unlocked for this TestFlight build.", systemImage: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(NomvaTheme.success)
                 .multilineTextAlignment(.center)
 
             Button("Continue Testing") {

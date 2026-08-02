@@ -1,9 +1,41 @@
 import SwiftUI
 
 enum NomvaTheme {
-    static let accent = Color(red: 0.99, green: 0.58, blue: 0.16)
-    static let accentStrong = Color(red: 0.96, green: 0.46, blue: 0.12)
-    static let accentSoft = Color(red: 1.00, green: 0.82, blue: 0.60)
+    // Text and controls need opposite luminance shifts in light and dark mode.
+    // Keep these separate from accentGradient, whose white label requires a
+    // consistently dark fill in both appearances.
+    static let accent = adaptive(
+        light: UIColor(red: 0.60, green: 0.24, blue: 0.00, alpha: 1),
+        dark: UIColor(red: 1.00, green: 0.67, blue: 0.36, alpha: 1)
+    )
+    static let accentFill = Color(red: 0.72, green: 0.27, blue: 0.00)
+    static let accentStrong = Color(red: 0.56, green: 0.19, blue: 0.00)
+    static let onAccent = Color.white
+    static let accentSoft = adaptive(
+        light: UIColor(red: 1.00, green: 0.82, blue: 0.60, alpha: 1),
+        dark: UIColor(red: 0.36, green: 0.17, blue: 0.05, alpha: 1)
+    )
+
+    static let success = adaptive(
+        light: UIColor(red: 0.09, green: 0.48, blue: 0.22, alpha: 1),
+        dark: UIColor(red: 0.38, green: 0.85, blue: 0.53, alpha: 1)
+    )
+    static let warning = adaptive(
+        light: UIColor(red: 0.54, green: 0.28, blue: 0.00, alpha: 1),
+        dark: UIColor(red: 1.00, green: 0.71, blue: 0.37, alpha: 1)
+    )
+    static let info = adaptive(
+        light: UIColor(red: 0.04, green: 0.38, blue: 0.78, alpha: 1),
+        dark: UIColor(red: 0.40, green: 0.69, blue: 1.00, alpha: 1)
+    )
+    static let infoFill = Color(red: 0.04, green: 0.38, blue: 0.78)
+    static let danger = adaptive(
+        light: UIColor(red: 0.74, green: 0.12, blue: 0.18, alpha: 1),
+        dark: UIColor(red: 1.00, green: 0.42, blue: 0.45, alpha: 1)
+    )
+    static let macroProtein = info
+    static let macroCarbs = success
+    static let macroFat = warning
     
     // Adaptive colors
     static let mist = Color(UIColor { trait in
@@ -35,8 +67,14 @@ enum NomvaTheme {
     static let bottomBarTopInset: CGFloat = 8
     static let bottomBarBottomInset: CGFloat = 10
 
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+        Color(UIColor { trait in
+            trait.userInterfaceStyle == .dark ? dark : light
+        })
+    }
+
     static let accentGradient = LinearGradient(
-        colors: [accent, accentStrong],
+        colors: [accentFill, accentStrong],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -150,7 +188,7 @@ struct NomvaPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.headline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(NomvaTheme.onAccent)
             .frame(maxWidth: .infinity)
             .frame(minHeight: NomvaTheme.primaryControlHeight)
             .padding(.horizontal, 18)
@@ -220,7 +258,7 @@ struct NomvaSectionHeaderText: View {
     var body: some View {
         Text(title)
             .font(.title3.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .textCase(nil)
     }
 }

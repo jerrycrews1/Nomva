@@ -223,7 +223,7 @@ struct WeightLoggingView: View {
                                         } label: {
                                             Label("Edit", systemImage: "pencil")
                                         }
-                                        .tint(.orange)
+                                        .tint(NomvaTheme.accent)
                                     }
                                     .listRowInsets(
                                         EdgeInsets(
@@ -693,7 +693,7 @@ struct WeightLoggingView: View {
                     selectedChartWindow = window
                 }
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(selectedChartWindow == window ? .white : .secondary)
+                .foregroundStyle(selectedChartWindow == window ? NomvaTheme.onAccent : Color.secondary)
                 .frame(maxWidth: .infinity, minHeight: 38)
                 .background(
                     Group {
@@ -763,7 +763,7 @@ struct WeightLoggingView: View {
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(NomvaTheme.accent)
         }
         .accessibilityLabel("Weight unit \(unit.shortLabel)")
     }

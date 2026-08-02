@@ -203,9 +203,9 @@ private struct TodaySummaryWidgetView: View {
                 .privacySensitive()
             }
 
-            MacroWidgetBar(label: "Protein", value: entry.snapshot.today.proteinG, goal: entry.snapshot.today.proteinGoalG, tint: .blue)
-            MacroWidgetBar(label: "Carbs", value: entry.snapshot.today.carbsG, goal: entry.snapshot.today.carbsGoalG, tint: .green)
-            MacroWidgetBar(label: "Fat", value: entry.snapshot.today.fatG, goal: entry.snapshot.today.fatGoalG, tint: .orange)
+            MacroWidgetBar(label: "Protein", value: entry.snapshot.today.proteinG, goal: entry.snapshot.today.proteinGoalG, tint: NomvaWidgetPalette.info)
+            MacroWidgetBar(label: "Carbs", value: entry.snapshot.today.carbsG, goal: entry.snapshot.today.carbsGoalG, tint: NomvaWidgetPalette.success)
+            MacroWidgetBar(label: "Fat", value: entry.snapshot.today.fatG, goal: entry.snapshot.today.fatGoalG, tint: NomvaWidgetPalette.accent)
         }
     }
 
@@ -217,8 +217,8 @@ private struct TodaySummaryWidgetView: View {
                 .overlay(NomvaWidgetPalette.divider)
 
             HStack(spacing: 16) {
-                summaryBadge(title: "Water", value: "\(Int(entry.snapshot.hydration.totalOz.rounded())) oz", tint: .blue)
-                summaryBadge(title: "Meals", value: "\(entry.snapshot.today.mealCount)", tint: .orange)
+                summaryBadge(title: "Water", value: "\(Int(entry.snapshot.hydration.totalOz.rounded())) oz", tint: NomvaWidgetPalette.info)
+                summaryBadge(title: "Meals", value: "\(entry.snapshot.today.mealCount)", tint: NomvaWidgetPalette.accent)
                 summaryBadge(title: "Updated", value: entry.snapshot.lastUpdatedAt.formatted(date: .omitted, time: .shortened), tint: .white.opacity(0.9))
             }
 
@@ -340,7 +340,7 @@ private struct HydrationWidgetView: View {
             }
 
             ProgressView(value: progress)
-                .tint(.blue)
+                .tint(NomvaWidgetPalette.info)
 
             Spacer(minLength: 0)
 
@@ -350,7 +350,7 @@ private struct HydrationWidgetView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
+            .tint(NomvaWidgetPalette.info)
         }
     }
 
@@ -372,14 +372,14 @@ private struct HydrationWidgetView: View {
 
                 Image(systemName: "drop.fill")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(NomvaWidgetPalette.info)
                     .frame(width: 36, height: 36)
-                    .background(Color.blue.opacity(0.14))
+                    .background(NomvaWidgetPalette.info.opacity(0.14))
                     .clipShape(Circle())
             }
 
             ProgressView(value: progress)
-                .tint(.blue)
+                .tint(NomvaWidgetPalette.info)
 
             HStack(spacing: 10) {
                 Button(intent: AddWaterIntent(amountOz: 8)) {
@@ -387,14 +387,14 @@ private struct HydrationWidgetView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.blue)
+                .tint(NomvaWidgetPalette.info)
 
                 Button(intent: AddWaterIntent(amountOz: 12)) {
                     Text("+12 oz")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .tint(.blue)
+                .tint(NomvaWidgetPalette.info)
             }
             .font(.caption.weight(.semibold))
         }
@@ -408,7 +408,7 @@ private struct HydrationWidgetView: View {
                 .privacySensitive()
         }
         .gaugeStyle(.accessoryCircular)
-        .tint(.blue)
+        .tint(NomvaWidgetPalette.info)
     }
 
     private var accessoryRectangular: some View {
@@ -430,7 +430,7 @@ private struct HydrationWidgetView: View {
                 Text("+8")
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
+            .tint(NomvaWidgetPalette.info)
         }
     }
 }
@@ -463,7 +463,7 @@ private struct ActivityGoalWidgetView: View {
             if entry.snapshot.activity.state == .ready {
                 Text(redactionReasons.contains(.privacy) ? "Progress available" : activityHeadline)
                     .font(.title3.weight(.bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(NomvaWidgetPalette.accent)
                     .privacySensitive()
                     .monospacedDigit()
             } else {
@@ -494,9 +494,9 @@ private struct ActivityGoalWidgetView: View {
 
                 Image(systemName: entry.snapshot.activity.source == .garmin ? "figure.walk.motion" : "heart.text.square.fill")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(NomvaWidgetPalette.accent)
                     .frame(width: 36, height: 36)
-                    .background(Color.orange.opacity(0.14))
+                    .background(NomvaWidgetPalette.accent.opacity(0.14))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
@@ -795,11 +795,11 @@ private struct WeightTrendWidgetView: View {
     private var weightTrendColor: Color {
         switch entry.snapshot.weight.trend {
         case .down:
-            return .green
+            return NomvaWidgetPalette.success
         case .up:
             return .pink
         case .steady, .unknown:
-            return .orange
+            return NomvaWidgetPalette.accent
         }
     }
 }
@@ -905,6 +905,9 @@ private struct NomvaWidgetSurface<Content: View>: View {
 }
 
 private enum NomvaWidgetPalette {
+    static let accent = Color(red: 1.00, green: 0.67, blue: 0.36)
+    static let info = Color(red: 0.40, green: 0.69, blue: 1.00)
+    static let success = Color(red: 0.38, green: 0.85, blue: 0.53)
     static let primaryText = Color.white.opacity(0.96)
     static let secondaryText = Color.white.opacity(0.74)
     static let mutedText = Color.white.opacity(0.6)

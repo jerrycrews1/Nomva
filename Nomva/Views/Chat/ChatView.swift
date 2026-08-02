@@ -285,7 +285,10 @@ struct ChatView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
         }
-        .onAppear { modelContext.undoManager = undoManager }
+        .onAppear {
+            modelContext.undoManager = undoManager
+            showDebugScannerErrorIfRequested()
+        }
         // Deliberately no cancellation onDisappear: switching to the Log tab
         // to watch a food appear must not kill the in-flight request. The
         // explicit Stop button remains the way to cancel.
@@ -1460,6 +1463,14 @@ struct ChatView: View {
         }
     }
 
+    private func showDebugScannerErrorIfRequested() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-NomvaShowScannerError"),
+              scannerError == nil else { return }
+        scannerError = "Couldn’t find barcode 012345678905. Create it once and Nomva will recognize it next time."
+        #endif
+    }
+
     private func foodItem(from food: CustomFood) -> FoodItem {
         FoodItem(
             id: food.id.uuidString.unicodeScalars.reduce(1_000_000) {
@@ -1638,7 +1649,7 @@ struct ChatBubble: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(bubbleBackground)
-                    .foregroundColor(isUser ? .white : .primary)
+                    .foregroundColor(isUser ? NomvaTheme.onAccent : .primary)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .contextMenu {
                         Button {
@@ -1660,7 +1671,7 @@ struct ChatBubble: View {
             if isUser {
                 Image(systemName: "person.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(NomvaTheme.onAccent)
                     .frame(width: 28, height: 28)
                     .background(NomvaTheme.accentGradient)
                     .clipShape(Circle())

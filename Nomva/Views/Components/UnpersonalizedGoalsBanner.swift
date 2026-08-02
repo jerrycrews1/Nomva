@@ -14,9 +14,9 @@ struct UnpersonalizedGoalsBanner: View {
             HStack(spacing: 12) {
                 Image(systemName: "figure.run.circle.fill")
                     .font(.title3)
-                    .foregroundColor(.blue)
+                    .foregroundColor(NomvaTheme.info)
                     .padding(8)
-                    .background(Color.blue.opacity(0.10))
+                    .background(NomvaTheme.info.opacity(0.10))
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 4) {

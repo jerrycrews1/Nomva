@@ -13,6 +13,7 @@ struct NomvaApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .tint(NomvaTheme.accent)
                 .environmentObject(syncManager)
                 .environmentObject(subscriptionManager)
                 .environmentObject(garminManager)

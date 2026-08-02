@@ -159,19 +159,19 @@ struct NutritionDetailView: View {
 
                 NomvaTag(
                     text: calorieDeltaText,
-                    tint: calorieDelta >= 0 ? NomvaTheme.accent : .red
+                    tint: calorieDelta >= 0 ? NomvaTheme.accent : NomvaTheme.danger
                 )
             }
 
             ProgressBar(
                 progress: progress(totals.calories, goal.calories),
-                tint: calorieDelta >= 0 ? NomvaTheme.accent : .red
+                tint: calorieDelta >= 0 ? NomvaTheme.accent : NomvaTheme.danger
             )
 
             HStack(spacing: 10) {
-                OverviewPill(title: "Protein", value: "\(totals.protein.safeRoundedInt)g", tint: .blue)
-                OverviewPill(title: "Fiber", value: "\(totals.fiber.safeRoundedInt)g", tint: .green)
-                OverviewPill(title: "Sodium", value: "\(totals.sodium.safeRoundedInt)mg", tint: .orange)
+                OverviewPill(title: "Protein", value: "\(totals.protein.safeRoundedInt)g", tint: NomvaTheme.macroProtein)
+                OverviewPill(title: "Fiber", value: "\(totals.fiber.safeRoundedInt)g", tint: NomvaTheme.success)
+                OverviewPill(title: "Sodium", value: "\(totals.sodium.safeRoundedInt)mg", tint: NomvaTheme.warning)
             }
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
@@ -195,7 +195,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: goal.protein,
                     targetLabel: "goal",
-                    tint: .blue,
+                    tint: NomvaTheme.macroProtein,
                     direction: .target
                 )
                 NutrientProgressRow(
@@ -204,7 +204,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: goal.carbs,
                     targetLabel: "goal",
-                    tint: .green,
+                    tint: NomvaTheme.macroCarbs,
                     direction: .target
                 )
                 NutrientProgressRow(
@@ -213,7 +213,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: goal.fat,
                     targetLabel: "goal",
-                    tint: .yellow,
+                    tint: NomvaTheme.macroFat,
                     direction: .target
                 )
                 NutrientProgressRow(
@@ -251,7 +251,7 @@ struct NutritionDetailView: View {
                     unit: "mg",
                     target: 2300,
                     targetLabel: "limit",
-                    tint: .orange,
+                    tint: NomvaTheme.warning,
                     direction: .limit,
                     note: dailyValueCue(amount: totals.sodium, target: 2300, direction: .limit)
                 )
@@ -261,7 +261,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: 20,
                     targetLabel: "limit",
-                    tint: .red,
+                    tint: NomvaTheme.danger,
                     direction: .limit,
                     knownCount: knownEntryCount(for: \.saturatedFatG),
                     totalCount: entries.count
@@ -283,7 +283,7 @@ struct NutritionDetailView: View {
                     unit: "mg",
                     target: 300,
                     targetLabel: "limit",
-                    tint: .orange,
+                    tint: NomvaTheme.warning,
                     direction: .limit,
                     knownCount: knownEntryCount(for: \.cholesterolMg),
                     totalCount: entries.count
@@ -294,7 +294,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: 275,
                     targetLabel: "DV",
-                    tint: .green,
+                    tint: NomvaTheme.macroCarbs,
                     direction: .target
                 )
                 NutrientProgressRow(
@@ -303,7 +303,7 @@ struct NutritionDetailView: View {
                     unit: "g",
                     target: 78,
                     targetLabel: "DV",
-                    tint: .yellow,
+                    tint: NomvaTheme.macroFat,
                     direction: .limit
                 )
                 NutrientProgressRow(
@@ -326,15 +326,15 @@ struct NutritionDetailView: View {
             subtitle: "FDA Daily Values with coverage notes when a food source omits a nutrient."
         ) {
             VStack(spacing: 10) {
-                TrackedNutrientProgressRow(title: "Vitamin D", amount: totals.vitaminD, unit: "mcg", target: 20, targetLabel: "DV", tint: .yellow, direction: .target, knownCount: knownEntryCount(for: \.vitaminDMcg), totalCount: entries.count)
-                TrackedNutrientProgressRow(title: "Calcium", amount: totals.calcium, unit: "mg", target: 1300, targetLabel: "DV", tint: .blue, direction: .target, knownCount: knownEntryCount(for: \.calciumMg), totalCount: entries.count)
-                TrackedNutrientProgressRow(title: "Iron", amount: totals.iron, unit: "mg", target: 18, targetLabel: "DV", tint: .red, direction: .target, knownCount: knownEntryCount(for: \.ironMg), totalCount: entries.count)
-                TrackedNutrientProgressRow(title: "Potassium", amount: totals.potassium, unit: "mg", target: 4700, targetLabel: "DV", tint: .green, direction: .target, knownCount: knownEntryCount(for: \.potassiumMg), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Vitamin D", amount: totals.vitaminD, unit: "mcg", target: 20, targetLabel: "DV", tint: NomvaTheme.warning, direction: .target, knownCount: knownEntryCount(for: \.vitaminDMcg), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Calcium", amount: totals.calcium, unit: "mg", target: 1300, targetLabel: "DV", tint: NomvaTheme.info, direction: .target, knownCount: knownEntryCount(for: \.calciumMg), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Iron", amount: totals.iron, unit: "mg", target: 18, targetLabel: "DV", tint: NomvaTheme.danger, direction: .target, knownCount: knownEntryCount(for: \.ironMg), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Potassium", amount: totals.potassium, unit: "mg", target: 4700, targetLabel: "DV", tint: NomvaTheme.success, direction: .target, knownCount: knownEntryCount(for: \.potassiumMg), totalCount: entries.count)
 
                 Divider().opacity(0.5)
 
-                TrackedNutrientProgressRow(title: "Vitamin A", amount: totals.vitaminA, unit: "mcg", target: 900, targetLabel: "DV", tint: .orange, direction: .target, knownCount: knownEntryCount(for: \.vitaminAMcgRAE), totalCount: entries.count)
-                TrackedNutrientProgressRow(title: "Vitamin C", amount: totals.vitaminC, unit: "mg", target: 90, targetLabel: "DV", tint: .green, direction: .target, knownCount: knownEntryCount(for: \.vitaminCMg), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Vitamin A", amount: totals.vitaminA, unit: "mcg", target: 900, targetLabel: "DV", tint: NomvaTheme.warning, direction: .target, knownCount: knownEntryCount(for: \.vitaminAMcgRAE), totalCount: entries.count)
+                TrackedNutrientProgressRow(title: "Vitamin C", amount: totals.vitaminC, unit: "mg", target: 90, targetLabel: "DV", tint: NomvaTheme.success, direction: .target, knownCount: knownEntryCount(for: \.vitaminCMg), totalCount: entries.count)
                 TrackedNutrientProgressRow(title: "Vitamin B12", amount: totals.vitaminB12, unit: "mcg", target: 2.4, targetLabel: "DV", tint: .purple, direction: .target, knownCount: knownEntryCount(for: \.vitaminB12Mcg), totalCount: entries.count)
                 TrackedNutrientProgressRow(title: "Folate", amount: totals.folate, unit: "mcg", target: 400, targetLabel: "DV", tint: .teal, direction: .target, knownCount: knownEntryCount(for: \.folateMcgDFE), totalCount: entries.count)
                 TrackedNutrientProgressRow(title: "Magnesium", amount: totals.magnesium, unit: "mg", target: 420, targetLabel: "DV", tint: .indigo, direction: .target, knownCount: knownEntryCount(for: \.magnesiumMg), totalCount: entries.count)
@@ -358,9 +358,9 @@ struct NutritionDetailView: View {
         ) {
             VStack(spacing: 12) {
                 TrendComparisonRow(title: "Calories", selected: totals.calories, average: trendAverage.calories, unit: "cal", tint: NomvaTheme.accent)
-                TrendComparisonRow(title: "Protein", selected: totals.protein, average: trendAverage.protein, unit: "g", tint: .blue)
+                TrendComparisonRow(title: "Protein", selected: totals.protein, average: trendAverage.protein, unit: "g", tint: NomvaTheme.macroProtein)
                 TrendComparisonRow(title: "Fiber", selected: totals.fiber, average: trendAverage.fiber, unit: "g", tint: .teal)
-                TrendComparisonRow(title: "Sodium", selected: totals.sodium, average: trendAverage.sodium, unit: "mg", tint: .orange)
+                TrendComparisonRow(title: "Sodium", selected: totals.sodium, average: trendAverage.sodium, unit: "mg", tint: NomvaTheme.warning)
                 TrendComparisonRow(title: "Added Sugar", selected: totals.addedSugar, average: trendAverage.addedSugar, unit: "g", tint: .pink)
 
                 SevenDayMiniBars(snapshots: trendSnapshots, goalCalories: goal.calories)
@@ -582,9 +582,9 @@ private struct NutrientProgressRow: View {
         guard let percent else { return tint.opacity(0.45) }
         switch direction {
         case .target:
-            return percent > 1.05 ? .green : tint
+            return percent > 1.05 ? NomvaTheme.success : tint
         case .limit:
-            return percent > 1 ? .red : tint
+            return percent > 1 ? NomvaTheme.danger : tint
         case .neutral:
             return tint
         }
@@ -837,7 +837,7 @@ private struct CoverageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(isAvailable ? .green : .secondary)
+                .foregroundStyle(isAvailable ? NomvaTheme.success : .secondary)
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 2) {

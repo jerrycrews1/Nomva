@@ -19,7 +19,7 @@ struct LLMProviderSettingsView: View {
                 HStack(spacing: 14) {
                     Image(systemName: "cloud.fill")
                         .font(.title3)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Nomva Cloud")
@@ -30,7 +30,7 @@ struct LLMProviderSettingsView: View {
                     }
                     Spacer()
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NomvaTheme.accent)
                         .font(.title3)
                 }
                 .padding(.vertical, 4)

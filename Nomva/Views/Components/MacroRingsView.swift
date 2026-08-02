@@ -46,9 +46,9 @@ struct MacroRingsView: View {
                 Text(calorieStatus)
                     .font(.subheadline.weight(.semibold))
                 HStack(spacing: 8) {
-                    compactMacro(label: "P", val: consumed.protein, color: .blue)
-                    compactMacro(label: "C", val: consumed.carbs, color: .green)
-                    compactMacro(label: "F", val: consumed.fat, color: .yellow)
+                    compactMacro(label: "P", val: consumed.protein, color: NomvaTheme.macroProtein)
+                    compactMacro(label: "C", val: consumed.carbs, color: NomvaTheme.macroCarbs)
+                    compactMacro(label: "F", val: consumed.fat, color: NomvaTheme.macroFat)
                 }
             }
 
@@ -84,7 +84,7 @@ struct MacroRingsView: View {
 
                 NomvaTag(
                     text: calorieStatus,
-                    tint: remainingCalories > 0 ? NomvaTheme.accent : .green
+                    tint: remainingCalories > 0 ? NomvaTheme.accent : NomvaTheme.success
                 )
 
                 if showsDetailCue {
@@ -113,7 +113,7 @@ struct MacroRingsView: View {
                         label: "Protein",
                         consumed: consumed.protein,
                         goal: goal.protein,
-                        color: .blue,
+                        color: NomvaTheme.macroProtein,
                         unit: "g"
                     )
 
@@ -121,7 +121,7 @@ struct MacroRingsView: View {
                         label: "Carbs",
                         consumed: consumed.carbs,
                         goal: goal.carbs,
-                        color: .green,
+                        color: NomvaTheme.macroCarbs,
                         unit: "g"
                     )
 
@@ -129,16 +129,16 @@ struct MacroRingsView: View {
                         label: "Fat",
                         consumed: consumed.fat,
                         goal: goal.fat,
-                        color: .yellow,
+                        color: NomvaTheme.macroFat,
                         unit: "g"
                     )
                 }
             }
 
             HStack(spacing: 10) {
-                MacroStatPill(label: "Protein", value: consumed.protein.safeRoundedInt, tint: .blue)
-                MacroStatPill(label: "Carbs", value: consumed.carbs.safeRoundedInt, tint: .green)
-                MacroStatPill(label: "Fat", value: consumed.fat.safeRoundedInt, tint: .yellow)
+                MacroStatPill(label: "Protein", value: consumed.protein.safeRoundedInt, tint: NomvaTheme.macroProtein)
+                MacroStatPill(label: "Carbs", value: consumed.carbs.safeRoundedInt, tint: NomvaTheme.macroCarbs)
+                MacroStatPill(label: "Fat", value: consumed.fat.safeRoundedInt, tint: NomvaTheme.macroFat)
             }
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
@@ -180,7 +180,7 @@ struct RingView: View {
             Circle()
                 .trim(from: 0, to: clampedProgress)
                 .stroke(
-                    progress > 1 ? Color.red : color,
+                    progress > 1 ? NomvaTheme.danger : color,
                     style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
@@ -232,7 +232,7 @@ struct MacroBarView: View {
                         .frame(height: 8)
 
                     Capsule()
-                        .fill(consumed > goal ? Color.red : color)
+                        .fill(consumed > goal ? NomvaTheme.danger : color)
                         .frame(width: geo.size.width * progress, height: 8)
                 }
             }

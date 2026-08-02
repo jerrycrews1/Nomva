@@ -16,12 +16,12 @@ struct OnboardingCompleteView: View {
                     HStack {
                         ZStack {
                             Circle()
-                                .fill(Color.green.opacity(0.15))
+                                .fill(NomvaTheme.success.opacity(0.15))
                                 .frame(width: 92, height: 92)
 
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 56))
-                                .foregroundColor(.green)
+                                .foregroundColor(NomvaTheme.success)
                                 .scaleEffect(showCheckmark ? 1.0 : 0.3)
                                 .opacity(showCheckmark ? 1.0 : 0)
                                 .animation(.spring(response: 0.5, dampingFraction: 0.6), value: showCheckmark)
@@ -29,7 +29,7 @@ struct OnboardingCompleteView: View {
 
                         Spacer()
 
-                        NomvaTag(text: "Ready", tint: .green)
+                        NomvaTag(text: "Ready", tint: NomvaTheme.success)
                     }
 
                     Text("Log a meal, check what's left, or fix an entry without leaving the app.")

@@ -34,9 +34,9 @@ struct OnboardingGoalsView: View {
 
                     HStack(spacing: 12) {
                         goalPreviewTile(title: "Calories", value: "\(calorieGoal.safeRoundedInt)", unit: "kcal", tint: NomvaTheme.accent)
-                        goalPreviewTile(title: "Protein", value: "\(proteinGoal.safeRoundedInt)", unit: "g", tint: .blue)
-                        goalPreviewTile(title: "Carbs", value: "\(carbGoal.safeRoundedInt)", unit: "g", tint: .green)
-                        goalPreviewTile(title: "Fat", value: "\(fatGoal.safeRoundedInt)", unit: "g", tint: .yellow)
+                        goalPreviewTile(title: "Protein", value: "\(proteinGoal.safeRoundedInt)", unit: "g", tint: NomvaTheme.macroProtein)
+                        goalPreviewTile(title: "Carbs", value: "\(carbGoal.safeRoundedInt)", unit: "g", tint: NomvaTheme.macroCarbs)
+                        goalPreviewTile(title: "Fat", value: "\(fatGoal.safeRoundedInt)", unit: "g", tint: NomvaTheme.macroFat)
                     }
                 }
             }

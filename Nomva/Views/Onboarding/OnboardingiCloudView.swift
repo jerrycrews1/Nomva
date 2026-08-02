@@ -18,9 +18,9 @@ struct OnboardingiCloudView: View {
                     HStack(spacing: 14) {
                         Image(systemName: "icloud.fill")
                             .font(.system(size: 40))
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(NomvaTheme.info)
                             .frame(width: 64, height: 64)
-                            .background(Color.blue.opacity(0.10))
+                            .background(NomvaTheme.info.opacity(0.10))
                             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 4) {
@@ -35,13 +35,13 @@ struct OnboardingiCloudView: View {
                     if !syncManager.isAccountAvailable {
                         Label("Sign in to iCloud on this device to turn sync on.", systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(NomvaTheme.warning)
                     }
 
                     if case .error(let message) = syncManager.syncStatus {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(NomvaTheme.warning)
                     }
                 }
             }
@@ -59,7 +59,7 @@ struct OnboardingiCloudView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .tint(.blue)
+                .tint(NomvaTheme.info)
                 .disabled(!syncManager.isAccountAvailable || isApplying)
 
                 if isApplying, let message = syncManager.syncStatus.message {

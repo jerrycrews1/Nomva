@@ -79,6 +79,7 @@ struct RecentFoodChip: View {
                 // the name is "Mayo" or "Chicken Breast Burrito Bowl".
                 Text(entry.name)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                 Text(entry.portionDescription)
@@ -89,6 +90,7 @@ struct RecentFoodChip: View {
             .frame(width: 170, alignment: .topLeading)
             .nomvaCard(.subtle, padding: 14)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Quick add \(entry.name), \(entry.calories.safeRoundedInt) calories")
     }
 }

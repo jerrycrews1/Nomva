@@ -112,7 +112,7 @@ struct SettingsView: View {
 
                                     NomvaTag(
                                         text: membershipStatus,
-                                        tint: subscriptionManager.isPremium ? .green : NomvaTheme.accent
+                                        tint: subscriptionManager.isPremium ? NomvaTheme.success : NomvaTheme.accent
                                     )
                                 }
 
@@ -122,7 +122,7 @@ struct SettingsView: View {
                                         systemImage: "checkmark.seal.fill"
                                     )
                                     .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(NomvaTheme.success)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 } else {
                                     HStack(spacing: 12) {
@@ -143,7 +143,7 @@ struct SettingsView: View {
                                     Text(message)
                                         .font(.footnote.weight(.medium))
                                         .foregroundStyle(
-                                            subscriptionManager.purchaseState.isError ? Color.red : Color.secondary
+                                            subscriptionManager.purchaseState.isError ? NomvaTheme.danger : Color.secondary
                                         )
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -213,7 +213,7 @@ struct SettingsView: View {
                                     HStack {
                                         if isSeedingSimulatorData {
                                             ProgressView()
-                                                .tint(.white)
+                                                .tint(NomvaTheme.onAccent)
                                         } else {
                                             Image(systemName: "photo.on.rectangle.angled")
                                                 .font(.headline.weight(.semibold))
@@ -291,7 +291,7 @@ struct SettingsView: View {
             VStack(spacing: 8) {
                 Image(systemName: "cloud.fill")
                     .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(NomvaTheme.onAccent)
                     .frame(width: NomvaTheme.iconControlSize, height: NomvaTheme.iconControlSize)
                     .background(NomvaTheme.accentGradient)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -519,7 +519,7 @@ private struct GarminSettingsDetailView: View {
 
                             NomvaTag(
                                 text: garminManager.isConnected ? "Live" : garminManager.isConfigured ? "Ready" : "Setup",
-                                tint: garminManager.isConnected ? .green : NomvaTheme.accent
+                                tint: garminManager.isConnected ? NomvaTheme.success : NomvaTheme.accent
                             )
                         }
 
@@ -571,7 +571,7 @@ private struct GarminSettingsDetailView: View {
                                                 .rotationEffect(.degrees(rotation))
                                         } else if showSuccess {
                                             Image(systemName: "checkmark.circle.fill")
-                                                .foregroundStyle(.green)
+                                                .foregroundStyle(NomvaTheme.success)
                                         } else {
                                             Text("Refresh")
                                         }
@@ -596,11 +596,11 @@ private struct GarminSettingsDetailView: View {
                         if garminManager.isConfigured, let lastError = garminManager.lastErrorMessage, !lastError.isEmpty {
                             Text(lastError)
                                 .font(.caption.bold())
-                                .foregroundStyle(.red)
+                                .foregroundStyle(NomvaTheme.danger)
                         } else if showSuccess {
                             Text("✓ Activity data updated.")
                                 .font(.caption.bold())
-                                .foregroundStyle(.green)
+                                .foregroundStyle(NomvaTheme.success)
                         }
                     }
                 }
@@ -702,7 +702,7 @@ private struct AppleHealthSettingsDetailView: View {
 
                             NomvaTag(
                                 text: isActive ? "Active" : isConnected ? "Connected" : "Off",
-                                tint: isActive ? .green : isConnected ? .blue : NomvaTheme.accent
+                                tint: isActive ? NomvaTheme.success : isConnected ? NomvaTheme.info : NomvaTheme.accent
                             )
                         }
 
@@ -754,20 +754,20 @@ private struct AppleHealthSettingsDetailView: View {
                             if isActive {
                                 Text("Apple Health is adjusting your calorie goals.")
                                     .font(.caption)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(NomvaTheme.success)
                             }
                         }
 
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.caption.bold())
-                                .foregroundStyle(.red)
+                                .foregroundStyle(NomvaTheme.danger)
                         }
 
                         if showSuccess {
                             Text("✓ Activity data refreshed.")
                                 .font(.caption.bold())
-                                .foregroundStyle(.green)
+                                .foregroundStyle(NomvaTheme.success)
                         }
                     }
                 }

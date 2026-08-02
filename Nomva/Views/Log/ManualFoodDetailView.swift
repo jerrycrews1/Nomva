@@ -51,7 +51,7 @@ struct ManualFoodDetailView: View {
                         progress: 0.7, // Mock progress for visual flair
                         label: "\(nutrition.calories.safeRoundedInt)",
                         sublabel: "cal",
-                        color: .orange,
+                        color: NomvaTheme.accent,
                         size: 80
                     )
                     
@@ -132,8 +132,8 @@ struct ManualFoodDetailView: View {
                                             .font(.subheadline.bold())
                                             .padding(.horizontal, 16)
                                             .padding(.vertical, 8)
-                                            .background(quantity == val ? Color.orange : Color(.systemGray5))
-                                            .foregroundColor(quantity == val ? .white : .primary)
+                                            .background(quantity == val ? NomvaTheme.accentFill : Color(.systemGray5))
+                                            .foregroundColor(quantity == val ? NomvaTheme.onAccent : .primary)
                                             .clipShape(Capsule())
                                     }
                                 }
@@ -154,11 +154,11 @@ struct ManualFoodDetailView: View {
                     
                     Section("Nutrition Facts") {
                         HStack(spacing: 0) {
-                            macroCard(label: "Protein", val: nutrition.protein, color: .blue)
+                            macroCard(label: "Protein", val: nutrition.protein, color: NomvaTheme.macroProtein)
                             Divider()
-                            macroCard(label: "Carbs", val: nutrition.carbs, color: .green)
+                            macroCard(label: "Carbs", val: nutrition.carbs, color: NomvaTheme.macroCarbs)
                             Divider()
-                            macroCard(label: "Fat", val: nutrition.fat, color: .yellow)
+                            macroCard(label: "Fat", val: nutrition.fat, color: NomvaTheme.macroFat)
                         }
                         .listRowInsets(EdgeInsets())
                     }
@@ -173,7 +173,7 @@ struct ManualFoodDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Log It") { saveEntry() }
                         .buttonStyle(.borderedProminent)
-                        .tint(.orange)
+                        .tint(NomvaTheme.accent)
                         .fontWeight(.bold)
                 }
             }

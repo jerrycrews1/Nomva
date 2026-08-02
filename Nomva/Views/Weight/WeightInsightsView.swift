@@ -68,11 +68,11 @@ struct WeightInsightsSection: View {
 
     private var signalColor: Color {
         switch insight.signal {
-        case .losing:         return .green
-        case .losingSlowing:  return .yellow
-        case .plateau:        return .orange
-        case .gaining:        return .red
-        case .gainingSlowing: return .yellow
+        case .losing:         return NomvaTheme.success
+        case .losingSlowing:  return NomvaTheme.warning
+        case .plateau:        return NomvaTheme.warning
+        case .gaining:        return NomvaTheme.danger
+        case .gainingSlowing: return NomvaTheme.warning
         case .insufficient:   return .secondary
         }
     }
@@ -101,7 +101,7 @@ struct WeightInsightsSection: View {
                     .foregroundStyle(
                         LinearGradient(
                             colors: [
-                                point.velocity < 0 ? Color.green.opacity(0.25) : Color.red.opacity(0.25),
+                                point.velocity < 0 ? NomvaTheme.success.opacity(0.25) : NomvaTheme.danger.opacity(0.25),
                                 .clear
                             ],
                             startPoint: .top,
@@ -114,7 +114,7 @@ struct WeightInsightsSection: View {
                         x: .value("Date", point.date),
                         y: .value("Velocity", point.velocity)
                     )
-                    .foregroundStyle(point.velocity < 0 ? Color.green : Color.red)
+                    .foregroundStyle(point.velocity < 0 ? NomvaTheme.success : NomvaTheme.danger)
                     .interpolationMethod(.catmullRom)
                     .lineStyle(StrokeStyle(lineWidth: 2))
                 }
@@ -146,7 +146,7 @@ struct WeightInsightsSection: View {
                 title: "Weekly Rate",
                 value: String(format: "%+.1f", convertWeight(insight.weeklyRate)),
                 detail: unit == .lbs ? "lbs/wk" : "kg/wk",
-                tint: insight.weeklyRate < 0 ? .green : (insight.weeklyRate > 0.05 ? .red : .secondary)
+                tint: insight.weeklyRate < 0 ? NomvaTheme.success : (insight.weeklyRate > 0.05 ? NomvaTheme.danger : .secondary)
             )
             InsightStat(
                 title: "Smoothed",
@@ -158,7 +158,7 @@ struct WeightInsightsSection: View {
                 title: "Decel. Days",
                 value: "\(insight.consecutiveDecelerationDays)",
                 detail: insight.consecutiveDecelerationDays >= 3 ? "watch" : "ok",
-                tint: insight.consecutiveDecelerationDays >= 3 ? .orange : .green
+                tint: insight.consecutiveDecelerationDays >= 3 ? NomvaTheme.warning : NomvaTheme.success
             )
         }
     }
@@ -169,7 +169,7 @@ struct WeightInsightsSection: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: warning.severity == .warning ? "exclamationmark.triangle.fill" : "info.circle.fill")
                 .font(.title3)
-                .foregroundStyle(warning.severity == .warning ? Color.orange : Color.yellow)
+                .foregroundStyle(NomvaTheme.warning)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(warning.severity == .warning ? "Plateau Prediction" : "Heads Up")
@@ -184,14 +184,14 @@ struct WeightInsightsSection: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(warning.severity == .warning
-                      ? Color.orange.opacity(0.08)
-                      : Color.yellow.opacity(0.06))
+                      ? NomvaTheme.warning.opacity(0.10)
+                      : NomvaTheme.warning.opacity(0.07))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(warning.severity == .warning
-                        ? Color.orange.opacity(0.2)
-                        : Color.yellow.opacity(0.15), lineWidth: 1)
+                        ? NomvaTheme.warning.opacity(0.28)
+                        : NomvaTheme.warning.opacity(0.18), lineWidth: 1)
         )
     }
 
@@ -310,7 +310,7 @@ struct WeightInsightsTeaser: View {
             Button(action: onUpgrade) {
                 Text("Unlock with Nomva Pro")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(NomvaTheme.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(NomvaTheme.accentGradient)

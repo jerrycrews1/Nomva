@@ -23,7 +23,7 @@ struct GoalInputRow: View {
             }
 
             Slider(value: $value, in: range)
-                .tint(.orange)
+                .tint(NomvaTheme.accent)
         }
         .padding(.vertical, 4)
     }
