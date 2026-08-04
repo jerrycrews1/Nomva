@@ -4,6 +4,7 @@ import SwiftData
 struct GoalsSettingsView: View {
     @Query(sort: \DailyGoal.createdAt, order: .reverse) private var goals: [DailyGoal]
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @State private var showRecalculateSheet = false
     @State private var confirmationMessage: String?
 
@@ -11,8 +12,49 @@ struct GoalsSettingsView: View {
         goals.isEmpty ? nil : GoalService.currentGoal(from: goals)
     }
 
+    private var activitySource: GoalActivitySource {
+        GoalActivitySource(rawValue: activitySourceRaw) ?? .manual
+    }
+
     var body: some View {
         Form {
+            Section {
+                Button {
+                    showRecalculateSheet = true
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "target")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(NomvaTheme.accent)
+                            .frame(width: 42, height: 42)
+                            .background(NomvaTheme.accent.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Review Personalized Targets")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text("See the formula, your profile, and the \(activitySource.displayName) activity basis.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            } header: {
+                Text("Goal Setup")
+            } footer: {
+                Text("Review exactly how calories and macros are estimated before applying a new starting target.")
+            }
+
             Section {
                 GoalSliderRow(
                     label: "Calories",
@@ -71,13 +113,6 @@ struct GoalsSettingsView: View {
                 )
             }
 
-            Section {
-                Button("Recalculate from My Info or Activity Data") {
-                    showRecalculateSheet = true
-                }
-            } footer: {
-                Text("Recalculate uses your height, weight, and your selected activity source to suggest updated targets.")
-            }
         }
         .navigationTitle("Goals")
         .navigationBarTitleDisplayMode(.inline)
@@ -126,6 +161,11 @@ struct GoalsSettingsView: View {
         }
         .task {
             ensureGoalExists()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-NomvaShowGoalSetup") {
+                showRecalculateSheet = true
+            }
+            #endif
         }
     }
 
@@ -247,20 +287,23 @@ struct RecalculateGoalsView: View {
         return .manual(activityLevel)
     }
 
-    private var projectedCalories: Double {
-        GoalService.calculateSuggestedCalories(
+    private var projection: GoalProjection {
+        GoalService.calculateProjection(
             weightLbs: weightLbs,
             heightInches: totalHeightInches,
             age: max(currentAge, 18),
             sex: biologicalSex,
             activityProfile: selectedActivityProfile,
             goal: weightGoal
-        ).rounded()
+        )
+    }
+
+    private var projectedCalories: Double {
+        projection.targetCalories
     }
 
     private var projectedMacros: (protein: Double, carbs: Double, fat: Double) {
-        let macros = GoalService.suggestMacros(calories: projectedCalories, weightLbs: weightLbs, goal: weightGoal)
-        return (macros.protein.rounded(), macros.carbs.rounded(), macros.fat.rounded())
+        (projection.protein.rounded(), projection.carbs.rounded(), projection.fat.rounded())
     }
 
     private var applyDisabled: Bool {
@@ -276,18 +319,64 @@ struct RecalculateGoalsView: View {
             return "Using your \(activityLevel.displayName.lowercased()) activity estimate."
         case .appleHealth:
             if let appleHealthSummary {
-                return "Using Apple Health average activity: \(appleHealthSummary.averageActiveCalories.safeRoundedInt) active kcal/day."
+                return "Using \(appleHealthSummary.sampledDays) of the last \(appleHealthSummary.windowDays) complete Apple Health days: \(appleHealthSummary.averageActiveCalories.safeRoundedInt) active kcal/day."
             }
             return "Connect Apple Health to use recent activity data."
         case .garmin:
             if let average = garminManager.averageActiveCalories {
-                return "Using Garmin average activity: \(average.safeRoundedInt) active kcal/day."
+                let window = garminManager.status.averageWindowDays ?? 28
+                return "Using \(garminManager.status.sampledDays) of the last \(window) complete Garmin days: \(average.safeRoundedInt) active kcal/day."
             }
             if garminManager.isConnected {
                 return "Waiting for Garmin daily summaries to sync."
             }
             return "Connect Garmin to use synced activity data."
         }
+    }
+
+    private var activityBasisTitle: String {
+        switch activitySource {
+        case .manual: "Manual activity allowance"
+        case .appleHealth: "Apple Health activity"
+        case .garmin: "Garmin activity"
+        }
+    }
+
+    private var restingEstimateDetail: String {
+        if biologicalSex == .notSpecified {
+            return "Mifflin-St Jeor using your age, height, and weight. Because sex is not specified, Nomva uses the midpoint of the male and female estimates."
+        }
+        return "Mifflin-St Jeor using your age, height, weight, and sex selection."
+    }
+
+    private var activityBasisDetail: String {
+        switch activitySource {
+        case .manual:
+            return "\(activityLevel.displayName) uses a \(activityLevel.multiplier.formatted(.number.precision(.fractionLength(3))))x resting-energy factor."
+        case .appleHealth:
+            guard let appleHealthSummary else {
+                return "Connect Apple Health to calculate this activity allowance."
+            }
+            return "Average from \(appleHealthSummary.sampledDays) of the last \(appleHealthSummary.windowDays) completed days."
+        case .garmin:
+            let window = garminManager.status.averageWindowDays ?? 28
+            return "Average from \(garminManager.status.sampledDays) of the last \(window) completed days; today is excluded."
+        }
+    }
+
+    private var goalAdjustmentDetail: String {
+        switch weightGoal {
+        case .loseWeight:
+            return "A conventional starting deficit. Roughly 1 lb/week at first is possible, but real change varies."
+        case .maintain:
+            return "No calorie adjustment is applied to estimated maintenance."
+        case .gainMuscle:
+            return "A small starting surplus. Training, recovery, and your weight trend determine the result."
+        }
+    }
+
+    private var estimateDisclaimer: String {
+        "This is a starting estimate, not a promise. Wearables and formulas vary by person. Compare your 2-3 week weight trend and adjust the target if your real result differs."
     }
 
     private var appleHealthRowSubtitle: String {
@@ -332,7 +421,8 @@ struct RecalculateGoalsView: View {
             return "Garmin isn't set up on Nomva Cloud yet."
         }
         if let average = garminManager.averageActiveCalories {
-            return "\(average.safeRoundedInt) active kcal/day average from Garmin."
+            let window = garminManager.status.averageWindowDays ?? 28
+            return "\(average.safeRoundedInt) active kcal/day from \(garminManager.status.sampledDays) of \(window) completed days."
         }
         if garminManager.isConnected {
             return "Connected. Waiting for daily summaries."
@@ -378,8 +468,8 @@ struct RecalculateGoalsView: View {
                                 .frame(height: 50)
 
                             HStack(spacing: 16) {
-                                macroStat(label: "Pro", value: projectedMacros.protein, color: NomvaTheme.macroProtein)
-                                macroStat(label: "Carb", value: projectedMacros.carbs, color: NomvaTheme.macroCarbs)
+                                macroStat(label: "Protein", value: projectedMacros.protein, color: NomvaTheme.macroProtein)
+                                macroStat(label: "Carbs", value: projectedMacros.carbs, color: NomvaTheme.macroCarbs)
                                 macroStat(label: "Fat", value: projectedMacros.fat, color: NomvaTheme.macroFat)
                             }
                         }
@@ -402,6 +492,84 @@ struct RecalculateGoalsView: View {
                                 }
                             }
                             .padding(12)
+                        }
+
+                        profileSection(title: "How Nomva Got This Number") {
+                            VStack(spacing: 0) {
+                                calculationRow(
+                                    title: "Resting estimate",
+                                    value: projection.restingCalories,
+                                    detail: restingEstimateDetail
+                                )
+
+                                thinDivider()
+
+                                calculationRow(
+                                    title: activityBasisTitle,
+                                    value: projection.activityCalories,
+                                    detail: activityBasisDetail
+                                )
+
+                                thinDivider()
+
+                                calculationRow(
+                                    title: "Estimated maintenance",
+                                    value: projection.maintenanceCalories,
+                                    detail: "Resting estimate plus the selected activity allowance."
+                                )
+
+                                thinDivider()
+
+                                calculationRow(
+                                    title: weightGoal.displayName,
+                                    value: projection.appliedAdjustmentCalories,
+                                    detail: goalAdjustmentDetail,
+                                    showsSign: true
+                                )
+
+                                thinDivider()
+
+                                calculationRow(
+                                    title: "Daily calorie target",
+                                    value: projection.targetCalories,
+                                    detail: projection.minimumCaloriesApplied
+                                        ? "Nomva applied its 1,000 kcal minimum estimate."
+                                        : "The calorie target used to calculate the macros below.",
+                                    emphasized: true
+                                )
+
+                                Divider()
+                                    .padding(.vertical, 4)
+
+                                macroBasisRow(
+                                    title: "Protein",
+                                    value: "\(projectedMacros.protein.safeRoundedInt) g",
+                                    detail: "\(projection.proteinGramsPerPound.formatted(.number.precision(.fractionLength(2)))) g per lb of body weight"
+                                )
+                                macroBasisRow(
+                                    title: "Fat",
+                                    value: "\(projectedMacros.fat.safeRoundedInt) g",
+                                    detail: "\(projection.fatCaloriePercentage.safeRoundedInt)% of target calories"
+                                )
+                                macroBasisRow(
+                                    title: "Carbs",
+                                    value: "\(projectedMacros.carbs.safeRoundedInt) g",
+                                    detail: "Calories remaining after protein and fat"
+                                )
+                                macroBasisRow(
+                                    title: "Fiber",
+                                    value: "\(projection.fiber.safeRoundedInt) g",
+                                    detail: "14 g per 1,000 calories"
+                                )
+
+                                Label(estimateDisclaimer, systemImage: "info.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 12)
+                                    .padding(.bottom, 16)
+                            }
                         }
 
                         profileSection(title: "Activity Source") {
@@ -677,7 +845,7 @@ struct RecalculateGoalsView: View {
 
     private var garminSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Garmin data syncs through Nomva Cloud. Recent active calories can adjust your goal.")
+            Text("Nomva averages available completed Garmin days from the last 28 calendar days. Today is excluded, and missing days are not treated as zero.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -728,8 +896,8 @@ struct RecalculateGoalsView: View {
                         )
                         summaryTile(
                             title: "Sample Days",
-                            value: "\(garminManager.status.sampledDays)",
-                            detail: "recent sync"
+                            value: "\(garminManager.status.sampledDays) / \(garminManager.status.averageWindowDays ?? 28)",
+                            detail: "completed days"
                         )
                     }
 
@@ -800,18 +968,80 @@ struct RecalculateGoalsView: View {
         }
     }
 
+    private func calculationRow(
+        title: String,
+        value: Double,
+        detail: String,
+        showsSign: Bool = false,
+        emphasized: Bool = false
+    ) -> some View {
+        let roundedValue = value.safeRoundedInt
+        let prefix = showsSign && roundedValue > 0 ? "+" : ""
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(title)
+                    .font(.subheadline.weight(emphasized ? .bold : .semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 8)
+
+                Text("\(prefix)\(roundedValue) kcal")
+                    .font(.subheadline.weight(emphasized ? .bold : .semibold).monospacedDigit())
+                    .foregroundStyle(emphasized ? NomvaTheme.accent : Color.primary)
+                    .lineLimit(1)
+            }
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func macroBasisRow(title: String, value: String, detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(value)
+                .font(.subheadline.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+    }
+
     private func goalPill(_ goal: WeightGoal) -> some View {
         let isSelected = weightGoal == goal
         return Button { weightGoal = goal } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 5) {
                 Image(systemName: goalIcon(goal))
                     .font(.system(size: 18, weight: .medium))
                 Text(goal.displayName)
                     .font(.caption)
                     .fontWeight(.medium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(goalAdjustmentLabel(goal))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(isSelected ? NomvaTheme.onAccent.opacity(0.82) : Color.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .frame(minHeight: 76)
+            .padding(.vertical, 10)
             .foregroundStyle(isSelected ? NomvaTheme.onAccent : Color.primary)
             .background(isSelected ? NomvaTheme.accentFill : Color(.tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -827,6 +1057,17 @@ struct RecalculateGoalsView: View {
             return "equal.circle.fill"
         case .gainMuscle:
             return "dumbbell.fill"
+        }
+    }
+
+    private func goalAdjustmentLabel(_ goal: WeightGoal) -> String {
+        switch goal {
+        case .loseWeight:
+            return "-500 kcal/day"
+        case .maintain:
+            return "No adjustment"
+        case .gainMuscle:
+            return "+300 kcal/day"
         }
     }
 
@@ -1062,12 +1303,14 @@ struct RecalculateGoalsView: View {
             goal.protein = macros.protein
             goal.carbs = macros.carbs
             goal.fat = macros.fat
+            goal.fiber = projection.fiber.rounded()
         } else {
             let goal = DailyGoal(
                 calories: cal,
                 protein: macros.protein,
                 carbs: macros.carbs,
-                fat: macros.fat
+                fat: macros.fat,
+                fiber: projection.fiber.rounded()
             )
             modelContext.insert(goal)
         }

@@ -17,6 +17,7 @@ const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("
 const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
+const { computeGarminAverages } = require("./garminMetrics");
 const {
   boundedNumber,
   boundedServings,
@@ -938,18 +939,6 @@ function recentGarminSummaries(user, limit = 35) {
     .slice(0, limit);
 }
 
-function computeAverageActiveCalories(summaries, days = 28) {
-  const sample = summaries.slice(0, days);
-  if (!sample.length) {
-    return { averageActiveCalories: null, sampledDays: 0 };
-  }
-  const total = sample.reduce((sum, item) => sum + (item.activeCalories || 0), 0);
-  return {
-    averageActiveCalories: total / sample.length,
-    sampledDays: sample.length,
-  };
-}
-
 function garminUserForRequest(req) {
   const nomvaUserId = normalizeIdentifier(req.headers["x-nomva-user-id"]);
   const deviceToken = req.headers["x-nomva-device-token"];
@@ -1734,8 +1723,16 @@ app.get("/v1/garmin/status", (req, res) => {
   }
 
   const days = Math.max(7, Math.min(90, parseInt(req.query.days || "35", 10) || 35));
-  const summaries = recentGarminSummaries(identity.user, days);
-  const average = computeAverageActiveCalories(summaries, 28);
+  const averageWindowDays = 28;
+  const summariesForAverage = recentGarminSummaries(
+    identity.user,
+    Math.max(days, averageWindowDays + 7)
+  );
+  const average = computeGarminAverages(summariesForAverage, {
+    windowDays: averageWindowDays,
+    currentLocalDate: req.query.localDate,
+  });
+  const summaries = summariesForAverage.slice(0, days);
 
   return res.json({
     configured: garminIsConfigured(),
@@ -1746,6 +1743,8 @@ app.get("/v1/garmin/status", (req, res) => {
     permissions: identity.user?.permissions || [],
     averageActiveCalories: average.averageActiveCalories,
     sampledDays: average.sampledDays,
+    averageWindowDays: average.windowDays,
+    averageThroughDate: average.averageThroughDate,
     recentSummaries: summaries,
     latestSummary: summaries[0] || null,
   });

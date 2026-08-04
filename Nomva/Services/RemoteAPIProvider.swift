@@ -1496,6 +1496,8 @@ struct GarminConnectionStatusPayload: Codable, Equatable, Sendable {
     let garminUserIdKnown: Bool
     let averageActiveCalories: Double?
     let sampledDays: Int
+    let averageWindowDays: Int?
+    let averageThroughDate: String?
     let recentSummaries: [GarminDailyActivitySummary]
     let latestSummary: GarminDailyActivitySummary?
 
@@ -1507,6 +1509,8 @@ struct GarminConnectionStatusPayload: Codable, Equatable, Sendable {
         garminUserIdKnown: false,
         averageActiveCalories: nil,
         sampledDays: 0,
+        averageWindowDays: nil,
+        averageThroughDate: nil,
         recentSummaries: [],
         latestSummary: nil
     )
@@ -1608,7 +1612,15 @@ struct GarminCloudService {
         guard var components = URLComponents(string: baseURL + "/v1/garmin/status") else {
             throw GarminCloudError.badURL
         }
-        components.queryItems = [URLQueryItem(name: "days", value: String(days))]
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = Calendar.current
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = .current
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        components.queryItems = [
+            URLQueryItem(name: "days", value: String(days)),
+            URLQueryItem(name: "localDate", value: dateFormatter.string(from: .now)),
+        ]
 
         let (data, response) = try await sendNomvaCloudRequest(
             baseURL: baseURL,
@@ -1817,6 +1829,8 @@ final class GarminManager: NSObject, ObservableObject {
                 garminUserIdKnown: false,
                 averageActiveCalories: nil,
                 sampledDays: 0,
+                averageWindowDays: nil,
+                averageThroughDate: nil,
                 recentSummaries: [],
                 latestSummary: nil
             )

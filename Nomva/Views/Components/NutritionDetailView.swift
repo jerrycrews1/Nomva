@@ -7,6 +7,7 @@ struct NutritionDetailView: View {
     let goal: DailyGoal
 
     @Environment(\.dismiss) private var dismiss
+    @State private var showGoalSetup = false
 
     private var cal: Calendar { Calendar.current }
     private var totals: NutritionTotals { NutritionTotals.from(entries: entries) }
@@ -131,6 +132,17 @@ struct NutritionDetailView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showGoalSetup = true
+                    } label: {
+                        Image(systemName: "target")
+                    }
+                    .accessibilityLabel("Review calorie and macro goals")
+                }
+            }
+            .sheet(isPresented: $showGoalSetup) {
+                RecalculateGoalsView()
             }
         }
     }
@@ -225,6 +237,18 @@ struct NutritionDetailView: View {
                     tint: .teal,
                     direction: .target
                 )
+
+                Divider()
+
+                Button {
+                    showGoalSetup = true
+                } label: {
+                    Label("Review How Goals Are Calculated", systemImage: "target")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NomvaTheme.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
             }
         }
     }

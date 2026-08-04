@@ -1,6 +1,25 @@
 import Foundation
 
+struct GoalProjection: Equatable {
+    let restingCalories: Double
+    let activityCalories: Double
+    let maintenanceCalories: Double
+    let requestedAdjustmentCalories: Double
+    let appliedAdjustmentCalories: Double
+    let targetCalories: Double
+    let minimumCaloriesApplied: Bool
+    let protein: Double
+    let carbs: Double
+    let fat: Double
+    let fiber: Double
+    let proteinGramsPerPound: Double
+    let fatCaloriePercentage: Double
+}
+
 actor GoalService {
+
+    static let minimumSuggestedCalories = 1_000.0
+    static let fatCalorieFraction = 0.28
 
     static func currentGoal(from goals: [DailyGoal]) -> DailyGoal {
         goals
@@ -108,6 +127,30 @@ actor GoalService {
         activityProfile: GoalActivityProfile,
         goal: WeightGoal
     ) -> Double {
+        calculateProjection(
+            weightLbs: weightLbs,
+            heightInches: heightInches,
+            age: age,
+            sex: sex,
+            activityProfile: activityProfile,
+            goal: goal
+        ).targetCalories
+    }
+
+    static func calculateProjection(
+        weightLbs: Double,
+        heightInches: Int,
+        age: Int,
+        sex: BiologicalSex,
+        activityProfile: GoalActivityProfile,
+        goal: WeightGoal
+    ) -> GoalProjection {
+        let resting = calculateBMR(
+            weightLbs: weightLbs,
+            heightTotalInches: heightInches,
+            ageYears: age,
+            sex: sex
+        )
         let maintenance = calculateMaintenanceCalories(
             weightLbs: weightLbs,
             heightTotalInches: heightInches,
@@ -115,11 +158,33 @@ actor GoalService {
             sex: sex,
             activityProfile: activityProfile
         )
+        let requestedAdjustment = requestedCalorieAdjustment(for: goal)
+        let unconstrainedTarget = maintenance + requestedAdjustment
+        let target = max(unconstrainedTarget, minimumSuggestedCalories).rounded()
+        let macros = suggestMacros(calories: target, weightLbs: weightLbs, goal: goal)
 
+        return GoalProjection(
+            restingCalories: resting,
+            activityCalories: max(maintenance - resting, 0),
+            maintenanceCalories: maintenance,
+            requestedAdjustmentCalories: requestedAdjustment,
+            appliedAdjustmentCalories: target - maintenance,
+            targetCalories: target,
+            minimumCaloriesApplied: unconstrainedTarget < minimumSuggestedCalories,
+            protein: macros.protein,
+            carbs: macros.carbs,
+            fat: macros.fat,
+            fiber: suggestFiber(calories: target),
+            proteinGramsPerPound: proteinGramsPerPound(for: goal),
+            fatCaloriePercentage: fatCalorieFraction * 100
+        )
+    }
+
+    static func requestedCalorieAdjustment(for goal: WeightGoal) -> Double {
         switch goal {
-        case .loseWeight:  return maintenance - 500   // ~1 lb/week deficit
-        case .maintain:    return maintenance
-        case .gainMuscle:  return maintenance + 300
+        case .loseWeight: -500
+        case .maintain: 0
+        case .gainMuscle: 300
         }
     }
 
@@ -180,20 +245,29 @@ actor GoalService {
         weightLbs: Double,
         goal: WeightGoal
     ) -> (protein: Double, carbs: Double, fat: Double) {
-        let proteinG: Double
-        switch goal {
-        case .loseWeight:  proteinG = weightLbs * 0.85
-        case .maintain:    proteinG = weightLbs * 0.75
-        case .gainMuscle:  proteinG = weightLbs * 1.0
-        }
-
+        let desiredProteinG = max(weightLbs, 0) * proteinGramsPerPound(for: goal)
+        let fatCal = max(calories, 0) * fatCalorieFraction
+        let minimumCarbCal = min(50 * 4, max(calories - fatCal, 0))
+        let availableProteinCal = max(calories - fatCal - minimumCarbCal, 0)
+        let proteinG = min(desiredProteinG, availableProteinCal / 4)
         let proteinCal = proteinG * 4
-        let fatCal     = calories * 0.28
-        let fatG       = fatCal / 9
-        let carbCal    = calories - proteinCal - fatCal
-        let carbG      = max(carbCal / 4, 50)
+        let fatG = fatCal / 9
+        let carbCal = max(calories - proteinCal - fatCal, 0)
+        let carbG = carbCal / 4
 
         return (protein: proteinG, carbs: carbG, fat: fatG)
+    }
+
+    static func proteinGramsPerPound(for goal: WeightGoal) -> Double {
+        switch goal {
+        case .loseWeight: 0.85
+        case .maintain: 0.75
+        case .gainMuscle: 1.0
+        }
+    }
+
+    static func suggestFiber(calories: Double) -> Double {
+        max(calories, 0) * 14 / 1_000
     }
 
     // MARK: - Default Goals (for skipped onboarding)

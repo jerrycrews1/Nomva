@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct UnpersonalizedGoalsBanner: View {
+    @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @AppStorage("onboarding_complete") private var onboardingComplete = false
     @AppStorage("goals_personalized") private var goalsPersonalized = false
     @State private var isDismissed = false
@@ -29,14 +30,22 @@ struct UnpersonalizedGoalsBanner: View {
 
                 Spacer()
 
-                Button {
-                    isDismissed = true
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                VStack(spacing: 8) {
+                    Button("Set Up") {
+                        routeCenter.handle(url: NomvaWidgetRoute.goals.url)
+                    }
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NomvaTheme.accent)
+
+                    Button {
+                        isDismissed = true
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .accessibilityLabel("Dismiss")
                 }
-                .accessibilityLabel("Dismiss")
             }
             .nomvaCard(.subtle, padding: 16)
         }
@@ -46,4 +55,5 @@ struct UnpersonalizedGoalsBanner: View {
 #Preview {
     UnpersonalizedGoalsBanner()
         .padding()
+        .environmentObject(NomvaRouteCenter.shared)
 }

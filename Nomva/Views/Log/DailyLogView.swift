@@ -943,6 +943,15 @@ struct DailyLogView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+
+            Button {
+                routeCenter.handle(url: NomvaWidgetRoute.goals.url)
+            } label: {
+                Label("Review Calorie Goal", systemImage: "target")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NomvaTheme.accent)
+            }
+            .buttonStyle(.plain)
         }
         .nomvaCard(.standard, padding: NomvaTheme.standardCardPadding)
     }

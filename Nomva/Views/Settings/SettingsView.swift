@@ -32,14 +32,14 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
 
-                        SettingsSectionCard("Nutrition", detail: "Adjust calorie and macro targets, including Apple Health.") {
+                        SettingsSectionCard("Nutrition", detail: "Review targets, formulas, and connected activity data.") {
                             NavigationLink {
                                 GoalsSettingsView()
                             } label: {
                                 SettingsLinkRow(
                                     icon: "target",
-                                    title: "Goals",
-                                    subtitle: "Calories, macros, and activity source"
+                                    title: "Calorie & Macro Goals",
+                                    subtitle: "Targets, formulas, and activity basis"
                                 )
                             }
                             .buttonStyle(.plain)
