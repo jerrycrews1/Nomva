@@ -211,13 +211,29 @@ actor GoalService {
         let rollingBaseline = rollingAverageActiveCalories.flatMap { $0 > 0 ? $0 : nil }
             ?? referenceActiveCalories
         let currentActivity = max(currentDayActiveCalories ?? 0, 0)
-        let creditedActivity = max(rollingBaseline, currentActivity)
+        let creditedActivity = rollingBaseline + sameDayActivityCredit(
+            currentDayActiveCalories: currentActivity,
+            rollingAverageActiveCalories: rollingBaseline
+        )
 
         return dynamicallyAdjustedCalories(
             baseGoalCalories: baseGoalCalories,
             dailyActiveCalories: creditedActivity,
             referenceActiveCalories: referenceActiveCalories
         )
+    }
+
+    static func sameDayActivityCredit(
+        currentDayActiveCalories: Double?,
+        rollingAverageActiveCalories: Double?
+    ) -> Double {
+        guard let currentDayActiveCalories,
+              let rollingAverageActiveCalories,
+              currentDayActiveCalories > 0,
+              rollingAverageActiveCalories > 0 else {
+            return 0
+        }
+        return max(currentDayActiveCalories - rollingAverageActiveCalories, 0)
     }
 
     static func displayGoal(

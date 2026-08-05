@@ -9,7 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @State private var dbMetadata: (totalFoods: Int, buildDate: String) = (0, "Unknown")
     @State private var showPaywallPreview = false
-    @State private var showGoalsFromWidget = false
+    @State private var showGoals = false
     #if targetEnvironment(simulator)
     @State private var showSeedScreenshotDataConfirm = false
     @State private var simulatorSeedMessage: String?
@@ -33,16 +33,17 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
 
                         SettingsSectionCard("Nutrition", detail: "Review targets, formulas, and connected activity data.") {
-                            NavigationLink {
-                                GoalsSettingsView()
+                            Button {
+                                showGoals = true
                             } label: {
                                 SettingsLinkRow(
                                     icon: "target",
                                     title: "Calorie & Macro Goals",
-                                    subtitle: "Targets, formulas, and activity basis"
+                                    subtitle: goalsSubtitle
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityHint("Opens calorie goals and activity calculations")
                         }
 
                         SettingsSectionCard("Integrations", detail: "Connect activity sources that can adjust your calorie target.") {
@@ -247,7 +248,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(isPresented: $showGoalsFromWidget) {
+            .navigationDestination(isPresented: $showGoals) {
                 GoalsSettingsView()
             }
         }
@@ -257,7 +258,7 @@ struct SettingsView: View {
         }
         .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
             guard route == .goals else { return }
-            showGoalsFromWidget = true
+            showGoals = true
             routeCenter.clear(route)
         }
         .sheet(isPresented: $showPaywallPreview) {
@@ -342,6 +343,36 @@ struct SettingsView: View {
     }
 
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
+
+    private var goalsSubtitle: String {
+        let source = GoalActivitySource(rawValue: activitySourceRaw) ?? .manual
+        guard source == .garmin else {
+            if source == .appleHealth {
+                return "Apple Health activity average adjusts your target"
+            }
+            return "Targets, formulas, and activity basis"
+        }
+
+        let activeCalories = garminManager.summary(for: .now)?.activeCalories
+        let baselineCalories = garminManager.averageActiveCalories
+        if let activeCalories {
+            let credit = GoalService.sameDayActivityCredit(
+                currentDayActiveCalories: activeCalories,
+                rollingAverageActiveCalories: baselineCalories
+            )
+            if credit > 0 {
+                return "\(activeCalories.safeRoundedInt) active kcal today • +\(credit.safeRoundedInt) to target"
+            }
+            if let baselineCalories {
+                return "\(activeCalories.safeRoundedInt) active kcal today • \(baselineCalories.safeRoundedInt) baseline"
+            }
+            return "\(activeCalories.safeRoundedInt) active kcal today"
+        }
+        if let baselineCalories {
+            return "\(baselineCalories.safeRoundedInt) active kcal baseline • waiting for today"
+        }
+        return "Garmin activity will adjust your calorie target"
+    }
 
     private var appleHealthSubtitle: String {
         guard AppleHealthService.isAvailable() else {
@@ -443,6 +474,8 @@ private struct SettingsLinkRow: View {
                 .foregroundStyle(.secondary.opacity(0.6))
         }
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

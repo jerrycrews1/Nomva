@@ -271,6 +271,24 @@ struct GoalServiceTests {
 
     private static func testSameDayActivityCredit() {
         checkClose(
+            GoalService.sameDayActivityCredit(
+                currentDayActiveCalories: 600,
+                rollingAverageActiveCalories: 300
+            ),
+            300,
+            tolerance: 0.001,
+            "The displayed activity credit matches activity above baseline"
+        )
+        checkClose(
+            GoalService.sameDayActivityCredit(
+                currentDayActiveCalories: 100,
+                rollingAverageActiveCalories: 300
+            ),
+            0,
+            tolerance: 0.001,
+            "Below-baseline partial activity displays no negative credit"
+        )
+        checkClose(
             GoalService.sameDayAdjustedCalories(
                 baseGoalCalories: 2_000,
                 currentDayActiveCalories: 100,

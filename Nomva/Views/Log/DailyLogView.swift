@@ -100,6 +100,31 @@ struct DailyLogView: View {
                 : nil
         )
     }
+    private var activityGoalSnapshot: ActivityGoalSnapshot? {
+        guard garminManager.isConnected else { return nil }
+
+        let activeCalories = garminSummaryForSelectedDate?.activeCalories
+        let baselineCalories = garminManager.averageActiveCalories
+            ?? (activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil)
+        let affectsGoal = selectedActivitySource == .garmin
+        let earnedCalories = affectsGoal && isToday
+            ? GoalService.sameDayActivityCredit(
+                currentDayActiveCalories: activeCalories,
+                rollingAverageActiveCalories: baselineCalories
+            )
+            : 0
+
+        return ActivityGoalSnapshot(
+            sourceName: "Garmin",
+            activeCalories: activeCalories,
+            baselineCalories: baselineCalories,
+            earnedCalories: earnedCalories,
+            goalAdjustmentCalories: affectsGoal ? displayGoal.calories - currentGoal.calories : 0,
+            isToday: isToday,
+            isSyncing: garminManager.isSyncing,
+            affectsGoal: affectsGoal
+        )
+    }
     private var dayTotals: NutritionTotals { NutritionTotals.from(entries: selectedDayEntries) }
 
     private var mealSections: [(MealCategory, [FoodEntry])] {
@@ -126,7 +151,8 @@ struct DailyLogView: View {
                             MacroRingsView(
                                 consumed: dayTotals,
                                 goal: displayGoal,
-                                showsDetailCue: true
+                                showsDetailCue: true,
+                                activity: activityGoalSnapshot
                             )
                         }
                         .buttonStyle(.plain)
@@ -295,7 +321,8 @@ struct DailyLogView: View {
                     selectedDate: selectedDate,
                     entries: selectedDayEntries,
                     allEntries: allEntries,
-                    goal: displayGoal
+                    goal: displayGoal,
+                    activity: activityGoalSnapshot
                 )
             }
             .alert("Delete this entry?", isPresented: $showDeleteFoodConfirm) {

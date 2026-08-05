@@ -95,6 +95,32 @@ struct ChatView: View {
         )
     }
 
+    private var activityGoalSnapshot: ActivityGoalSnapshot? {
+        guard garminManager.isConnected else { return nil }
+
+        let activeCalories = garminManager.summary(for: selectedDate)?.activeCalories
+        let baselineCalories = garminManager.averageActiveCalories
+            ?? (activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil)
+        let affectsGoal = selectedActivitySource == .garmin
+        let earnedCalories = affectsGoal && isToday
+            ? GoalService.sameDayActivityCredit(
+                currentDayActiveCalories: activeCalories,
+                rollingAverageActiveCalories: baselineCalories
+            )
+            : 0
+
+        return ActivityGoalSnapshot(
+            sourceName: "Garmin",
+            activeCalories: activeCalories,
+            baselineCalories: baselineCalories,
+            earnedCalories: earnedCalories,
+            goalAdjustmentCalories: affectsGoal ? displayGoal.calories - currentGoal.calories : 0,
+            isToday: isToday,
+            isSyncing: garminManager.isSyncing,
+            affectsGoal: affectsGoal
+        )
+    }
+
     private var activeLoggingSession: LoggingSession? {
         loggingSessions.first { $0.dayDate >= dayStart && $0.dayDate < dayEnd }
     }
@@ -126,7 +152,8 @@ struct ChatView: View {
                             consumed: selectedDayTotals,
                             goal: displayGoal,
                             isCompact: isInputFocused || !messages.isEmpty,
-                            showsDetailCue: true
+                            showsDetailCue: true,
+                            activity: activityGoalSnapshot
                         )
                     }
                     .buttonStyle(.plain)
@@ -189,7 +216,8 @@ struct ChatView: View {
                     selectedDate: selectedDate,
                     entries: selectedDayEntries,
                     allEntries: allEntries,
-                    goal: displayGoal
+                    goal: displayGoal,
+                    activity: activityGoalSnapshot
                 )
             }
             .sheet(item: $scannedFood) { food in

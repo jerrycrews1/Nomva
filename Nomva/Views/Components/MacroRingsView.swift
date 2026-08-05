@@ -1,10 +1,82 @@
 import SwiftUI
 
+struct ActivityGoalSnapshot {
+    let sourceName: String
+    let activeCalories: Double?
+    let baselineCalories: Double?
+    let earnedCalories: Double
+    let goalAdjustmentCalories: Double
+    let isToday: Bool
+    let isSyncing: Bool
+    let affectsGoal: Bool
+
+    var activeText: String {
+        if let activeCalories {
+            return "\(activeCalories.safeRoundedInt) active kcal"
+        }
+        if isSyncing {
+            return "Syncing activity"
+        }
+        if let baselineCalories {
+            return "\(baselineCalories.safeRoundedInt) avg active kcal"
+        }
+        return "Activity unavailable"
+    }
+
+    var sourceDetailText: String {
+        if let baselineCalories {
+            return "\(sourceName) active-calorie estimate • \(baselineCalories.safeRoundedInt)-kcal recent baseline"
+        }
+        return "\(sourceName) active-calorie estimate"
+    }
+
+    var compactImpactText: String {
+        guard affectsGoal else { return "not in target" }
+        if isToday {
+            if activeCalories == nil { return isSyncing ? "syncing" : "waiting today" }
+            if earnedCalories > 0 { return "+\(earnedCalories.safeRoundedInt) to target" }
+            if let baselineCalories { return "\(baselineCalories.safeRoundedInt) baseline" }
+            return "no baseline"
+        }
+
+        let adjustment = goalAdjustmentCalories.safeRoundedInt
+        if adjustment > 0 { return "+\(adjustment) to target" }
+        if adjustment < 0 { return "\(adjustment) target" }
+        return "baseline matched"
+    }
+
+    var targetImpactText: String {
+        guard affectsGoal else {
+            return "This activity source is not being used for your calorie target."
+        }
+        if isToday {
+            if activeCalories == nil {
+                return isSyncing
+                    ? "Syncing today's activity now."
+                    : "Waiting for today's activity to sync."
+            }
+            if earnedCalories > 0 {
+                return "\(earnedCalories.safeRoundedInt) kcal above baseline adds the same amount to today's target."
+            }
+            if let baselineCalories {
+                return "Today's target already includes the \(baselineCalories.safeRoundedInt)-kcal baseline. Extra calories are added after activity passes it."
+            }
+            return "Nomva needs a completed-day baseline before activity can adjust the target."
+        }
+
+        let adjustment = goalAdjustmentCalories.safeRoundedInt
+        if adjustment > 0 { return "Activity added \(adjustment) kcal to this day's target." }
+        if adjustment < 0 { return "Activity reduced this day's target by \(abs(adjustment)) kcal." }
+        return "Activity matched the calorie-target baseline for this day."
+    }
+}
+
 struct MacroRingsView: View {
     let consumed: NutritionTotals
     let goal: DailyGoal
     var isCompact: Bool = false
     var showsDetailCue: Bool = false
+    var activity: ActivityGoalSnapshot? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -29,7 +101,15 @@ struct MacroRingsView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Nutrition summary: \(consumed.calories.safeRoundedInt) of \(goal.calories.safeRoundedInt) calories")
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        var summary = "Nutrition summary: \(consumed.calories.safeRoundedInt) of \(goal.calories.safeRoundedInt) calories"
+        if let activity {
+            summary += ", \(activity.activeText), \(activity.targetImpactText)"
+        }
+        return summary
     }
 
     private var compactSummary: some View {
@@ -45,6 +125,11 @@ struct MacroRingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(calorieStatus)
                     .font(.subheadline.weight(.semibold))
+
+                if let activity {
+                    activityCompactRow(activity)
+                }
+
                 HStack(spacing: 8) {
                     compactMacro(label: "P", val: consumed.protein, color: NomvaTheme.macroProtein)
                     compactMacro(label: "C", val: consumed.carbs, color: NomvaTheme.macroCarbs)
@@ -75,7 +160,9 @@ struct MacroRingsView: View {
                     Text("Nutrition Snapshot")
                         .font(.title3.weight(.semibold))
 
-                    Text("Calories and macros update live as you log.")
+                    Text(activity == nil
+                        ? "Calories and macros update live as you log."
+                        : "Food and synced activity update your daily target.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -93,6 +180,11 @@ struct MacroRingsView: View {
                         .foregroundStyle(.secondary)
                         .padding(.leading, 2)
                 }
+            }
+
+            if let activity {
+                Divider()
+                activityExpandedRow(activity)
             }
 
             HStack(spacing: 20) {
@@ -142,6 +234,54 @@ struct MacroRingsView: View {
             }
         }
         .nomvaCard(.hero, padding: NomvaTheme.heroCardPadding)
+    }
+
+    private func activityCompactRow(_ activity: ActivityGoalSnapshot) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "figure.walk.motion")
+                .foregroundStyle(NomvaTheme.accent)
+            Text(activity.activeText)
+            Text("•")
+                .foregroundStyle(.tertiary)
+            Text(activity.compactImpactText)
+                .foregroundStyle(activity.earnedCalories > 0 ? NomvaTheme.success : Color.secondary)
+        }
+        .font(.caption2.weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+    }
+
+    private func activityExpandedRow(_ activity: ActivityGoalSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "figure.walk.motion")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(NomvaTheme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(NomvaTheme.accent.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activity.isToday ? "Activity today" : "Activity")
+                        .font(.subheadline.weight(.semibold))
+                    Text(activity.sourceDetailText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(activity.activeText)
+                    .font(.subheadline.weight(.bold))
+                    .monospacedDigit()
+                    .multilineTextAlignment(.trailing)
+            }
+
+            Text(activity.targetImpactText)
+                .font(.caption)
+                .foregroundStyle(activity.earnedCalories > 0 ? NomvaTheme.success : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func compactMacro(label: String, val: Double, color: Color) -> some View {

@@ -5,6 +5,7 @@ struct NutritionDetailView: View {
     let entries: [FoodEntry]
     let allEntries: [FoodEntry]
     let goal: DailyGoal
+    let activity: ActivityGoalSnapshot?
 
     @Environment(\.dismiss) private var dismiss
     @State private var showGoalSetup = false
@@ -179,6 +180,34 @@ struct NutritionDetailView: View {
                 progress: progress(totals.calories, goal.calories),
                 tint: calorieDelta >= 0 ? NomvaTheme.accent : NomvaTheme.danger
             )
+
+            if let activity {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "figure.walk.motion")
+                            .foregroundStyle(NomvaTheme.accent)
+
+                        Text(activity.isToday ? "Activity today" : "Activity")
+                            .font(.subheadline.weight(.semibold))
+
+                        Spacer()
+
+                        Text(activity.activeText)
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                    }
+
+                    Text(activity.targetImpactText)
+                        .font(.subheadline)
+                        .foregroundStyle(activity.earnedCalories > 0 ? NomvaTheme.success : Color.secondary)
+
+                    Text(activity.sourceDetailText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             HStack(spacing: 10) {
                 OverviewPill(title: "Protein", value: "\(totals.protein.safeRoundedInt)g", tint: NomvaTheme.macroProtein)
