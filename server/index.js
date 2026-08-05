@@ -12,7 +12,14 @@ const prompts = require("./prompts");
 const { loadServerState } = require("./stateStore");
 const { loadAnalyticsStore } = require("./analyticsStore");
 const { createFoodSearchStore } = require("./foodSearchStore");
+const { loadFoodKnowledgeStore } = require("./foodKnowledgeStore");
 const { resolveFoodCandidate: runFoodResolver } = require("./foodResolver");
+const {
+  createWebFoodResolver,
+  identityMatchesMention,
+  resolvedCandidateBody,
+  shouldTryWebFirst,
+} = require("./webFoodResolver");
 const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("./deleteTargetGuard");
 const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
@@ -31,6 +38,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const FOOD_RESOLUTION_MODEL = process.env.NOMVA_FOOD_RESOLUTION_MODEL || "gpt-5.6-luna";
+const WEB_FOOD_MODEL = process.env.NOMVA_WEB_FOOD_MODEL || "gpt-5.6-luna";
 const CONTEXT_MODEL = process.env.NOMVA_CONTEXT_MODEL || "gpt-5.4-mini";
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
@@ -38,6 +46,7 @@ const garminStorePath = path.join(dataDir, "garmin-store.json");
 const appSessionStorePath = path.join(dataDir, "app-sessions.json");
 const stateDBPath = path.join(dataDir, "nomva-state.sqlite");
 const analyticsDBPath = process.env.ANALYTICS_DB_PATH || path.join(dataDir, "nomva-analytics.sqlite");
+const foodKnowledgeDBPath = process.env.FOOD_KNOWLEDGE_DB_PATH || path.join(dataDir, "food-knowledge.sqlite");
 const APP_ATTEST_BUNDLE_ID = process.env.APP_ATTEST_BUNDLE_ID || "com.nomva.app";
 const APP_ATTEST_TEAM_ID = process.env.APP_ATTEST_TEAM_ID || "9UXM4W53T6";
 const APP_ATTEST_ALLOW_DEVELOPMENT = process.env.APP_ATTEST_ALLOW_DEVELOPMENT
@@ -105,11 +114,17 @@ const analyticsStore = loadAnalyticsStore({
   retentionDays: Number(process.env.ANALYTICS_RETENTION_DAYS || 90),
   hashSalt: process.env.ANALYTICS_HASH_SALT || process.env.STATE_ENCRYPTION_KEY,
 });
+const foodKnowledgeStore = loadFoodKnowledgeStore({
+  dbPath: foodKnowledgeDBPath,
+});
 const foodSearchStore = createFoodSearchStore({
   dbPath: process.env.FOODS_DB_PATH,
+  learnedStore: foodKnowledgeStore,
 });
 analyticsStore.prune();
 setInterval(() => analyticsStore.prune(), 24 * 60 * 60 * 1000).unref();
+foodKnowledgeStore.prune();
+setInterval(() => foodKnowledgeStore.prune(), 24 * 60 * 60 * 1000).unref();
 
 if (!foodSearchStore.isAvailable) {
   console.warn(`food db warning: server-side food resolution unavailable (${foodSearchStore.error || "unknown error"})`);
@@ -983,6 +998,13 @@ const vowntilBreachLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const foodWebLookupLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.post("/vowntil/v1/breach", vowntilBreachLimiter, async (req, res) => {
   if (!vowntilTokenIsValid(req)) {
     return res.status(401).json({ error: "invalid_vowntil_token" });
@@ -1257,6 +1279,39 @@ const openai = new OpenAI({
   timeout: LLM_ATTEMPT_TIMEOUT_MS,
   maxRetries: 1,
 });
+const webFoodOpenAI = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: Number(process.env.NOMVA_WEB_FOOD_TIMEOUT_MS || 18_000),
+  maxRetries: 0,
+});
+
+function webFoodResolverForRequest(req) {
+  return createWebFoodResolver({
+    openai: webFoodOpenAI,
+    knowledgeStore: foodKnowledgeStore,
+    model: WEB_FOOD_MODEL,
+    onEvent: (event) => {
+      const success = event.type === "resolved" || event.type === "no_match";
+      analyticsStore.record({
+        source: "server",
+        eventType: "llm_call",
+        userHash: analyticsUserHash(req.nomvaUserId),
+        sessionHash: analyticsSessionHash(req),
+        route: req.path,
+        model: event.model || WEB_FOOD_MODEL,
+        llmTask: "resolve_web_food",
+        durationMs: event.durationMs,
+        totalTokens: event.usage?.total_tokens || null,
+        success,
+        errorCode: event.type === "error" ? `openai_${event.error?.status || "error"}` : null,
+        properties: {
+          resultType: event.type,
+          quality: event.quality || null,
+        },
+      });
+    },
+  });
+}
 
 class EmptyCompletionError extends Error {
   constructor(model) {
@@ -1452,6 +1507,7 @@ app.get("/health", (_req, res) => res.json({
     rows: foodSearchStore.rowCount ?? null,
     error: foodSearchStore.error || null,
   },
+  foodKnowledge: foodKnowledgeStore.stats(),
 }));
 
 app.get("/analytics/summary", (req, res) => {
@@ -1881,14 +1937,10 @@ app.post("/v1/split-foods", async (req, res) => {
   }
 });
 
-// 2b. Resolve one food mention against the nutrition DB via an LLM-driven
-// search/inspect/verify loop that runs server-side against a read-only DB copy.
+// 2b. Resolve one food mention through the learned/current catalog, then the
+// static nutrition DB when no current menu lookup is needed or available.
 app.post("/v1/resolve-food-candidate", async (req, res) => {
   try {
-    if (!foodSearchStore.isAvailable) {
-      return res.status(501).json({ error: "food_db_unavailable" });
-    }
-
     const { userMessage = "", foodMention = "" } = req.body || {};
     const trimmedMention = String(foodMention).trim();
     if (!trimmedMention) {
@@ -1898,15 +1950,57 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
     // Stop paying for model calls the moment the phone hangs up, and finish
     // within a bounded budget so the client's timeout never fires first.
     const abort = new AbortController();
-    req.on("close", () => {
+    res.on("close", () => {
       if (!res.writableEnded) abort.abort();
     });
+
+    const initialCandidates = foodSearchStore.isAvailable
+      ? foodSearchStore.search(trimmedMention, { limit: 10, offset: 0 })
+      : [];
+    const webResolver = webFoodResolverForRequest(req);
+    let attemptedWebResolution = false;
+
+    const tryWebResolution = async () => {
+      attemptedWebResolution = true;
+      try {
+        return await webResolver.resolve({
+          userMessage,
+          foodMention: trimmedMention,
+          signal: abort.signal,
+        });
+      } catch (error) {
+        if (error?.name !== "AbortError") {
+          console.warn("web food resolution warning:", error.message);
+        }
+        return null;
+      }
+    };
+
+    // Restaurant names, menu sizes, and searches with no viable database row
+    // are retrieval problems. Search the current web before asking a model to
+    // choose among stale packaged-food rows.
+    if (shouldTryWebFirst(trimmedMention, initialCandidates)) {
+      const webResult = await tryWebResolution();
+      if (webResult) {
+        return res.json(webResult);
+      }
+    }
+
+    if (!foodSearchStore.isAvailable) {
+      if (!attemptedWebResolution) {
+        const webResult = await tryWebResolution();
+        if (webResult) return res.json(webResult);
+      }
+      return res.status(422).json({ error: "food_candidate_not_found" });
+    }
 
     const outcome = await runFoodResolver({
       userMessage,
       foodMention: trimmedMention,
       foodSearchStore,
-      deadlineMs: Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 12_000),
+      deadlineMs: attemptedWebResolution
+        ? Number(process.env.NOMVA_FOOD_RESOLUTION_AFTER_WEB_DEADLINE_MS || 8_000)
+        : Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 12_000),
       askAgent: (userPrompt) => ask(
         prompts.RESOLVE_FOOD_CANDIDATE_AGENT,
         userPrompt,
@@ -1918,9 +2012,59 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       ),
       verifyPick: (payload) => verifyResolvedFoodPick(req, payload, abort.signal),
     });
+
+    if (outcome.status === 422 && !attemptedWebResolution) {
+      const webResult = await tryWebResolution();
+      if (webResult) {
+        return res.json(webResult);
+      }
+    }
     return res.status(outcome.status).json(outcome.body);
   } catch (err) {
     return respondLLMFailure(res, err, "food_resolution_failed");
+  }
+});
+
+// Manual search already returns the local database immediately. This route is
+// its narrow online fallback and only returns validated, reusable catalog rows.
+app.post("/v1/search-food-catalog", foodWebLookupLimiter, async (req, res) => {
+  const query = String(req.body?.query || "").trim().slice(0, 220);
+  if (!query) {
+    return res.status(400).json({ error: "missing_food_query" });
+  }
+
+  const abort = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) abort.abort();
+  });
+
+  const cached = foodKnowledgeStore
+    .search(query, { limit: 8, minimumScore: 600 })
+    .filter((candidate) => identityMatchesMention(query, candidate));
+  const foods = new Map(cached.map((candidate) => [
+    candidate.candidateId,
+    resolvedCandidateBody(candidate, {
+      servings: 1,
+      portionDescription: candidate.servingDescription,
+      servingUnit: "serving",
+      confident: candidate.quality === "published" && candidate.confidence >= 0.8,
+      hasExplicitPortion: false,
+    }),
+  ]));
+
+  try {
+    const resolved = await webFoodResolverForRequest(req).resolve({
+      userMessage: query,
+      foodMention: query,
+      signal: abort.signal,
+    });
+    if (resolved) foods.set(resolved.candidateId, resolved);
+    return res.json({ foods: [...foods.values()] });
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      console.warn("online food catalog warning:", error.message);
+    }
+    return res.json({ foods: [...foods.values()], onlineUnavailable: true });
   }
 });
 

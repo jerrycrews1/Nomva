@@ -39,7 +39,13 @@ struct ManualFoodDetailView: View {
     }
     
     private var nutrition: NutritionValues {
-        food.scaled(to: currentGrams)
+        inputMode == .servings
+            ? food.nutritionForServings(quantity)
+            : food.scaled(to: currentGrams)
+    }
+
+    private var availableInputModes: [InputMode] {
+        food.canScaleByGrams ? InputMode.allCases : [.servings]
     }
     
     var body: some View {
@@ -64,6 +70,15 @@ struct ManualFoodDetailView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        if food.source == "web_published" {
+                            Label("Published nutrition", systemImage: "checkmark.seal.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NomvaTheme.accent)
+                        } else if food.source == "web_estimate" {
+                            Label("Estimated from current menu information", systemImage: "wand.and.stars")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                 }
@@ -73,7 +88,7 @@ struct ManualFoodDetailView: View {
                 Form {
                     Section {
                         Picker("Input Mode", selection: $inputMode) {
-                            ForEach(InputMode.allCases, id: \.self) { mode in
+                            ForEach(availableInputModes, id: \.self) { mode in
                                 Text(mode.rawValue).tag(mode)
                             }
                         }
@@ -202,7 +217,7 @@ struct ManualFoodDetailView: View {
     
     private func saveEntry() {
         let totalGrams = currentGrams
-        let nut = food.scaled(to: totalGrams)
+        let nut = nutrition
         let per100 = food.per100g
         
         let displayPortion = inputMode == .servings 
@@ -261,7 +276,7 @@ struct ManualFoodDetailView: View {
             zincPer100g: per100.zinc,
             rawUserInput: "Manual entry",
             fdcId: food.fdcId,
-            foodDatabaseId: food.id,
+            foodDatabaseId: food.source?.hasPrefix("web_") == true ? nil : food.id,
             source: food.source,
             barcode: food.barcode
         )

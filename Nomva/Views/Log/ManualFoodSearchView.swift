@@ -32,6 +32,8 @@ struct ManualFoodSearchView: View {
     @State private var pendingBarcode = ""
     @State private var showCustomFoodCreate = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil
+    @State private var searchTask: Task<Void, Never>? = nil
+    @State private var isSearchingOnline = false
     
     // To dismiss both this search sheet and the child detail sheet
     @Binding var isPresented: Bool
@@ -91,7 +93,7 @@ struct ManualFoodSearchView: View {
                 if searchScope == .all, isSearching {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Searching all foods...")
+                        Text(isSearchingOnline ? "Checking current menus online..." : "Searching foods...")
                             .foregroundStyle(.secondary)
                     }
                     .listRowBackground(Color.clear)
@@ -99,7 +101,7 @@ struct ManualFoodSearchView: View {
                 }
 
                 if searchScope == .all, !results.isEmpty {
-                    Section("Food Database") {
+                    Section("Results") {
                         ForEach(results) { food in
                             databaseResultRow(food)
                         }
@@ -139,6 +141,7 @@ struct ManualFoodSearchView: View {
                 // Debounce: two synchronous SQLite queries per keystroke
                 // causes typing jank and result flicker on older devices.
                 searchDebounceTask?.cancel()
+                searchTask?.cancel()
                 searchDebounceTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(250))
                     guard !Task.isCancelled else { return }
@@ -147,11 +150,13 @@ struct ManualFoodSearchView: View {
             }
             .onChange(of: searchScope) { _, newScope in
                 searchDebounceTask?.cancel()
+                searchTask?.cancel()
                 if newScope == .all {
                     performSearch()
                 } else {
                     results = []
                     isSearching = false
+                    isSearchingOnline = false
                 }
             }
             .onAppear {
@@ -163,6 +168,10 @@ struct ManualFoodSearchView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     focusSearchBar()
                 }
+            }
+            .onDisappear {
+                searchDebounceTask?.cancel()
+                searchTask?.cancel()
             }
             .sheet(item: $selectedFood) { selection in
                 ManualFoodDetailView(
@@ -318,6 +327,16 @@ struct ManualFoodSearchView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                    if food.source == "web_published" {
+                        Label("Published nutrition", systemImage: "checkmark.seal.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(NomvaTheme.accent)
+                    } else if food.source == "web_estimate" {
+                        Label("Estimated from menu", systemImage: "wand.and.stars")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
@@ -420,19 +439,27 @@ struct ManualFoodSearchView: View {
     
     private func performSearch() {
         let requestedQuery = trimmedSearchText
+        searchTask?.cancel()
         guard searchScope == .all, !requestedQuery.isEmpty else {
             results = []
             isSearching = false
+            isSearchingOnline = false
             return
         }
 
         results = []
         isSearching = true
-        Task {
+        isSearchingOnline = false
+        searchTask = Task { @MainActor in
             let digits = requestedQuery.filter(\.isNumber)
             let found: [FoodItem]
+            let isBarcode = digits.count >= 8
+                && digits.count == requestedQuery
+                    .replacingOccurrences(of: " ", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                    .count
 
-            if digits.count >= 8, digits.count == requestedQuery.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").count {
+            if isBarcode {
                 if let custom = customFood(matchingBarcode: requestedQuery) {
                     found = [foodItem(from: custom)]
                 } else {
@@ -452,11 +479,38 @@ struct ManualFoodSearchView: View {
                 )
             }
 
-            await MainActor.run {
-                guard searchScope == .all, trimmedSearchText == requestedQuery else { return }
-                self.results = found
-                self.isSearching = false
+            guard !Task.isCancelled,
+                  searchScope == .all,
+                  trimmedSearchText == requestedQuery else { return }
+            results = found
+
+            guard !isBarcode,
+                  FoodLoggingService.shared.shouldSearchOnlineForManualEntry(
+                    query: requestedQuery,
+                    localResults: found
+                  ) else {
+                isSearching = false
+                return
             }
+
+            isSearchingOnline = true
+            let online = await FoodLoggingService.shared.searchOnlineFoodsForManualEntry(query: requestedQuery)
+            guard !Task.isCancelled,
+                  searchScope == .all,
+                  trimmedSearchText == requestedQuery else { return }
+            results = mergedSearchResults(online: online, local: found)
+            isSearchingOnline = false
+            isSearching = false
+        }
+    }
+
+    private func mergedSearchResults(online: [FoodItem], local: [FoodItem]) -> [FoodItem] {
+        var seen = Set<String>()
+        return (online + local).filter { food in
+            let key = [food.brand, food.name, food.servingDesc]
+                .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
+                .joined(separator: "|")
+            return seen.insert(key).inserted
         }
     }
 
@@ -564,7 +618,7 @@ struct ManualFoodSearchView: View {
             zincPer100g: food.per100g.zinc,
             rawUserInput: "Manual entry",
             fdcId: food.fdcId,
-            foodDatabaseId: food.id,
+            foodDatabaseId: food.source?.hasPrefix("web_") == true ? nil : food.id,
             source: food.source,
             barcode: food.barcode
         )

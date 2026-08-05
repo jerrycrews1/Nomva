@@ -19,6 +19,60 @@ struct RemoteAPIProvider: LLMProvider {
         return min(max(0.1, value), 100)
     }
 
+    private func finiteNumber(_ value: Any?) -> Double? {
+        if value is Bool { return nil }
+        let number: Double?
+        if let value = value as? NSNumber {
+            number = value.doubleValue
+        } else if let value = value as? Double {
+            number = value
+        } else {
+            number = nil
+        }
+        guard let number, number.isFinite else { return nil }
+        return number
+    }
+
+    private func nonemptyString(_ value: Any?) -> String? {
+        let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func resolvedFoodCandidate(from json: [String: Any]) -> ResolvedFoodCandidate? {
+        guard let candidateId = nonemptyString(json["candidateId"]),
+              let name = nonemptyString(json["name"]) else {
+            return nil
+        }
+
+        let servings = clampedServings(finiteNumber(json["servings"]))
+        return ResolvedFoodCandidate(
+            candidateId: candidateId,
+            name: name,
+            brand: nonemptyString(json["brand"]),
+            source: nonemptyString(json["source"]),
+            servings: servings,
+            portionDescription: nonemptyString(json["portionDescription"]) ?? "1 serving",
+            servingUnit: nonemptyString(json["servingUnit"]) ?? "serving",
+            confident: json["confident"] as? Bool ?? false,
+            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false,
+            servingGrams: finiteNumber(json["servingGrams"]),
+            servingDescription: nonemptyString(json["servingDescription"]),
+            caloriesPerServing: finiteNumber(json["caloriesPerServing"]),
+            proteinG: finiteNumber(json["proteinG"]),
+            carbsG: finiteNumber(json["carbsG"]),
+            fatG: finiteNumber(json["fatG"]),
+            fiberG: finiteNumber(json["fiberG"]),
+            sugarG: finiteNumber(json["sugarG"]),
+            sodiumMg: finiteNumber(json["sodiumMg"]),
+            portionBasis: nonemptyString(json["portionBasis"]),
+            quality: nonemptyString(json["quality"]),
+            confidence: finiteNumber(json["confidence"]),
+            sourceURL: nonemptyString(json["sourceUrl"]),
+            sourceTitle: nonemptyString(json["sourceTitle"]),
+            evidence: nonemptyString(json["evidence"])
+        )
+    }
+
     // MARK: - Configuration
 
     /// Base URL of the Nomva API server (no trailing slash).
@@ -104,37 +158,21 @@ struct RemoteAPIProvider: LLMProvider {
             throw ResolveFoodCandidateError.unsupported
         }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let candidateId = (json["candidateId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let name = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !name.isEmpty,
-              !candidateId.isEmpty else {
+        guard let candidate = resolvedFoodCandidate(from: json) else {
             throw ResolveFoodCandidateError.invalidResponse
         }
+        return candidate
+    }
 
-        // Model-provided number: clamp both ends so downstream nutrition math
-        // can never overflow to infinity (Int(Double) traps on non-finite).
-        let rawServings = json["servings"] as? Double ?? 1
-        let servings = rawServings.isFinite ? min(max(0.1, rawServings), 100) : 1
-        let portionDescription = (json["portionDescription"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let servingUnit = (json["servingUnit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return ResolvedFoodCandidate(
-            candidateId: candidateId,
-            name: name,
-            brand: {
-                let trimmed = (json["brand"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty ? nil : trimmed
-            }(),
-            source: {
-                let trimmed = (json["source"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty ? nil : trimmed
-            }(),
-            servings: servings,
-            portionDescription: (portionDescription?.isEmpty == false) ? portionDescription! : "1 serving",
-            servingUnit: (servingUnit?.isEmpty == false) ? servingUnit! : "serving",
-            confident: json["confident"] as? Bool ?? false,
-            hasExplicitPortion: json["hasExplicitPortion"] as? Bool ?? false
+    func searchFoodCatalog(query: String) async throws -> [ResolvedFoodCandidate] {
+        let data = try await postRaw(
+            "/v1/search-food-catalog",
+            body: ["query": query],
+            timeout: 30
         )
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let foods = json["foods"] as? [[String: Any]] ?? []
+        return foods.compactMap(resolvedFoodCandidate(from:))
     }
 
     func resolveFoodCandidates(

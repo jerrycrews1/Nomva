@@ -1,4 +1,5 @@
 const { boundedServings } = require("./numericGuards");
+const { resolvedCandidateBody } = require("./webFoodResolver");
 
 function renderFoodSearchRounds(rounds) {
   if (!rounds.length) {
@@ -55,18 +56,13 @@ function renderFoodVerifierFeedback(notes) {
 }
 
 function resolvedBody(selectedFood, verification) {
-  return {
-    candidateId: selectedFood.candidateId,
-    rowId: selectedFood.rowId,
-    name: selectedFood.name,
-    brand: selectedFood.brand,
-    source: selectedFood.source,
+  return resolvedCandidateBody(selectedFood, {
     servings: verification.servings,
     portionDescription: verification.portionDescription,
     servingUnit: verification.servingUnit,
     confident: verification.confident,
     hasExplicitPortion: verification.hasExplicitPortion,
-  };
+  });
 }
 
 function normalizedTokens(value) {

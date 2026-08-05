@@ -2,6 +2,8 @@ import Foundation
 
 private enum CandidateSource: String {
     case database, custom, recent
+    case webPublished = "web_published"
+    case webEstimate = "web_estimate"
 }
 
 private struct SearchCandidate {
@@ -823,7 +825,8 @@ final class FoodLoggingService {
             }
 
             entries.append(builtEntry)
-            confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal")
+            let estimateLabel = resolution.candidate.source == .webEstimate ? " estimated" : ""
+            confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal\(estimateLabel)")
         }
 
         if entries.isEmpty {
@@ -1768,23 +1771,27 @@ final class FoodLoggingService {
         customFoods: [CustomFood],
         initialServingsInfo: ServingsInfo
     ) async -> CandidateResolution? {
-        guard let candidate = await resolveCandidate(
+        let candidate: SearchCandidate
+        if let localCandidate = await resolveCandidate(
             candidateId: resolved.candidateId,
             recentEntries: recentEntries,
             customFoods: customFoods
-        ) else {
-            return nil
-        }
+        ) {
+            let localName = normalizedForComparison(localCandidate.name)
+            let remoteName = normalizedForComparison(resolved.name)
+            guard !localName.isEmpty, localName == remoteName else {
+                return nil
+            }
 
-        let localName = normalizedForComparison(candidate.name)
-        let remoteName = normalizedForComparison(resolved.name)
-        guard !localName.isEmpty, localName == remoteName else {
-            return nil
-        }
-
-        let localBrand = normalizedForComparison(candidate.brand ?? "")
-        let remoteBrand = normalizedForComparison(resolved.brand ?? "")
-        if !localBrand.isEmpty || !remoteBrand.isEmpty, localBrand != remoteBrand {
+            let localBrand = normalizedForComparison(localCandidate.brand ?? "")
+            let remoteBrand = normalizedForComparison(resolved.brand ?? "")
+            if !localBrand.isEmpty || !remoteBrand.isEmpty, localBrand != remoteBrand {
+                return nil
+            }
+            candidate = localCandidate
+        } else if let learnedCandidate = validatedLearnedCandidate(from: resolved) {
+            candidate = learnedCandidate
+        } else {
             return nil
         }
 
@@ -1796,6 +1803,90 @@ final class FoodLoggingService {
                 servingUnit: resolvedServingUnit(resolved.servingUnit),
                 confident: resolved.confident,
                 hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
+            )
+        )
+    }
+
+    private func validatedLearnedCandidate(from resolved: ResolvedFoodCandidate) -> SearchCandidate? {
+        guard resolved.candidateId.hasPrefix("learned_"),
+              let sourceName = resolved.source,
+              let source = CandidateSource(rawValue: sourceName),
+              source == .webPublished || source == .webEstimate,
+              resolved.quality == (source == .webPublished ? "published" : "estimated"),
+              let sourceURL = resolved.sourceURL,
+              let sourceScheme = URL(string: sourceURL)?.scheme?.lowercased(),
+              ["http", "https"].contains(sourceScheme),
+              let confidence = resolved.confidence,
+              confidence.isFinite,
+              (source == .webPublished ? confidence >= 0.65 : confidence >= 0.5),
+              let calories = resolved.caloriesPerServing,
+              let protein = resolved.proteinG,
+              let carbs = resolved.carbsG,
+              let fat = resolved.fatG,
+              let fiber = resolved.fiberG,
+              [calories, protein, carbs, fat, fiber].allSatisfy(\.isFinite),
+              (0...5_000).contains(calories),
+              (0...500).contains(protein),
+              (0...1_000).contains(carbs),
+              (0...500).contains(fat),
+              (0...250).contains(fiber) else {
+            return nil
+        }
+
+        let macroCalories = protein * 4 + carbs * 4 + fat * 9
+        guard abs(macroCalories - calories) <= max(120, calories * 0.45),
+              !(calories <= 10 && macroCalories > 30) else {
+            return nil
+        }
+
+        let sugar = resolved.sugarG.flatMap { $0.isFinite && (0...1_000).contains($0) ? $0 : nil } ?? 0
+        let sodium = resolved.sodiumMg.flatMap { $0.isFinite && (0...20_000).contains($0) ? $0 : nil } ?? 0
+        let servingGrams = resolved.servingGrams.flatMap { $0.isFinite && (1...5_000).contains($0) ? $0 : nil }
+        let per100Factor = servingGrams.map { 100 / $0 } ?? 1
+
+        return SearchCandidate(
+            candidateId: resolved.candidateId,
+            source: source,
+            databaseSource: source.rawValue,
+            fdcId: nil,
+            customFoodId: nil,
+            recentEntryId: nil,
+            name: resolved.name,
+            brand: resolved.brand,
+            servingGrams: servingGrams,
+            servingDesc: resolved.servingDescription ?? "1 serving",
+            caloriesPerServing: calories,
+            proteinG: protein,
+            carbsG: carbs,
+            fatG: fat,
+            fiberG: fiber,
+            sugarG: sugar,
+            sodiumMg: sodium,
+            saturatedFatG: nil,
+            transFatG: nil,
+            cholesterolMg: nil,
+            addedSugarG: nil,
+            vitaminDMcg: nil,
+            calciumMg: nil,
+            ironMg: nil,
+            potassiumMg: nil,
+            vitaminAMcgRAE: nil,
+            vitaminCMg: nil,
+            vitaminB12Mcg: nil,
+            folateMcgDFE: nil,
+            magnesiumMg: nil,
+            zincMg: nil,
+            barcode: nil,
+            portionBasis: .fixedServing,
+            servingSource: .explicitServing,
+            per100gValues: NutritionValues(
+                calories: calories * per100Factor,
+                protein: protein * per100Factor,
+                carbs: carbs * per100Factor,
+                fat: fat * per100Factor,
+                fiber: fiber * per100Factor,
+                sugar: sugar * per100Factor,
+                sodium: sodium * per100Factor
             )
         )
     }
@@ -2314,7 +2405,7 @@ final class FoodLoggingService {
             rawUserInput: userMessage,
             fdcId: candidate.fdcId,
             foodDatabaseId: candidate.source == .database ? Int(candidate.candidateId.replacingOccurrences(of: "db_", with: "")) : nil,
-            source: candidate.source.rawValue,
+            source: candidate.databaseSource ?? candidate.source.rawValue,
             barcode: candidate.barcode
         )
     }
@@ -2885,6 +2976,40 @@ final class FoodLoggingService {
             limit: limit
         )
         return candidates.compactMap(foodItem(from:))
+    }
+
+    func shouldSearchOnlineForManualEntry(query: String, localResults: [FoodItem]) -> Bool {
+        let rawTokens = Set(tokenize(query).map(singularized))
+        let tokens = Set(identityTokens(in: query).map(singularized))
+        guard tokens.count >= 2 else { return false }
+
+        let menuCues: Set<String> = [
+            "from", "at", "restaurant", "cafe", "menu", "short", "tall", "grande", "venti", "trenta"
+        ]
+        if !rawTokens.isDisjoint(with: menuCues) {
+            return true
+        }
+        guard let first = localResults.first else { return true }
+
+        let candidateTokens = Set(identityTokens(in: "\(first.brand ?? "") \(first.name)").map(singularized))
+        let overlap = tokens.filter(candidateTokens.contains)
+        let coverage = Double(overlap.count) / Double(tokens.count)
+        if coverage < 0.8 { return true }
+
+        // Long branded searches that only find a crowdsourced packaged-food
+        // row deserve a current manufacturer/menu check before presentation.
+        return tokens.count >= 3 && first.source == "open_food_facts"
+    }
+
+    func searchOnlineFoodsForManualEntry(query: String) async -> [FoodItem] {
+        do {
+            let resolved = try await RemoteAPIProvider().searchFoodCatalog(query: query)
+            return resolved.compactMap { candidate in
+                validatedLearnedCandidate(from: candidate).flatMap(foodItem(from:))
+            }
+        } catch {
+            return []
+        }
     }
 
     private func searchCandidates(
@@ -3546,7 +3671,9 @@ final class FoodLoggingService {
 
     private func buildRecentCandidates(from entries: [FoodEntry]) -> [SearchCandidate] {
         entries.prefix(10).map {
-            let gramSafe = $0.portionGrams > 0 && $0.caloriesPer100g > 0
+            let isLearnedFixedServing = $0.source == CandidateSource.webPublished.rawValue
+                || $0.source == CandidateSource.webEstimate.rawValue
+            let gramSafe = !isLearnedFixedServing && $0.portionGrams > 0 && $0.caloriesPer100g > 0
             return SearchCandidate(candidateId: "recent_\(String($0.id.uuidString.prefix(10)))", source: CandidateSource.recent, databaseSource: $0.source, fdcId: $0.fdcId, customFoodId: nil, recentEntryId: $0.id, name: $0.name, brand: $0.brand, servingGrams: $0.portionGrams, servingDesc: $0.portionDescription, caloriesPerServing: $0.calories, proteinG: $0.proteinG, carbsG: $0.carbsG, fatG: $0.fatG, fiberG: $0.fiberG, sugarG: $0.sugarG, sodiumMg: $0.sodiumMg, saturatedFatG: $0.saturatedFatG, transFatG: $0.transFatG, cholesterolMg: $0.cholesterolMg, addedSugarG: $0.addedSugarG, vitaminDMcg: $0.vitaminDMcg, calciumMg: $0.calciumMg, ironMg: $0.ironMg, potassiumMg: $0.potassiumMg, vitaminAMcgRAE: $0.vitaminAMcgRAE, vitaminCMg: $0.vitaminCMg, vitaminB12Mcg: $0.vitaminB12Mcg, folateMcgDFE: $0.folateMcgDFE, magnesiumMg: $0.magnesiumMg, zincMg: $0.zincMg, barcode: $0.barcode, portionBasis: gramSafe ? .grams : .fixedServing, servingSource: nil, per100gValues: NutritionValues(calories: $0.caloriesPer100g, protein: $0.proteinPer100g, carbs: $0.carbsPer100g, fat: $0.fatPer100g, fiber: $0.fiberPer100g, sugar: $0.sugarPer100g, sodium: $0.sodiumPer100g, saturatedFat: $0.saturatedFatPer100g, transFat: $0.transFatPer100g, cholesterol: $0.cholesterolPer100g, addedSugar: $0.addedSugarPer100g, vitaminD: $0.vitaminDPer100g, calcium: $0.calciumPer100g, iron: $0.ironPer100g, potassium: $0.potassiumPer100g, vitaminA: $0.vitaminAPer100g, vitaminC: $0.vitaminCPer100g, vitaminB12: $0.vitaminB12Per100g, folate: $0.folatePer100g, magnesium: $0.magnesiumPer100g, zinc: $0.zincPer100g), isFavorite: $0.isFavorite) }
         }
     }

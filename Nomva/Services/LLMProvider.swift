@@ -110,6 +110,21 @@ struct ResolvedFoodCandidate: Sendable {
     let servingUnit: String
     let confident: Bool
     let hasExplicitPortion: Bool
+    let servingGrams: Double?
+    let servingDescription: String?
+    let caloriesPerServing: Double?
+    let proteinG: Double?
+    let carbsG: Double?
+    let fatG: Double?
+    let fiberG: Double?
+    let sugarG: Double?
+    let sodiumMg: Double?
+    let portionBasis: String?
+    let quality: String?
+    let confidence: Double?
+    let sourceURL: String?
+    let sourceTitle: String?
+    let evidence: String?
 }
 
 /// One round of the find-food agent loop: the search query the LLM asked us

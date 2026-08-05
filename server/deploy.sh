@@ -22,6 +22,8 @@ FILES=(
   stateStore.js
   foodSearchStore.js
   foodResolver.js
+  foodKnowledgeStore.js
+  webFoodResolver.js
   deleteTargetGuard.js
   editTargetGuard.js
   foodMentionGuard.js
@@ -40,24 +42,28 @@ fi
 run_tests() { npm test > /tmp/nomva-deploy-test.log 2>&1; }
 
 echo "→ Running unit tests before deploy"
-if ! run_tests; then
+TESTS_PASSED=0
+if run_tests; then
+  TESTS_PASSED=1
+else
   # Most common local failure: better-sqlite3 built against a different Node
   # version. Rebuild once and retry before giving up.
   if grep -qiE "better.sqlite3|NODE_MODULE_VERSION|invalid ELF|was compiled against" /tmp/nomva-deploy-test.log; then
     echo "→ Tests failed loading better-sqlite3 — rebuilding native module for Node $(node --version)"
     npm rebuild better-sqlite3 --no-audit --no-fund
-    run_tests || true
+    if run_tests; then TESTS_PASSED=1; fi
   fi
 fi
-if ! grep -qE "^# fail[[:space:]]+0" /tmp/nomva-deploy-test.log; then
+if [[ "$TESTS_PASSED" != "1" ]]; then
   echo "✗ Unit tests failed — output below:"
   echo "──────────────────────────────────────────────"
-  grep -E "^not ok|error:|failureType|Error \[|# (tests|pass|fail)" /tmp/nomva-deploy-test.log | head -25
+  grep -E "^not ok|error:|failureType|Error \[|[#ℹ] (tests|pass|fail)" /tmp/nomva-deploy-test.log | head -25
   echo "──────────────────────────────────────────────"
   echo "  Full log: /tmp/nomva-deploy-test.log"
   exit 1
 fi
-echo "  ✓ $(grep -E '^# pass' /tmp/nomva-deploy-test.log | head -1 | sed 's/# pass[[:space:]]*//') tests green"
+PASS_COUNT=$(grep -E '^[#ℹ] pass' /tmp/nomva-deploy-test.log | head -1 | sed -E 's/^[#ℹ] pass[[:space:]]*//')
+echo "  ✓ ${PASS_COUNT:-all} tests green"
 
 if [[ -f "$CANONICAL_DB" && -n "$EXPECTED_DB_SHA" ]]; then
   LOCAL_SHA=$(shasum -a 256 "$CANONICAL_DB" | cut -d' ' -f1)

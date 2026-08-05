@@ -197,6 +197,7 @@ function formatFoodRow(row) {
 }
 
 function createFoodSearchStore(options = {}) {
+  const learnedStore = options.learnedStore || null;
   let Database;
   try {
     Database = require("better-sqlite3");
@@ -334,6 +335,14 @@ function createFoodSearchStore(options = {}) {
 
   function search(query, { limit = 20, offset = 0 } = {}) {
     const merged = new Map();
+    if (learnedStore) {
+      for (const row of learnedStore.search(query, {
+        limit: Math.max(limit + offset, 20),
+        minimumScore: 500,
+      })) {
+        merged.set(row.candidateId, row);
+      }
+    }
     for (const variant of searchVariants(query)) {
       for (const row of searchOne(variant, { limit: Math.max((limit + offset) * 8, 160) })) {
         if (!merged.has(row.candidateId)) {
@@ -364,6 +373,11 @@ function createFoodSearchStore(options = {}) {
   function inspect(rowId) {
     if (!Number.isInteger(rowId) || rowId <= 0) {
       return null;
+    }
+
+    const learned = learnedStore?.inspect(rowId);
+    if (learned) {
+      return learned;
     }
 
     const row = db.prepare(`
