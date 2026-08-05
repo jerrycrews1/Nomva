@@ -88,6 +88,7 @@ struct GoalServiceTests {
         testGoalAdjustments()
         testMacroAllocation()
         testDynamicDailyAdjustment()
+        testSameDayActivityCredit()
 
         print("Goal service tests: \(passed) passed, \(failed) failed")
         exit(failed == 0 ? EXIT_SUCCESS : EXIT_FAILURE)
@@ -266,6 +267,77 @@ struct GoalServiceTests {
             tolerance: 0.001,
             "Missing activity reference leaves the base goal unchanged"
         )
+    }
+
+    private static func testSameDayActivityCredit() {
+        checkClose(
+            GoalService.sameDayAdjustedCalories(
+                baseGoalCalories: 2_000,
+                currentDayActiveCalories: 100,
+                rollingAverageActiveCalories: 300,
+                referenceActiveCalories: 300
+            ),
+            2_000,
+            tolerance: 0.001,
+            "A partial current day cannot lower the calorie goal"
+        )
+        checkClose(
+            GoalService.sameDayAdjustedCalories(
+                baseGoalCalories: 2_000,
+                currentDayActiveCalories: 600,
+                rollingAverageActiveCalories: 300,
+                referenceActiveCalories: 300
+            ),
+            2_300,
+            tolerance: 0.001,
+            "Activity 300 kcal above today's baseline earns 300 kcal"
+        )
+        checkClose(
+            GoalService.sameDayAdjustedCalories(
+                baseGoalCalories: 2_000,
+                currentDayActiveCalories: 350,
+                rollingAverageActiveCalories: 400,
+                referenceActiveCalories: 300
+            ),
+            2_100,
+            tolerance: 0.001,
+            "A changed rolling baseline remains reflected before live activity exceeds it"
+        )
+        checkClose(
+            GoalService.sameDayAdjustedCalories(
+                baseGoalCalories: 2_000,
+                currentDayActiveCalories: 900,
+                rollingAverageActiveCalories: 300,
+                referenceActiveCalories: 0
+            ),
+            2_000,
+            tolerance: 0.001,
+            "Live activity cannot change a goal that has no measured reference"
+        )
+
+        let base = DailyGoal(calories: 2_000, protein: 150, carbs: 200, fat: 60)
+        let today = GoalService.displayGoal(
+            base: base,
+            selectedDate: .now,
+            activitySource: .garmin,
+            referenceActiveCalories: 300,
+            averageActiveCalories: 300,
+            currentDayActiveCalories: 600,
+            completedDayActiveCalories: nil
+        )
+        checkClose(today.calories, 2_300, tolerance: 0.001, "Today's display goal uses excess live Garmin activity")
+
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
+        let completedDay = GoalService.displayGoal(
+            base: base,
+            selectedDate: yesterday,
+            activitySource: .garmin,
+            referenceActiveCalories: 300,
+            averageActiveCalories: 300,
+            currentDayActiveCalories: nil,
+            completedDayActiveCalories: 200
+        )
+        checkClose(completedDay.calories, 1_900, tolerance: 0.001, "A completed day retains its full signed activity adjustment")
     }
 
     private static func checkClose(

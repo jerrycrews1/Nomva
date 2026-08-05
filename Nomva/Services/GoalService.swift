@@ -198,33 +198,58 @@ actor GoalService {
         return max(adjusted, 1_000)
     }
 
+    /// Keeps a partial day from lowering the goal while still crediting activity
+    /// above the user's recent completed-day baseline.
+    static func sameDayAdjustedCalories(
+        baseGoalCalories: Double,
+        currentDayActiveCalories: Double?,
+        rollingAverageActiveCalories: Double?,
+        referenceActiveCalories: Double
+    ) -> Double {
+        guard referenceActiveCalories > 0 else { return baseGoalCalories }
+
+        let rollingBaseline = rollingAverageActiveCalories.flatMap { $0 > 0 ? $0 : nil }
+            ?? referenceActiveCalories
+        let currentActivity = max(currentDayActiveCalories ?? 0, 0)
+        let creditedActivity = max(rollingBaseline, currentActivity)
+
+        return dynamicallyAdjustedCalories(
+            baseGoalCalories: baseGoalCalories,
+            dailyActiveCalories: creditedActivity,
+            referenceActiveCalories: referenceActiveCalories
+        )
+    }
+
     static func displayGoal(
         base: DailyGoal,
         selectedDate: Date,
         activitySource: GoalActivitySource,
         referenceActiveCalories: Double,
         averageActiveCalories: Double?,
+        currentDayActiveCalories: Double?,
         completedDayActiveCalories: Double?,
         calendar: Calendar = .current
     ) -> DailyGoal {
         let calories: Double
 
         if activitySource == .garmin || activitySource == .appleHealth {
-            let activityCalories: Double
-            if !calendar.isDateInToday(selectedDate),
-               let completedDayActiveCalories {
-                activityCalories = completedDayActiveCalories
-            } else if let averageActiveCalories, averageActiveCalories > 0 {
-                activityCalories = averageActiveCalories
+            if calendar.isDateInToday(selectedDate) {
+                calories = sameDayAdjustedCalories(
+                    baseGoalCalories: base.calories,
+                    currentDayActiveCalories: currentDayActiveCalories,
+                    rollingAverageActiveCalories: averageActiveCalories,
+                    referenceActiveCalories: referenceActiveCalories
+                )
             } else {
-                activityCalories = referenceActiveCalories
+                let activityCalories = completedDayActiveCalories
+                    ?? averageActiveCalories.flatMap { $0 > 0 ? $0 : nil }
+                    ?? referenceActiveCalories
+                calories = dynamicallyAdjustedCalories(
+                    baseGoalCalories: base.calories,
+                    dailyActiveCalories: activityCalories,
+                    referenceActiveCalories: referenceActiveCalories
+                )
             }
-
-            calories = dynamicallyAdjustedCalories(
-                baseGoalCalories: base.calories,
-                dailyActiveCalories: activityCalories,
-                referenceActiveCalories: referenceActiveCalories
-            )
         } else {
             calories = base.calories
         }

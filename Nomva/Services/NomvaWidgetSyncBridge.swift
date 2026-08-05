@@ -159,6 +159,9 @@ struct NomvaWidgetSyncBridge: View {
             averageActiveCalories: activitySource == .garmin
                 ? garminManager.averageActiveCalories
                 : measuredActiveCalories,
+            currentDayActiveCalories: activitySource == .garmin
+                ? garminManager.summary(for: .now)?.activeCalories
+                : nil,
             completedDayActiveCalories: nil
         )
         let adjustedGoalCalories = adjustedGoal.calories

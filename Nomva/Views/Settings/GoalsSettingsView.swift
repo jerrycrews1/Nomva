@@ -360,7 +360,7 @@ struct RecalculateGoalsView: View {
             return "Average from \(appleHealthSummary.sampledDays) of the last \(appleHealthSummary.windowDays) completed days."
         case .garmin:
             let window = garminManager.status.averageWindowDays ?? 28
-            return "Average from \(garminManager.status.sampledDays) of the last \(window) completed days; today is excluded."
+            return "Average from \(garminManager.status.sampledDays) of the last \(window) completed days; today is excluded. Today never drops from a partial reading, and synced activity above this baseline raises today's target calorie for calorie."
         }
     }
 
@@ -376,7 +376,7 @@ struct RecalculateGoalsView: View {
     }
 
     private var estimateDisclaimer: String {
-        "This is a starting estimate, not a promise. Wearables and formulas vary by person. Compare your 2-3 week weight trend and adjust the target if your real result differs."
+        "This is a starting estimate, not a promise. Garmin and Apple Health active calories are wearable estimates, not direct measurements of total energy expenditure. Compare your 2-3 week weight trend and adjust the target if your real result differs."
     }
 
     private var appleHealthRowSubtitle: String {
@@ -583,7 +583,7 @@ struct RecalculateGoalsView: View {
                                     isEnabled: garminManager.isConfigured || garminManager.isConnected
                                 )
 
-                                Text("Garmin Connect syncs through Nomva Cloud so the app can receive daily summaries and update calorie goals from real activity.")
+                                Text("Garmin Connect syncs estimated active calories through Nomva Cloud. Today's target stays at your recent baseline, then increases calorie for calorie when today's synced activity exceeds it.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 16)
@@ -845,7 +845,7 @@ struct RecalculateGoalsView: View {
 
     private var garminSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Nomva averages available completed Garmin days from the last 28 calendar days. Today is excluded, and missing days are not treated as zero.")
+            Text("Nomva averages available completed Garmin days from the last 28 calendar days. Today is excluded, and missing days are not treated as zero. During the current day, a partial reading cannot lower your target; active calories above the average increase it calorie for calorie.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)

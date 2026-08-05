@@ -86,6 +86,9 @@ struct ChatView: View {
             averageActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.averageActiveCalories
                 : nil,
+            currentDayActiveCalories: selectedActivitySource == .garmin
+                ? garminManager.summary(for: selectedDate)?.activeCalories
+                : nil,
             completedDayActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.summary(for: selectedDate)?.activeCalories
                 : nil

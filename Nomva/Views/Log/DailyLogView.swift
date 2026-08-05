@@ -92,6 +92,9 @@ struct DailyLogView: View {
             averageActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.averageActiveCalories
                 : nil,
+            currentDayActiveCalories: selectedActivitySource == .garmin
+                ? garminSummaryForSelectedDate?.activeCalories
+                : nil,
             completedDayActiveCalories: selectedActivitySource == .garmin
                 ? garminSummaryForSelectedDate?.activeCalories
                 : nil
@@ -963,8 +966,7 @@ struct DailyLogView: View {
         return "Synced activity for \(dateLabel)"
     }
 
-    /// Explains how the calorie goal was adjusted — uses rolling average for
-    /// today (stable all day) and the actual value for completed past dates.
+    /// Explains how the rolling baseline and the selected day's activity affect the goal.
     private var goalAdjustmentCaption: String {
         let base = currentGoal.calories
 
@@ -985,25 +987,37 @@ struct DailyLogView: View {
             }
         }
 
-        // Today or no summary — goal is based on the rolling average
+        // A partial current day can earn calories above baseline, but cannot reduce the goal.
         if let avg = garminManager.averageActiveCalories, avg > 0 {
-            let delta = GoalService.dynamicallyAdjustedCalories(
+            let baselineDelta = GoalService.dynamicallyAdjustedCalories(
                 baseGoalCalories: base,
                 dailyActiveCalories: avg,
                 referenceActiveCalories: activityReferenceActiveCalories
             ) - base
-            let rounded = delta.safeRoundedInt
             let avgRounded = avg.safeRoundedInt
-            if rounded == 0 {
-                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day)."
-            } else if rounded > 0 {
-                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day), adding \(rounded) kcal."
+            let baselineNote: String
+            let roundedBaselineDelta = baselineDelta.safeRoundedInt
+            if roundedBaselineDelta > 0 {
+                baselineNote = " This baseline is \(roundedBaselineDelta) kcal above the one saved with your goal."
+            } else if roundedBaselineDelta < 0 {
+                baselineNote = " This baseline is \(abs(roundedBaselineDelta)) kcal below the one saved with your goal."
             } else {
-                return "Your calorie goal uses your recent Garmin average (\(avgRounded) active kcal/day), trimming \(abs(rounded)) kcal."
+                baselineNote = ""
             }
+
+            if isToday, let summary = garminSummaryForSelectedDate {
+                let activeRounded = summary.activeCalories.safeRoundedInt
+                let earned = max(summary.activeCalories - avg, 0).safeRoundedInt
+                if earned > 0 {
+                    return "Garmin estimates \(activeRounded) active kcal today, \(earned) above your \(avgRounded)-kcal recent baseline. That adds \(earned) kcal to today's target.\(baselineNote)"
+                }
+                return "Today's target includes your \(avgRounded)-kcal recent activity baseline. Garmin estimates \(activeRounded) active kcal so far; activity above the baseline will add the same number of calories to today's target.\(baselineNote)"
+            }
+
+            return "Today's target includes your \(avgRounded)-kcal recent Garmin activity baseline. Synced active calories above it add the same number of calories to today's target.\(baselineNote)"
         }
 
-        return "Your calorie goal adjusts based on Garmin activity data."
+        return "Your calorie goal will adjust after Garmin has enough completed-day activity data."
     }
 
 }

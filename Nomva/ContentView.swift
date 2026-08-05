@@ -6,6 +6,7 @@ struct ContentView: View {
     @StateObject private var subManager = SubscriptionManager.shared
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
+    @EnvironmentObject private var garminManager: GarminManager
 
     enum Tab {
         case chat, log, weight, settings
@@ -63,10 +64,12 @@ struct ContentView: View {
         }
         .task {
             routeCenter.consumeStoredRouteIfNeeded()
+            await garminManager.refreshIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             routeCenter.consumeStoredRouteIfNeeded()
+            Task { await garminManager.refresh() }
         }
         .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
             selectedTab = tab(for: route)
