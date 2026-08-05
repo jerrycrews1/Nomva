@@ -23,6 +23,7 @@ FILES=(
   foodSearchStore.js
   foodResolver.js
   foodKnowledgeStore.js
+  foodLogPlanner.js
   webFoodResolver.js
   deleteTargetGuard.js
   editTargetGuard.js

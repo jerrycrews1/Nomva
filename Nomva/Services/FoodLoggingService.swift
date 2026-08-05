@@ -113,6 +113,23 @@ private enum ServerResolutionAttempt {
 private struct FastFoodMention {
     let text: String
     let servingsInfo: ServingsInfo
+    let searchQuery: String
+    let resolutionHint: String?
+    let servingsAreAuthoritative: Bool
+
+    init(
+        text: String,
+        servingsInfo: ServingsInfo,
+        searchQuery: String? = nil,
+        resolutionHint: String? = nil,
+        servingsAreAuthoritative: Bool = false
+    ) {
+        self.text = text
+        self.servingsInfo = servingsInfo
+        self.searchQuery = searchQuery?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? text
+        self.resolutionHint = resolutionHint
+        self.servingsAreAuthoritative = servingsAreAuthoritative
+    }
 }
 
 private struct FastFoodParse {
@@ -684,10 +701,28 @@ final class FoodLoggingService {
         defaultMeal: String
     ) async -> LoggingResult {
 
-        let fastParse = fastParseFoodLog(userMessage)
+        let structuredPlan: FoodLogPlan?
+        if let remoteProvider = provider as? RemoteAPIProvider,
+           shouldRequestStructuredFoodPlan(userMessage) {
+            structuredPlan = try? await remoteProvider.planFoodLog(userMessage: userMessage)
+        } else {
+            structuredPlan = nil
+        }
+
+        let fastParse = structuredPlan == nil ? fastParseFoodLog(userMessage) : nil
         let usedFastParse = fastParse?.mentions.isEmpty == false
         let rawFoodMentions: [FastFoodMention]
-        if usedFastParse, let fastParse {
+        if let structuredPlan {
+            rawFoodMentions = structuredPlan.foods.map {
+                FastFoodMention(
+                    text: $0.text,
+                    servingsInfo: $0.servingsInfo,
+                    searchQuery: $0.searchQuery,
+                    resolutionHint: $0.kind,
+                    servingsAreAuthoritative: true
+                )
+            }
+        } else if usedFastParse, let fastParse {
             rawFoodMentions = fastParse.mentions
         } else {
             do {
@@ -709,25 +744,30 @@ final class FoodLoggingService {
         }
         let foodMentions = deduplicatedFoodMentions(rawFoodMentions)
 
-        let meal = fastMeal(in: userMessage) ?? defaultMeal
+        let meal = structuredPlan?.meal ?? fastMeal(in: userMessage) ?? defaultMeal
 
         var entries: [FoodEntry] = []
         var confirmLines: [String] = []
 
         var initialServings = foodMentions.map(\.servingsInfo)
         var resolutions = Array<CandidateResolution?>(repeating: nil, count: foodMentions.count)
+        var remotelyAttemptedIndices = Set<Int>()
 
         // Search the on-device database before spending a network round trip
         // asking about portions. Plain foods with no stated amount can use the
         // selected row's normal serving; only real portion language needs the
         // focused portion extractor.
         for index in foodMentions.indices {
-            resolutions[index] = await highConfidenceSearchResolution(
-                mention: foodMentions[index].text,
-                recentEntries: recentEntries,
-                customFoods: customFoods,
-                initialServingsInfo: initialServings[index]
-            )
+            if ["composite", "menu"].contains(foodMentions[index].resolutionHint) {
+                resolutions[index] = nil
+            } else {
+                resolutions[index] = await highConfidenceSearchResolution(
+                    mention: foodMentions[index].searchQuery,
+                    recentEntries: recentEntries,
+                    customFoods: customFoods,
+                    initialServingsInfo: initialServings[index]
+                )
+            }
         }
 
         let localPortionIndices = foodMentions.indices.filter {
@@ -769,9 +809,11 @@ final class FoodLoggingService {
 
         let unresolvedCandidateIndices = foodMentions.indices.filter { resolutions[$0] == nil }
         if let remoteProvider = provider as? RemoteAPIProvider, !unresolvedCandidateIndices.isEmpty {
+            remotelyAttemptedIndices.formUnion(unresolvedCandidateIndices)
             let remoteCandidates = await remoteProvider.resolveFoodCandidates(
                 userMessage: userMessage,
-                foodMentions: unresolvedCandidateIndices.map { foodMentions[$0].text }
+                foodMentions: unresolvedCandidateIndices.map { foodMentions[$0].text },
+                resolutionHints: unresolvedCandidateIndices.map { foodMentions[$0].resolutionHint }
             )
             for (position, mentionIndex) in unresolvedCandidateIndices.enumerated() {
                 guard let resolved = remoteCandidates[position] else { continue }
@@ -779,7 +821,8 @@ final class FoodLoggingService {
                     from: resolved,
                     recentEntries: recentEntries,
                     customFoods: customFoods,
-                    initialServingsInfo: initialServings[mentionIndex]
+                    initialServingsInfo: initialServings[mentionIndex],
+                    initialServingsAreAuthoritative: foodMentions[mentionIndex].servingsAreAuthoritative
                 )
             }
         }
@@ -790,6 +833,8 @@ final class FoodLoggingService {
             let resolution: CandidateResolution?
             if let existing = resolutions[index] {
                 resolution = existing
+            } else if remotelyAttemptedIndices.contains(index) {
+                resolution = nil
             } else {
                 resolution = await resolveLoggedCandidate(
                     mention: mention,
@@ -1374,6 +1419,17 @@ final class FoodLoggingService {
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 
+    private func shouldRequestStructuredFoodPlan(_ text: String) -> Bool {
+        if requiresSemanticFoodSplit(text) {
+            return true
+        }
+        let scopedQuantity = #"(?i)\b(?:everything|all|each)\b|\b(?:servings?|portions?)\b[^.!?]{0,30}\b(?:everything|all|each)\b"#
+        if text.range(of: scopedQuantity, options: .regularExpression) != nil {
+            return true
+        }
+        return text.contains(",") && text.range(of: #"(?i)\b(?:and|plus|also)\b"#, options: .regularExpression) != nil
+    }
+
     private func fastMeal(in text: String) -> String? {
         for meal in ["breakfast", "lunch", "dinner", "snack"] {
             let patterns = [
@@ -1760,7 +1816,11 @@ final class FoodLoggingService {
             customFoods: customFoods,
             initialServingsInfo: initialServingsInfo
         ) else {
-            return .unavailable
+            // The server completed successfully and selected a candidate. A
+            // client-side validation rejection is authoritative, not a reason
+            // to launch the older multi-call search loop against the same
+            // mention. Treat it as a clean no-match and surface one failure.
+            return .noMatch
         }
         return .resolved(resolution)
     }
@@ -1769,7 +1829,8 @@ final class FoodLoggingService {
         from resolved: ResolvedFoodCandidate,
         recentEntries: [FoodEntry],
         customFoods: [CustomFood],
-        initialServingsInfo: ServingsInfo
+        initialServingsInfo: ServingsInfo,
+        initialServingsAreAuthoritative: Bool = false
     ) async -> CandidateResolution? {
         let candidate: SearchCandidate
         if let localCandidate = await resolveCandidate(
@@ -1795,16 +1856,22 @@ final class FoodLoggingService {
             return nil
         }
 
-        return CandidateResolution(
-            candidate: candidate,
-            servingsInfo: ServingsInfo(
-                servings: max(0.1, resolved.servings),
-                portionDescription: resolved.portionDescription.isEmpty ? initialServingsInfo.portionDescription : resolved.portionDescription,
-                servingUnit: resolvedServingUnit(resolved.servingUnit),
-                confident: resolved.confident,
-                hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
-            )
+        let resolvedServingsInfo = ServingsInfo(
+            servings: max(0.1, resolved.servings),
+            portionDescription: resolved.portionDescription.isEmpty ? initialServingsInfo.portionDescription : resolved.portionDescription,
+            servingUnit: resolvedServingUnit(resolved.servingUnit),
+            confident: resolved.confident,
+            hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
         )
+        guard initialServingsAreAuthoritative, initialServingsInfo.hasExplicitPortion else {
+            return CandidateResolution(candidate: candidate, servingsInfo: resolvedServingsInfo)
+        }
+
+        let authoritativeServingsInfo = adjustedFixedServingInfo(
+            candidate: candidate,
+            servingsInfo: initialServingsInfo
+        ) ?? initialServingsInfo
+        return CandidateResolution(candidate: candidate, servingsInfo: authoritativeServingsInfo)
     }
 
     private func validatedLearnedCandidate(from resolved: ResolvedFoodCandidate) -> SearchCandidate? {
@@ -2255,6 +2322,14 @@ final class FoodLoggingService {
     private func deterministicGrams(for candidate: SearchCandidate, servingsInfo: ServingsInfo) -> Double? {
         if let explicitGrams = gramsMentioned(in: servingsInfo.portionDescription) {
             return max(explicitGrams, 1)
+        }
+
+        let normalizedUnit = singularized(servingsInfo.servingUnit.lowercased())
+        if servingsInfo.hasExplicitPortion,
+           ["serving", "portion"].contains(normalizedUnit),
+           let servingGrams = candidate.servingGrams,
+           servingGrams > 0 {
+            return max(servingGrams * servingsInfo.servings, 1)
         }
 
         if servingsInfo.hasExplicitPortion,

@@ -2,6 +2,7 @@ const { boundedServings } = require("./numericGuards");
 const { foodTokens, normalizeFoodText } = require("./foodKnowledgeStore");
 
 const MENU_CUE = /\b(from|at|restaurant|cafe|coffee shop|menu|short|tall|grande|venti|trenta)\b/i;
+const COMPOSITE_CUE = /\b(with|topped|filled|made with|including)\b/i;
 const CRITICAL_IDENTITY_TOKENS = new Set([
   "zero", "diet", "decaf", "iced", "hot", "short", "tall", "grande", "venti", "trenta",
 ]);
@@ -81,7 +82,13 @@ function tokensEquivalent(left, right) {
 
 function identityMatchesMention(foodMention, candidate) {
   const mentionTokens = [...new Set(foodTokens(foodMention).map(singularToken))];
-  const candidateTokens = [...new Set(foodTokens(`${candidate?.brand || ""} ${candidate?.name || ""}`).map(singularToken))];
+  const aliases = Array.isArray(candidate?.aliases) ? candidate.aliases.join(" ") : "";
+  const primaryTokens = [...new Set(
+    foodTokens(`${candidate?.brand || ""} ${candidate?.name || ""}`).map(singularToken)
+  )];
+  const candidateTokens = [...new Set(
+    [...primaryTokens, ...foodTokens(aliases).map(singularToken)]
+  )];
   if (!mentionTokens.length || !candidateTokens.length) return false;
 
   const matched = mentionTokens.filter((mentionToken) => (
@@ -92,7 +99,7 @@ function identityMatchesMention(foodMention, candidate) {
 
   return mentionTokens
     .filter((token) => CRITICAL_IDENTITY_TOKENS.has(token))
-    .every((token) => candidateTokens.some((candidateToken) => tokensEquivalent(token, candidateToken)));
+    .every((token) => primaryTokens.some((candidateToken) => tokensEquivalent(token, candidateToken)));
 }
 
 function sanitizeWebFoodResult(raw) {
@@ -361,7 +368,9 @@ function createWebFoodResolver({
 function shouldTryWebFirst(foodMention, candidates = []) {
   const mention = String(foodMention || "");
   const meaningfulCount = normalizeFoodText(mention).split(" ").filter(Boolean).length;
-  return MENU_CUE.test(mention) || (candidates.length === 0 && meaningfulCount >= 2);
+  return MENU_CUE.test(mention)
+    || (COMPOSITE_CUE.test(mention) && meaningfulCount >= 3)
+    || (candidates.length === 0 && meaningfulCount >= 2);
 }
 
 module.exports = {

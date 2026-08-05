@@ -26,6 +26,11 @@ const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
 const { computeGarminAverages } = require("./garminMetrics");
 const {
+  FOOD_LOG_PLANNER_PROMPT,
+  sanitizeFoodLogPlan,
+  shouldUseStructuredFoodPlan,
+} = require("./foodLogPlanner");
+const {
   boundedNumber,
   boundedServings,
   boundedGrams,
@@ -39,7 +44,9 @@ const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const FOOD_RESOLUTION_MODEL = process.env.NOMVA_FOOD_RESOLUTION_MODEL || "gpt-5.6-luna";
 const WEB_FOOD_MODEL = process.env.NOMVA_WEB_FOOD_MODEL || "gpt-5.6-luna";
+const FOOD_LOG_PLANNING_MODEL = process.env.NOMVA_FOOD_LOG_PLANNING_MODEL || "gpt-5.6-sol";
 const CONTEXT_MODEL = process.env.NOMVA_CONTEXT_MODEL || "gpt-5.4-mini";
+const AI_ESTIMATE_SOURCE_URL = "https://nomva.nerdquad.com/food-estimates";
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const garminStorePath = path.join(dataDir, "garmin-store.json");
@@ -1209,6 +1216,9 @@ function summarizeRequestBody(body = {}) {
   if (typeof body.foodMention === "string") {
     summary.foodMentionChars = body.foodMention.length;
   }
+  if (["single", "composite", "menu"].includes(body.resolutionHint)) {
+    summary.resolutionHint = body.resolutionHint;
+  }
   if (typeof body.candidateName === "string") {
     summary.candidateNameChars = body.candidateName.length;
   }
@@ -1341,6 +1351,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
     };
     if (/^gpt-5/i.test(requestModel)) {
       request.max_completion_tokens = completionBudget;
+      if (opts.reasoningEffort) request.reasoning_effort = opts.reasoningEffort;
     } else {
       request.temperature = 0.1;
       request.max_tokens = completionBudget;
@@ -1355,9 +1366,13 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       if (attempt === 1 && /^gpt-5/i.test(requestModel)) {
         request.max_completion_tokens = completionBudget * 2;
       }
+      const requestOptions = {};
+      if (opts.signal) requestOptions.signal = opts.signal;
+      if (opts.timeoutMs) requestOptions.timeout = opts.timeoutMs;
+      if (opts.maxRetries !== undefined) requestOptions.maxRetries = opts.maxRetries;
       response = await openai.chat.completions.create(
         { ...request },
-        opts.signal ? { signal: opts.signal } : undefined
+        Object.keys(requestOptions).length ? requestOptions : undefined
       );
       text = response.choices?.[0]?.message?.content?.trim() || null;
       if (text) break;
@@ -1509,6 +1524,17 @@ app.get("/health", (_req, res) => res.json({
   },
   foodKnowledge: foodKnowledgeStore.stats(),
 }));
+
+app.get("/food-estimates", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nomva Nutrition Estimates</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:680px;margin:0 auto;padding:48px 24px;line-height:1.55;color:#1b1b1f;background:#fff}h1{font-size:32px}h2{font-size:20px;margin-top:32px}a{color:#9d3e00}@media(prefers-color-scheme:dark){body{color:#f2f2f5;background:#151518}a{color:#ff9a52}}
+</style></head><body><h1>Nomva Nutrition Estimates</h1>
+<p>When a meal has no exact database or published menu match, Nomva may estimate one ordinary serving from the foods and portions the user described.</p>
+<h2>How estimates work</h2><p>The AI interprets the complete meal, applies common ingredient portions, checks that calories and macronutrients agree, records its assumptions, and caps confidence below published-data confidence. Estimated entries are labeled <strong>estimated</strong> in the app.</p>
+<h2>Important limitation</h2><p>Recipes and serving sizes vary. These values are useful logging approximations, not laboratory measurements or medical advice. Edit the entry when you know the recipe, package label, or measured portion.</p></body></html>`);
+});
 
 app.get("/analytics/summary", (req, res) => {
   if (!ANALYTICS_ADMIN_TOKEN) {
@@ -1937,12 +1963,76 @@ app.post("/v1/split-foods", async (req, res) => {
   }
 });
 
+// Interpret compound meals as one structured plan before any database work.
+// The model owns semantic decisions (dish vs. component, quantity scope); the
+// sanitizer enforces the resulting contract without knowing specific foods.
+app.post("/v1/plan-food-log", async (req, res) => {
+  try {
+    const userMessage = String(req.body?.userMessage || "").trim().slice(0, 1_500);
+    if (!userMessage) {
+      return res.status(400).json({ error: "missing_user_message" });
+    }
+    if (!shouldUseStructuredFoodPlan(userMessage)) {
+      return res.status(422).json({ error: "structured_plan_not_needed" });
+    }
+
+    const rawPlan = await ask(
+      FOOD_LOG_PLANNER_PROMPT,
+      `User message: "${userMessage}"`,
+      llmAnalyticsOptions(req, "plan_food_log", {
+        maxTokens: 900,
+        model: FOOD_LOG_PLANNING_MODEL,
+        reasoningEffort: "low",
+        timeoutMs: 18_000,
+        maxRetries: 0,
+      })
+    );
+    const plan = sanitizeFoodLogPlan(rawPlan);
+    if (!plan) {
+      return res.status(422).json({ error: "invalid_food_log_plan" });
+    }
+    for (const item of plan.items) {
+      const estimate = item.nutritionEstimate;
+      if (item.kind !== "composite" || !estimate) continue;
+      try {
+        foodKnowledgeStore.upsert({
+          name: estimate.canonicalName,
+          brand: null,
+          aliases: [item.mention, item.searchQuery],
+          servingDescription: estimate.servingDescription,
+          servingGrams: estimate.servingGrams,
+          caloriesPerServing: estimate.caloriesPerServing,
+          proteinG: estimate.proteinG,
+          carbsG: estimate.carbsG,
+          fatG: estimate.fatG,
+          fiberG: estimate.fiberG,
+          sugarG: estimate.sugarG,
+          sodiumMg: estimate.sodiumMg,
+          quality: "estimated",
+          confidence: estimate.confidence,
+          sourceUrl: AI_ESTIMATE_SOURCE_URL,
+          sourceTitle: "Nomva AI nutrition estimate",
+          evidence: estimate.assumptions,
+        }, [item.mention, item.searchQuery]);
+      } catch (error) {
+        console.warn("composite estimate cache warning:", error.message);
+      }
+    }
+    return res.json(plan);
+  } catch (err) {
+    return respondLLMFailure(res, err, "food_log_planning_failed");
+  }
+});
+
 // 2b. Resolve one food mention through the learned/current catalog, then the
 // static nutrition DB when no current menu lookup is needed or available.
 app.post("/v1/resolve-food-candidate", async (req, res) => {
   try {
-    const { userMessage = "", foodMention = "" } = req.body || {};
+    const { userMessage = "", foodMention = "", resolutionHint = "" } = req.body || {};
     const trimmedMention = String(foodMention).trim();
+    const normalizedHint = ["single", "composite", "menu"].includes(resolutionHint)
+      ? resolutionHint
+      : "";
     if (!trimmedMention) {
       return res.status(400).json({ error: "missing_food_mention" });
     }
@@ -1954,9 +2044,6 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       if (!res.writableEnded) abort.abort();
     });
 
-    const initialCandidates = foodSearchStore.isAvailable
-      ? foodSearchStore.search(trimmedMention, { limit: 10, offset: 0 })
-      : [];
     const webResolver = webFoodResolverForRequest(req);
     let attemptedWebResolution = false;
 
@@ -1976,10 +2063,28 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       }
     };
 
+    // A learned exact match is already validated and should never wait behind
+    // a broad 798k-row static search. Besides making repeat logs effectively
+    // instant, this prevents a stale packaged-food row from displacing the
+    // user's previously learned menu item.
+    const cachedLearned = foodKnowledgeStore.search(
+      trimmedMention,
+      { limit: 1, minimumScore: 700 }
+    )[0];
+    if (cachedLearned && identityMatchesMention(trimmedMention, cachedLearned)) {
+      const cachedResult = await tryWebResolution();
+      if (cachedResult) return res.json(cachedResult);
+    }
+
+    const initialCandidates = foodSearchStore.isAvailable
+      ? foodSearchStore.search(trimmedMention, { limit: 10, offset: 0 })
+      : [];
+
     // Restaurant names, menu sizes, and searches with no viable database row
     // are retrieval problems. Search the current web before asking a model to
     // choose among stale packaged-food rows.
-    if (shouldTryWebFirst(trimmedMention, initialCandidates)) {
+    if (["composite", "menu"].includes(normalizedHint)
+        || shouldTryWebFirst(trimmedMention, initialCandidates)) {
       const webResult = await tryWebResolution();
       if (webResult) {
         return res.json(webResult);

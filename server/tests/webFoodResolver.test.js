@@ -160,10 +160,21 @@ test("caches explicit no-match answers without poisoning transient failures", as
   assert.equal(transient.knowledgeStore.hasFreshMiss("temporary menu item"), false);
 });
 
-test("web-first routing is limited to menu-like or database-empty queries", () => {
+test("web-first routing covers menu, composite, and database-empty queries", () => {
   assert.equal(shouldTryWebFirst("venti caramel macchiato from Starbucks", [{}]), true);
   assert.equal(shouldTryWebFirst("lowers bowl at Alohana", [{}]), true);
+  assert.equal(shouldTryWebFirst("quesadilla with meat beans and cheese", [{}]), true);
   assert.equal(shouldTryWebFirst("unlisted composed dish", []), true);
   assert.equal(shouldTryWebFirst("Greek yogurt", [{ name: "Greek yogurt" }]), false);
   assert.equal(shouldTryWebFirst("egg", []), false);
+});
+
+test("learned-food identity can be supported by its saved aliases", () => {
+  assert.equal(identityMatchesMention(
+    "quesadilla with cheese flour tortilla beans meat and corn",
+    {
+      name: "Loaded quesadilla",
+      aliases: ["quesadilla with cheese flour tortilla beans meat and corn"],
+    }
+  ), true);
 });

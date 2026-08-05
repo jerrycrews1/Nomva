@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import AuthenticationServices
 import Combine
 import CryptoKit
@@ -20,9 +21,13 @@ struct RemoteAPIProvider: LLMProvider {
     }
 
     private func finiteNumber(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
         let number: Double?
         if let value = value as? NSNumber {
+            // JSONSerialization represents both booleans and numbers as
+            // NSNumber. Swift also reports numeric 0 and 1 as `is Bool`, so
+            // that check incorrectly discarded legitimate zero-valued
+            // nutrients such as fiber. CFBoolean has a distinct runtime type.
+            guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
             number = value.doubleValue
         } else if let value = value as? Double {
             number = value
@@ -125,6 +130,44 @@ struct RemoteAPIProvider: LLMProvider {
         return result["foods"] ?? [userMessage]
     }
 
+    func planFoodLog(userMessage: String) async throws -> FoodLogPlan {
+        let data = try await postRaw(
+            "/v1/plan-food-log",
+            body: ["userMessage": userMessage],
+            timeout: 25
+        )
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let rawItems = json["items"] as? [[String: Any]] ?? []
+        let foods = rawItems.prefix(12).compactMap { item -> PlannedFoodMention? in
+            guard let mention = nonemptyString(item["mention"]) else { return nil }
+            let servings = clampedServings(finiteNumber(item["servings"]))
+            return PlannedFoodMention(
+                text: mention,
+                searchQuery: nonemptyString(item["searchQuery"]) ?? mention,
+                kind: nonemptyString(item["kind"]) ?? "single",
+                servingsInfo: ServingsInfo(
+                    servings: servings,
+                    portionDescription: nonemptyString(item["portionDescription"]) ?? "1 serving",
+                    servingUnit: nonemptyString(item["servingUnit"]) ?? "serving",
+                    confident: item["confident"] as? Bool ?? false,
+                    hasExplicitPortion: item["hasExplicitPortion"] as? Bool ?? false
+                )
+            )
+        }
+        guard !foods.isEmpty else { throw RemoteError.invalidResponse }
+
+        let rawMeal = nonemptyString(json["meal"])
+        let meal = ["breakfast", "lunch", "dinner", "snack"].contains(rawMeal ?? "")
+            ? rawMeal
+            : nil
+        return FoodLogPlan(
+            meal: meal,
+            quantityScope: nonemptyString(json["quantityScope"]) ?? "none",
+            globalServings: finiteNumber(json["globalServings"]),
+            foods: foods
+        )
+    }
+
     func buildFoodSearchQuery(
         userMessage: String,
         foodMention: String
@@ -142,10 +185,25 @@ struct RemoteAPIProvider: LLMProvider {
         userMessage: String,
         foodMention: String
     ) async throws -> ResolvedFoodCandidate {
-        let body: [String: Any] = [
+        try await resolveFoodCandidate(
+            userMessage: userMessage,
+            foodMention: foodMention,
+            resolutionHint: nil
+        )
+    }
+
+    private func resolveFoodCandidate(
+        userMessage: String,
+        foodMention: String,
+        resolutionHint: String?
+    ) async throws -> ResolvedFoodCandidate {
+        var body: [String: Any] = [
             "userMessage": userMessage,
             "foodMention": foodMention,
         ]
+        if let resolutionHint, !resolutionHint.isEmpty {
+            body["resolutionHint"] = resolutionHint
+        }
         let data: Data
         do {
             // Food resolution runs a multi-turn agent loop server-side with a
@@ -177,7 +235,8 @@ struct RemoteAPIProvider: LLMProvider {
 
     func resolveFoodCandidates(
         userMessage: String,
-        foodMentions: [String]
+        foodMentions: [String],
+        resolutionHints: [String?] = []
     ) async -> [ResolvedFoodCandidate?] {
         await withTaskGroup(of: (Int, ResolvedFoodCandidate?).self) { group in
             for (index, mention) in foodMentions.enumerated() {
@@ -187,7 +246,10 @@ struct RemoteAPIProvider: LLMProvider {
                             index,
                             try await self.resolveFoodCandidate(
                                 userMessage: userMessage,
-                                foodMention: mention
+                                foodMention: mention,
+                                resolutionHint: resolutionHints.indices.contains(index)
+                                    ? resolutionHints[index]
+                                    : nil
                             )
                         )
                     } catch {

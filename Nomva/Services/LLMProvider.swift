@@ -34,6 +34,20 @@ struct ServingsInfo: Sendable {
     let hasExplicitPortion: Bool
 }
 
+struct PlannedFoodMention: Sendable {
+    let text: String
+    let searchQuery: String
+    let kind: String
+    let servingsInfo: ServingsInfo
+}
+
+struct FoodLogPlan: Sendable {
+    let meal: String?
+    let quantityScope: String
+    let globalServings: Double?
+    let foods: [PlannedFoodMention]
+}
+
 struct FoodChoiceOption: Sendable {
     let name: String
     let brand: String?
