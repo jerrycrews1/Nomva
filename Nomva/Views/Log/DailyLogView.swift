@@ -1,36 +1,6 @@
 import SwiftUI
 import SwiftData
 
-private enum MealDropLayout {
-    static let coordinateSpace = "DailyLogMealDropSpace"
-}
-
-private struct MealDropFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [MealCategory: CGRect] = [:]
-
-    static func reduce(
-        value: inout [MealCategory: CGRect],
-        nextValue: () -> [MealCategory: CGRect]
-    ) {
-        for (meal, frame) in nextValue() {
-            value[meal] = value[meal].map { $0.union(frame) } ?? frame
-        }
-    }
-}
-
-private extension View {
-    func reportsDropFrame(for meal: MealCategory) -> some View {
-        background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: MealDropFramePreferenceKey.self,
-                    value: [meal: proxy.frame(in: .named(MealDropLayout.coordinateSpace))]
-                )
-            }
-        }
-    }
-}
-
 struct DailyLogView: View {
     @Query(sort: \FoodEntry.date) private var allEntries: [FoodEntry]
     @Query(sort: \MealTemplate.createdAt, order: .reverse) private var mealTemplates: [MealTemplate]
@@ -52,10 +22,6 @@ struct DailyLogView: View {
     @State private var deleteFoodEntry: FoodEntry? = nil
     @State private var showDeleteFoodConfirm  = false
     @State private var showNutritionDetail    = false
-    @State private var targetedMeal: MealCategory? = nil
-    @State private var mealDropFrames: [MealCategory: CGRect] = [:]
-    @State private var draggedEntryID: UUID? = nil
-    @State private var dragLocation: CGPoint? = nil
     @State private var showMoveError = false
     @State private var moveErrorMessage = ""
     @State private var undoNotice: String? = nil
@@ -128,11 +94,11 @@ struct DailyLogView: View {
     private var dayTotals: NutritionTotals { NutritionTotals.from(entries: selectedDayEntries) }
 
     private var mealSections: [(MealCategory, [FoodEntry])] {
-        MealCategory.allCases.map { meal in
+        MealCategory.allCases.compactMap { meal in
             let entries = selectedDayEntries.filter {
                 MealCategory(storedValue: $0.meal) == meal
             }
-            return (meal, entries)
+            return entries.isEmpty ? nil : (meal, entries)
         }
     }
 
@@ -163,9 +129,9 @@ struct DailyLogView: View {
                     }
                     .listSectionSeparator(.hidden)
 
-                    if isToday {
+                    if isToday && selectedDayEntries.isEmpty {
                         Section {
-                            RecentFoodsView { entry in
+                            RecentFoodsView(targetDate: selectedDate) { entry in
                                 quickAddSource = entry
                                 showQuickAddMealPicker = true
                             }
@@ -179,16 +145,8 @@ struct DailyLogView: View {
                     if !selectedDayEntries.isEmpty {
                         ForEach(mealSections, id: \.0) { meal, mealEntries in
                             Section {
-                                if mealEntries.isEmpty {
-                                    EmptyMealDropZone(isTargeted: targetedMeal == meal)
-                                        .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
-                                        .reportsDropFrame(for: meal)
-                                } else {
-                                    ForEach(mealEntries) { entry in
-                                        foodEntryListRow(entry, in: meal)
-                                    }
+                                ForEach(mealEntries) { entry in
+                                    foodEntryListRow(entry, in: meal)
                                 }
                             } header: {
                                 mealHeader(meal, entries: mealEntries)
@@ -242,24 +200,6 @@ struct DailyLogView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable {
                     await garminManager.refresh(forceSync: true)
-                }
-                .coordinateSpace(name: MealDropLayout.coordinateSpace)
-                .onPreferenceChange(MealDropFramePreferenceKey.self) { frames in
-                    mealDropFrames = frames
-                }
-
-                if let draggedEntryID,
-                   let dragLocation,
-                   let entry = selectedDayEntries.first(where: { $0.id == draggedEntryID }) {
-                    GeometryReader { proxy in
-                        FoodEntryDragPreview(entry: entry)
-                            .position(
-                                x: min(max(dragLocation.x, 140), proxy.size.width - 140),
-                                y: max(dragLocation.y - 38, 30)
-                            )
-                    }
-                    .allowsHitTesting(false)
-                    .zIndex(20)
                 }
             }
             .navigationTitle(navTitle)
@@ -474,25 +414,12 @@ struct DailyLogView: View {
     private var hydrationTopInset: CGFloat { selectedDayEntries.isEmpty ? 0 : NomvaTheme.sectionGap }
 
     private func foodEntryListRow(_ entry: FoodEntry, in meal: MealCategory) -> some View {
-        FoodEntryRow(
-            entry: entry,
-            isMoving: draggedEntryID == entry.id,
-            onMoveChanged: { location in
-                updateFoodDrag(entry: entry, from: meal, location: location)
-            },
-            onMoveEnded: { location in
-                finishFoodDrag(entry: entry, from: meal, location: location)
-            }
-        )
+        FoodEntryRow(entry: entry)
             .listRowInsets(EdgeInsets(top: 2, leading: contentInset, bottom: 2, trailing: contentInset))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .contentShape(Rectangle())
             .onTapGesture { selectedEntry = entry }
-            .opacity(draggedEntryID == entry.id ? 0.3 : 1)
-            .reportsDropFrame(for: meal)
-            // Visible fallback for everyone who doesn't discover drag:
-            // long-press offers the same move targets.
             .contextMenu {
                 ForEach(MealCategory.allCases.filter { $0 != meal }) { destination in
                     Button {
@@ -521,7 +448,7 @@ struct DailyLogView: View {
                     toggleFavorite(entry)
                 }
             }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
                     deleteFoodEntry = entry
                     showDeleteFoodConfirm = true
@@ -573,54 +500,8 @@ struct DailyLogView: View {
                 .accessibilityLabel("Add food to \(meal.title)")
             }
         }
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(targetedMeal == meal ? NomvaTheme.accent.opacity(0.15) : Color.clear)
-                .padding(.horizontal, -8)
-        }
         .contentShape(Rectangle())
         .nomvaSectionHeaderPadding()
-        .reportsDropFrame(for: meal)
-    }
-
-    private func setDropTarget(_ meal: MealCategory?) {
-        targetedMeal = meal
-    }
-
-    private func updateFoodDrag(
-        entry: FoodEntry,
-        from sourceMeal: MealCategory,
-        location: CGPoint
-    ) {
-        draggedEntryID = entry.id
-        dragLocation = location
-        let destination = destinationMeal(at: location)
-        setDropTarget(destination == sourceMeal ? nil : destination)
-    }
-
-    private func finishFoodDrag(
-        entry: FoodEntry,
-        from sourceMeal: MealCategory,
-        location: CGPoint
-    ) {
-        let destination = destinationMeal(at: location) ?? targetedMeal
-        draggedEntryID = nil
-        dragLocation = nil
-        targetedMeal = nil
-
-        guard let destination, destination != sourceMeal else { return }
-        _ = moveFoodEntries(with: [entry.id.uuidString], to: destination)
-    }
-
-    private func destinationMeal(at location: CGPoint) -> MealCategory? {
-        mealDropFrames
-            .filter { _, frame in
-                frame.insetBy(dx: -8, dy: -6).contains(location)
-            }
-            .min { lhs, rhs in
-                abs(lhs.value.midY - location.y) < abs(rhs.value.midY - location.y)
-            }?
-            .key
     }
 
     @discardableResult
@@ -629,16 +510,12 @@ struct DailyLogView: View {
         let entries = selectedDayEntries.filter {
             ids.contains($0.id) && $0.meal != meal.rawValue
         }
-        guard !entries.isEmpty else {
-            targetedMeal = nil
-            return false
-        }
+        guard !entries.isEmpty else { return false }
 
         let originalMeals = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.meal) })
 
         withAnimation(reduceMotion ? .none : .easeInOut(duration: 0.22)) {
             entries.forEach { $0.meal = meal.rawValue }
-            targetedMeal = nil
         }
 
         do {
@@ -1051,9 +928,6 @@ struct DailyLogView: View {
 
 struct FoodEntryRow: View {
     let entry: FoodEntry
-    let isMoving: Bool
-    let onMoveChanged: (CGPoint) -> Void
-    let onMoveEnded: (CGPoint) -> Void
 
     var body: some View {
         HStack {
@@ -1071,19 +945,10 @@ struct FoodEntryRow: View {
                     .foregroundColor(.primary)
                 Text("\(entry.proteinG.safeRoundedInt)g P · \(entry.carbsG.safeRoundedInt)g C · \(entry.fatG.safeRoundedInt)g F").font(.caption2).foregroundColor(.secondary)
             }
-            HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isMoving ? NomvaTheme.accent : .secondary.opacity(0.7))
-                    .frame(width: 36, height: 44)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(moveGesture)
-                    .accessibilityHidden(true)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary.opacity(0.5))
-                    .accessibilityHidden(true)
-            }
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary.opacity(0.5))
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1098,76 +963,6 @@ struct FoodEntryRow: View {
             + "\(entry.fatG.safeRoundedInt) grams fat"
         )
         .accessibilityHint("Double tap to edit. Additional actions can move or delete this food.")
-    }
-
-    private var moveGesture: some Gesture {
-        DragGesture(
-            minimumDistance: 2,
-            coordinateSpace: .named(MealDropLayout.coordinateSpace)
-        )
-        .onChanged { value in
-            onMoveChanged(value.location)
-        }
-        .onEnded { value in
-            onMoveEnded(value.location)
-        }
-    }
-}
-
-private struct EmptyMealDropZone: View {
-    let isTargeted: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: isTargeted ? "tray.and.arrow.down.fill" : "tray")
-                .foregroundStyle(isTargeted ? NomvaTheme.accent : Color.secondary)
-            Text("No entries")
-                .font(.subheadline)
-                .foregroundStyle(isTargeted ? NomvaTheme.accent : Color.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 44)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isTargeted ? NomvaTheme.accent.opacity(0.14) : Color.clear)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(
-                    isTargeted ? NomvaTheme.accent : NomvaTheme.line,
-                    style: StrokeStyle(lineWidth: 1, dash: [5, 5])
-                )
-        }
-        .animation(reduceMotion ? .none : .easeOut(duration: 0.16), value: isTargeted)
-        .accessibilityLabel("Empty meal")
-    }
-}
-
-private struct FoodEntryDragPreview: View {
-    let entry: FoodEntry
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "fork.knife")
-                .foregroundStyle(NomvaTheme.accent)
-            Text(entry.name)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Text("\(entry.calories.safeRoundedInt) cal")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(width: 260)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(NomvaTheme.line, lineWidth: 1)
-        }
     }
 }
 

@@ -560,6 +560,48 @@ Respond with ONLY a JSON object:
   ]
 }`;
 
+const ANALYZE_NUTRITION_LABEL = `You are reading one packaged food's Nutrition Facts panel so a user can create a reusable food entry.
+
+Transcribe the values PER SERVING exactly as printed. Do not estimate, repair, or infer unreadable nutrition values.
+- Use the standard per-serving column. If the label has both per-serving and per-container columns, do not use the per-container values.
+- servingDescription must preserve the printed household measure, such as "2/3 cup (55 g)" or "1 bottle (355 mL)".
+- servingGrams is the printed gram weight only. If no gram weight is printed or it is unreadable, return null. Do not convert mL to grams.
+- calories, total fat, total carbohydrate, protein, and dietary fiber are numbers in their printed units. Use 0 only when the label explicitly prints 0. Use null when a value cannot be read.
+- Use a product name and brand only when they are visible in the image. Otherwise return an empty string; the user will name the food during review.
+- Ignore percent Daily Value numbers, calories from fat, package marketing claims, and values per 100 g unless the label's only nutrition column is explicitly per 100 g.
+
+If no readable Nutrition Facts panel is present, return food as null and set notNutritionLabel to true.
+
+Respond with ONLY this JSON shape:
+{
+  "notNutritionLabel": false,
+  "food": {
+    "name": "product name or empty string",
+    "brand": "brand or empty string",
+    "servingDescription": "2/3 cup (55 g)",
+    "servingGrams": 55,
+    "calories": 230,
+    "protein": 3,
+    "carbs": 37,
+    "fat": 8,
+    "fiber": 4
+  }
+}`;
+
+const RANK_RECENT_FOODS = `Rank previously logged foods that this user is most likely to want to log on a currently blank day.
+
+Use only the supplied candidates. Never invent a food or candidate ID.
+Prioritize these signals together:
+1. The food is commonly logged for the likely meal at this local hour.
+2. The food appears repeatedly in recent history, especially on the same weekday.
+3. Recency and favorites are useful signals, but a favorite from a different meal should not automatically outrank a strong same-meal routine.
+4. Offer useful variety. Avoid filling the whole list with near-duplicate versions of one food when other plausible foods exist.
+
+Return no more than 8 candidate IDs, most likely first. If evidence is weak, still rank the best supplied candidates; do not add explanations.
+
+Respond with ONLY JSON:
+{"candidateIds":["exact_supplied_id"]}`;
+
 module.exports = {
   CLASSIFY_INTENT,
   SPLIT_FOODS,
@@ -583,4 +625,6 @@ module.exports = {
   VERIFY_RESOLVED_FOOD_PICK,
   FIND_FOOD_AGENT,
   ANALYZE_PHOTO,
+  ANALYZE_NUTRITION_LABEL,
+  RANK_RECENT_FOODS,
 };

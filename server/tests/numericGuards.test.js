@@ -7,6 +7,7 @@ const {
   boundedGrams,
   boundedGoalValue,
   sanitizePhotoAnalysis,
+  sanitizeNutritionLabelAnalysis,
   BOUNDS,
 } = require("../numericGuards");
 
@@ -67,4 +68,44 @@ test("photo analysis tolerates a malformed model payload", () => {
   assert.deepEqual(sanitizePhotoAnalysis(null), { notFood: false, foods: [] });
   assert.deepEqual(sanitizePhotoAnalysis({ notFood: true }), { notFood: true, foods: [] });
   assert.deepEqual(sanitizePhotoAnalysis({ foods: "not an array" }), { notFood: false, foods: [] });
+});
+
+test("nutrition label scan preserves printed zeroes and nullable unreadable fields", () => {
+  const clean = sanitizeNutritionLabelAnalysis({
+    notNutritionLabel: false,
+    food: {
+      name: "Cherry sparkling water",
+      brand: "Example",
+      servingDescription: "1 can (355 mL)",
+      servingGrams: null,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      fiber: null,
+    },
+  });
+
+  assert.equal(clean.notNutritionLabel, false);
+  assert.equal(clean.food.calories, 0);
+  assert.equal(clean.food.servingGrams, null);
+  assert.equal(clean.food.fiber, null);
+});
+
+test("nutrition label scan rejects unreadable or unsafe calorie values", () => {
+  assert.deepEqual(
+    sanitizeNutritionLabelAnalysis({
+      notNutritionLabel: true,
+      food: { calories: 120, protein: 4, carbs: 20, fat: 2 },
+    }),
+    { notNutritionLabel: true, food: null }
+  );
+  assert.deepEqual(
+    sanitizeNutritionLabelAnalysis({ food: null }),
+    { notNutritionLabel: true, food: null }
+  );
+  assert.deepEqual(
+    sanitizeNutritionLabelAnalysis({ food: { calories: 1e300 } }),
+    { notNutritionLabel: true, food: null }
+  );
 });

@@ -95,6 +95,45 @@ function sanitizePhotoAnalysis(result) {
   return { notFood, foods };
 }
 
+// Nutrition-label scans intentionally keep unreadable fields nullable. A
+// missing value must be reviewed by the user rather than silently becoming a
+// model estimate or a printed zero.
+function sanitizeNutritionLabelAnalysis(result) {
+  if (result?.notNutritionLabel === true) {
+    return { notNutritionLabel: true, food: null };
+  }
+
+  const raw = result?.food;
+  if (!raw || typeof raw !== "object") {
+    return { notNutritionLabel: true, food: null };
+  }
+
+  const calories = boundedNumber(raw.calories, BOUNDS.calories);
+  if (calories === null) {
+    return { notNutritionLabel: true, food: null };
+  }
+
+  const cleanText = (value, maxLength) => (
+    typeof value === "string" ? value.trim().slice(0, maxLength) : ""
+  );
+  const optionalMacro = (value) => boundedNumber(value, BOUNDS.macroGrams);
+
+  return {
+    notNutritionLabel: false,
+    food: {
+      name: cleanText(raw.name, 120),
+      brand: cleanText(raw.brand, 120),
+      servingDescription: cleanText(raw.servingDescription, 100) || "1 serving",
+      servingGrams: boundedNumber(raw.servingGrams, BOUNDS.grams),
+      calories,
+      protein: optionalMacro(raw.protein),
+      carbs: optionalMacro(raw.carbs),
+      fat: optionalMacro(raw.fat),
+      fiber: optionalMacro(raw.fiber),
+    },
+  };
+}
+
 module.exports = {
   BOUNDS,
   boundedNumber,
@@ -103,4 +142,5 @@ module.exports = {
   boundedGoalValue,
   sanitizePhotoAnalysis,
   sanitizePhotoFood,
+  sanitizeNutritionLabelAnalysis,
 };

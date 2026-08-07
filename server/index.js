@@ -26,6 +26,10 @@ const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
 const { computeGarminAverages } = require("./garminMetrics");
 const {
+  sanitizeRecentFoodCandidates,
+  sanitizeSuggestedFoodIds,
+} = require("./recentFoodSuggestionGuard");
+const {
   FOOD_LOG_PLANNER_PROMPT,
   sanitizeFoodLogPlan,
   shouldUseStructuredFoodPlan,
@@ -36,6 +40,7 @@ const {
   boundedGrams,
   boundedGoalValue,
   sanitizePhotoAnalysis,
+  sanitizeNutritionLabelAnalysis,
   BOUNDS,
 } = require("./numericGuards");
 
@@ -2652,16 +2657,66 @@ app.post("/v1/general-reply", async (req, res) => {
   }
 });
 
+app.post("/v1/suggest-recent-foods", async (req, res) => {
+  const candidates = sanitizeRecentFoodCandidates(req.body?.candidates);
+  const fallbackIds = candidates.slice(0, 8).map((candidate) => candidate.id);
+  if (candidates.length === 0) {
+    return res.json({ candidateIds: [], aiRanked: false });
+  }
+
+  const likelyMeal = ["breakfast", "lunch", "dinner", "snack"].includes(req.body?.likelyMeal)
+    ? req.body.likelyMeal
+    : "snack";
+  const localHour = Number.isInteger(req.body?.localHour)
+    ? Math.min(Math.max(req.body.localHour, 0), 23)
+    : null;
+  const weekday = typeof req.body?.weekday === "string"
+    ? req.body.weekday.trim().slice(0, 20)
+    : "";
+
+  try {
+    const result = await ask(
+      prompts.RANK_RECENT_FOODS,
+      JSON.stringify({
+        blankDay: true,
+        localContext: { weekday, localHour, likelyMeal },
+        candidates,
+      }),
+      llmAnalyticsOptions(req, "rank_recent_foods", {
+        model: CONTEXT_MODEL,
+        maxTokens: 96,
+        reasoningEffort: "low",
+      })
+    );
+    const rankedIds = sanitizeSuggestedFoodIds(result, candidates, 8);
+    return res.json({
+      candidateIds: rankedIds.length > 0 ? rankedIds : fallbackIds,
+      aiRanked: rankedIds.length > 0,
+    });
+  } catch (error) {
+    console.warn("recent food ranking fell back to local order:", error?.message || error);
+    return res.json({ candidateIds: fallbackIds, aiRanked: false });
+  }
+});
+
 // 10. Analyze food photo (vision)
 app.post("/v1/analyze-photo", async (req, res) => {
   const startedAt = Date.now();
-  const llmOptions = llmAnalyticsOptions(req, "analyze_photo");
+  const nutritionLabelRequest = req.body?.scanType === "nutrition_label";
+  const llmOptions = llmAnalyticsOptions(
+    req,
+    nutritionLabelRequest ? "analyze_nutrition_label" : "analyze_photo"
+  );
   let promptChars = 0;
   try {
-    const { imageBase64, userMessage = "" } = req.body;
+    const { imageBase64, userMessage = "", scanType = "meal" } = req.body;
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return res.status(400).json({ error: "missing_image" });
     }
+    const isNutritionLabel = scanType === "nutrition_label";
+    const systemPrompt = isNutritionLabel
+      ? prompts.ANALYZE_NUTRITION_LABEL
+      : prompts.ANALYZE_PHOTO;
 
     // Detect media type from base64 header or default to jpeg
     let mediaType = "image/jpeg";
@@ -2691,7 +2746,7 @@ app.post("/v1/analyze-photo", async (req, res) => {
       max_tokens: 1024,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: prompts.ANALYZE_PHOTO },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
     });
@@ -2715,14 +2770,19 @@ app.post("/v1/analyze-photo", async (req, res) => {
       success: true,
       properties: {
         maxTokens: 1024,
-        promptSystemChars: prompts.ANALYZE_PHOTO.length,
+        promptSystemChars: systemPrompt.length,
         imageBytesApprox: Math.round(rawBase64.length * 0.75),
+        scanType: isNutritionLabel ? "nutrition_label" : "meal",
       },
     });
 
     // The vision model's JSON is untrusted input; validate and clamp every
     // numeric field before it reaches the client.
-    res.json(sanitizePhotoAnalysis(result));
+    res.json(
+      isNutritionLabel
+        ? sanitizeNutritionLabelAnalysis(result)
+        : sanitizePhotoAnalysis(result)
+    );
   } catch (err) {
     analyticsStore.record({
       source: "server",

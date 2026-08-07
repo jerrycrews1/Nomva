@@ -680,6 +680,58 @@ struct RemoteAPIProvider: LLMProvider {
         }
     }
 
+    // MARK: - Recent Food Suggestions
+
+    struct RecentFoodSuggestionCandidate {
+        let id: String
+        let name: String
+        let brand: String?
+        let recentCount: Int
+        let sameWeekdayCount: Int
+        let isFavorite: Bool
+        let lastLoggedAt: Date
+        let mealCounts: [String: Int]
+    }
+
+    struct RecentFoodSuggestionResult: Codable {
+        let candidateIds: [String]
+        let aiRanked: Bool
+    }
+
+    func suggestRecentFoods(
+        candidates: [RecentFoodSuggestionCandidate],
+        date: Date,
+        likelyMeal: MealCategory
+    ) async throws -> RecentFoodSuggestionResult {
+        let calendar = Calendar.current
+        let formatter = ISO8601DateFormatter()
+        let weekdayFormatter = DateFormatter()
+        weekdayFormatter.locale = Locale(identifier: "en_US_POSIX")
+        weekdayFormatter.dateFormat = "EEEE"
+        let bodyCandidates: [[String: Any]] = candidates.map { candidate in
+            [
+                "id": candidate.id,
+                "name": candidate.name,
+                "brand": candidate.brand ?? "",
+                "recentCount": candidate.recentCount,
+                "sameWeekdayCount": candidate.sameWeekdayCount,
+                "isFavorite": candidate.isFavorite,
+                "lastLoggedAt": formatter.string(from: candidate.lastLoggedAt),
+                "mealCounts": candidate.mealCounts,
+            ]
+        }
+        let data = try await postRaw(
+            "/v1/suggest-recent-foods",
+            body: [
+                "localHour": calendar.component(.hour, from: date),
+                "weekday": weekdayFormatter.string(from: date),
+                "likelyMeal": likelyMeal.rawValue,
+                "candidates": bodyCandidates,
+            ]
+        )
+        return try JSONDecoder().decode(RecentFoodSuggestionResult.self, from: data)
+    }
+
     // MARK: - Photo Analysis
 
     struct PhotoFoodItem: Codable {
@@ -698,10 +750,28 @@ struct RemoteAPIProvider: LLMProvider {
         let foods: [PhotoFoodItem]
     }
 
+    struct NutritionLabelFood: Codable {
+        let name: String
+        let brand: String
+        let servingDescription: String
+        let servingGrams: Double?
+        let calories: Double
+        let protein: Double?
+        let carbs: Double?
+        let fat: Double?
+        let fiber: Double?
+    }
+
+    struct NutritionLabelAnalysisResult: Codable {
+        let notNutritionLabel: Bool
+        let food: NutritionLabelFood?
+    }
+
     func analyzePhoto(imageBase64: String, userMessage: String = "") async throws -> PhotoAnalysisResult {
         let body: [String: Any] = [
             "imageBase64": imageBase64,
             "userMessage": userMessage,
+            "scanType": "meal",
         ]
         let data = try await postRaw("/v1/analyze-photo", body: body, timeout: 30)
         let decoded = try JSONDecoder().decode(PhotoAnalysisResult.self, from: data)
@@ -713,6 +783,41 @@ struct RemoteAPIProvider: LLMProvider {
                 && food.protein.isFinite && food.carbs.isFinite && food.fat.isFinite
         }
         return PhotoAnalysisResult(notFood: decoded.notFood, foods: safeFoods)
+    }
+
+    func analyzeNutritionLabel(imageBase64: String) async throws -> NutritionLabelAnalysisResult {
+        let data = try await postRaw(
+            "/v1/analyze-photo",
+            body: [
+                "imageBase64": imageBase64,
+                "scanType": "nutrition_label",
+            ],
+            timeout: 30
+        )
+        let decoded = try JSONDecoder().decode(NutritionLabelAnalysisResult.self, from: data)
+        guard let food = decoded.food,
+              food.calories.isFinite,
+              food.calories >= 0,
+              food.calories <= 5_000 else {
+            return NutritionLabelAnalysisResult(notNutritionLabel: true, food: nil)
+        }
+
+        let safeOptional: (Double?) -> Bool = { value in
+            guard let value else { return true }
+            return value.isFinite && value >= 0 && value <= 1_000
+        }
+        guard safeOptional(food.protein),
+              safeOptional(food.carbs),
+              safeOptional(food.fat),
+              safeOptional(food.fiber),
+              food.servingGrams.map({ $0.isFinite && $0 > 0 && $0 <= 5_000 }) ?? true else {
+            return NutritionLabelAnalysisResult(notNutritionLabel: true, food: nil)
+        }
+
+        return NutritionLabelAnalysisResult(
+            notNutritionLabel: decoded.notNutritionLabel,
+            food: food
+        )
     }
 
     func deleteCloudAnalytics() async throws -> Int {

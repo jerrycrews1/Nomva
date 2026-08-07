@@ -1,6 +1,11 @@
 import SwiftUI
 import SwiftData
 
+private enum PhotoScanMode {
+    case meal
+    case nutritionLabel
+}
+
 struct ChatView: View {
     @Query(sort: \ChatMessage.timestamp)  private var allMessages: [ChatMessage]
     @Query(sort: \FoodEntry.date)         private var allEntries: [FoodEntry]
@@ -45,6 +50,8 @@ struct ChatView: View {
     @State private var selectedImage: UIImage? = nil
     @State private var isAnalyzingPhoto      = false
     @State private var photoAnalysisResult: [RemoteAPIProvider.PhotoFoodItem]? = nil
+    @State private var nutritionLabelResult: RemoteAPIProvider.NutritionLabelFood? = nil
+    @State private var photoScanMode: PhotoScanMode = .meal
     @State private var photoError: String?   = nil
     @State private var showPremiumAlert      = false
     @State private var showPaywall           = false
@@ -260,11 +267,25 @@ struct ChatView: View {
         } message: {
             Text(scannerError ?? "")
         }
-        .confirmationDialog("Add Photo", isPresented: $showPhotoSourcePicker, titleVisibility: .visible) {
+        .confirmationDialog("Scan Food", isPresented: $showPhotoSourcePicker, titleVisibility: .visible) {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button("Take Photo") { showCamera = true }
+                Button("Take Meal Photo") {
+                    photoScanMode = .meal
+                    showCamera = true
+                }
+                Button("Scan Nutrition Facts") {
+                    photoScanMode = .nutritionLabel
+                    showCamera = true
+                }
             }
-            Button("Choose from Library") { showPhotoLibrary = true }
+            Button("Choose Meal Photo") {
+                photoScanMode = .meal
+                showPhotoLibrary = true
+            }
+            Button("Choose Nutrition Label") {
+                photoScanMode = .nutritionLabel
+                showPhotoLibrary = true
+            }
             Button("Cancel", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -299,6 +320,32 @@ struct ChatView: View {
                 }
             }
         }
+        .sheet(isPresented: Binding(
+            get: { nutritionLabelResult != nil && selectedImage != nil },
+            set: {
+                if !$0 {
+                    nutritionLabelResult = nil
+                    selectedImage = nil
+                }
+            }
+        )) {
+            if let image = selectedImage, let food = nutritionLabelResult {
+                NutritionLabelReviewView(
+                    image: image,
+                    scannedFood: food,
+                    initialMeal: MealCategory(storedValue: currentMeal(at: timestampForSelectedDay())),
+                    logDate: timestampForSelectedDay()
+                ) { name, calories, wasLogged in
+                    postNutritionLabelSummary(
+                        foodName: name,
+                        calories: calories,
+                        wasLogged: wasLogged
+                    )
+                    nutritionLabelResult = nil
+                    selectedImage = nil
+                }
+            }
+        }
         .alert("Photo Scan Failed", isPresented: Binding(
             get: { photoError != nil },
             set: { if !$0 { photoError = nil } }
@@ -311,7 +358,7 @@ struct ChatView: View {
             Button("See Nomva Pro") { showPaywall = true }
             Button("Not Now", role: .cancel) {}
         } message: {
-            Text("Photo food scanning is a premium feature. Upgrade to scan meals with your camera.")
+            Text("Photo scanning is a premium feature. Upgrade to scan meals or Nutrition Facts labels.")
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -575,7 +622,7 @@ struct ChatView: View {
                 }
                 .padding(2)
                 .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
-                .accessibilityLabel("Scan food photo")
+                .accessibilityLabel("Scan a meal or Nutrition Facts label")
 
                 // Barcode scanner button
                 Button {
@@ -1526,8 +1573,18 @@ struct ChatView: View {
     // MARK: - Photo Analysis
 
     private func handlePickedImage(_ image: UIImage) {
+        switch photoScanMode {
+        case .meal:
+            handlePickedMealImage(image)
+        case .nutritionLabel:
+            handlePickedNutritionLabel(image)
+        }
+    }
+
+    private func handlePickedMealImage(_ image: UIImage) {
         showCamera = false
         selectedImage = image
+        nutritionLabelResult = nil
         isAnalyzingPhoto = true
         isProcessing = true
 
@@ -1542,15 +1599,14 @@ struct ChatView: View {
 
         Task { @MainActor in
             do {
-                // Compress to JPEG, max 1024px wide, ~0.7 quality
-                let resized = resizeImage(image, maxDimension: 1024)
-                guard let jpegData = resized.jpegData(compressionQuality: 0.7) else {
-                    throw NSError(domain: "Nomva", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not compress image"])
-                }
-                let base64 = jpegData.base64EncodedString()
-
                 let provider = RemoteAPIProvider(baseURL: NomvaAPI.baseURL)
-                let result = try await provider.analyzePhoto(imageBase64: base64)
+                let result = try await provider.analyzePhoto(
+                    imageBase64: try encodedPhoto(
+                        image,
+                        maxDimension: 1_024,
+                        compressionQuality: 0.7
+                    )
+                )
 
                 if result.notFood == true || result.foods.isEmpty {
                     let reply = ChatMessage(
@@ -1575,6 +1631,53 @@ struct ChatView: View {
         }
     }
 
+    private func handlePickedNutritionLabel(_ image: UIImage) {
+        showCamera = false
+        selectedImage = image
+        photoAnalysisResult = nil
+        isAnalyzingPhoto = true
+        isProcessing = true
+
+        modelContext.insert(ChatMessage(
+            role: "user",
+            content: "Scanning Nutrition Facts label...",
+            timestamp: timestamp(for: dayStart),
+            dayDate: dayStart
+        ))
+
+        Task { @MainActor in
+            do {
+                let provider = RemoteAPIProvider(baseURL: NomvaAPI.baseURL)
+                let result = try await provider.analyzeNutritionLabel(
+                    imageBase64: try encodedPhoto(
+                        image,
+                        maxDimension: 1_600,
+                        compressionQuality: 0.82
+                    )
+                )
+
+                if result.notNutritionLabel || result.food == nil {
+                    modelContext.insert(ChatMessage(
+                        role: "assistant",
+                        content: "I couldn't read a Nutrition Facts panel in that photo. Fill the frame with the full label and try again.",
+                        timestamp: timestamp(for: dayStart, offsetBy: 1),
+                        dayDate: dayStart
+                    ))
+                    selectedImage = nil
+                } else {
+                    nutritionLabelResult = result.food
+                }
+            } catch {
+                photoError = "Couldn't read the nutrition label: \(error.localizedDescription)"
+                selectedImage = nil
+            }
+
+            isAnalyzingPhoto = false
+            isProcessing = false
+            SubscriptionManager.shared.recordAIMessage()
+        }
+    }
+
     /// Posts a chat summary after the user finishes logging photo-scanned foods.
     /// ManualFoodDetailView already inserted the FoodEntry objects.
     private func postPhotoSummary(_ foods: [RemoteAPIProvider.PhotoFoodItem]) {
@@ -1590,6 +1693,38 @@ struct ChatView: View {
             dayDate: targetDayStart
         )
         modelContext.insert(assistantMsg)
+    }
+
+    private func postNutritionLabelSummary(
+        foodName: String,
+        calories: Double,
+        wasLogged: Bool
+    ) {
+        let content = wasLogged
+            ? "Saved \(foodName) to your foods and logged it at \(calories.safeRoundedInt) cal."
+            : "Saved \(foodName) to your custom foods."
+        modelContext.insert(ChatMessage(
+            role: "assistant",
+            content: content,
+            timestamp: timestamp(for: dayStart, offsetBy: 1),
+            dayDate: dayStart
+        ))
+    }
+
+    private func encodedPhoto(
+        _ image: UIImage,
+        maxDimension: CGFloat,
+        compressionQuality: CGFloat
+    ) throws -> String {
+        let resized = resizeImage(image, maxDimension: maxDimension)
+        guard let jpegData = resized.jpegData(compressionQuality: compressionQuality) else {
+            throw NSError(
+                domain: "Nomva",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not prepare the photo"]
+            )
+        }
+        return jpegData.base64EncodedString()
     }
 
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
