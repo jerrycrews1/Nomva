@@ -30,6 +30,7 @@ FILES=(
   foodMentionGuard.js
   portionGuard.js
   numericGuards.js
+  recentFoodSuggestionGuard.js
   package.json
   package-lock.json
 )
