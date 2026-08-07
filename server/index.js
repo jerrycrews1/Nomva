@@ -2740,16 +2740,24 @@ app.post("/v1/analyze-photo", async (req, res) => {
 
     console.log(`  → OpenAI vision call (${MODEL}) | imageBytes≈${Math.round(rawBase64.length * 0.75)}`);
 
-    const response = await openai.chat.completions.create({
+    const visionCompletionBudget = /^gpt-5/i.test(MODEL) ? 4_096 : 1_024;
+    const visionRequest = {
       model: MODEL,
-      temperature: 0.1,
-      max_tokens: 1024,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-    });
+    };
+    if (/^gpt-5/i.test(MODEL)) {
+      visionRequest.max_completion_tokens = visionCompletionBudget;
+      visionRequest.reasoning_effort = "low";
+    } else {
+      visionRequest.temperature = 0.1;
+      visionRequest.max_tokens = visionCompletionBudget;
+    }
+
+    const response = await openai.chat.completions.create(visionRequest);
 
     const text = response.choices[0]?.message?.content?.trim();
     const usage = response.usage;
@@ -2769,7 +2777,7 @@ app.post("/v1/analyze-photo", async (req, res) => {
       totalTokens: usage?.total_tokens || null,
       success: true,
       properties: {
-        maxTokens: 1024,
+        maxTokens: visionCompletionBudget,
         promptSystemChars: systemPrompt.length,
         imageBytesApprox: Math.round(rawBase64.length * 0.75),
         scanType: isNutritionLabel ? "nutrition_label" : "meal",
