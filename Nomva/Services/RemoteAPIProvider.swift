@@ -859,6 +859,7 @@ struct RemoteAPIProvider: LLMProvider {
 
     private func postRaw(_ path: String, body: [String: Any], timeout: TimeInterval = 15) async throws -> Data {
         guard let url = URL(string: baseURL + path) else { throw RemoteError.badURL }
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
         let identity = NomvaCloudIdentity.current()
         let (data, response) = try await sendNomvaCloudRequest(
             baseURL: baseURL,
@@ -868,7 +869,7 @@ struct RemoteAPIProvider: LLMProvider {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = timeout
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.httpBody = bodyData
             return request
         }
         guard let http = response as? HTTPURLResponse else { throw RemoteError.invalidResponse }
@@ -922,8 +923,12 @@ struct NomvaCloudIdentity: Sendable {
     private static let userIdKey = "nomva_cloud_user_id"
     private static let deviceTokenKey = "nomva_cloud_device_token"
     private static let keychainService = "com.nomva.cloud.identity"
+    private static let identityLock = NSLock()
 
     static func current() -> NomvaCloudIdentity {
+        identityLock.lock()
+        defer { identityLock.unlock() }
+
         let defaults = UserDefaults.standard
         let userId = persistentIdentifier(
             account: userIdKey,
@@ -1160,8 +1165,14 @@ private enum NomvaCloudKeychain {
 private actor NomvaCloudAppAttestManager {
     static let shared = NomvaCloudAppAttestManager()
 
+    private struct PendingKey {
+        let id: UUID
+        let task: Task<String, Error>
+    }
+
     private let keyService = "com.nomva.cloud.appattest.key"
     private let iso8601 = ISO8601DateFormatter()
+    private var pendingKeys: [String: PendingKey] = [:]
 
     func applyHeaders(
         to request: inout URLRequest,
@@ -1227,34 +1238,60 @@ private actor NomvaCloudAppAttestManager {
             throw NomvaCloudAuthError.appAttestUnavailable
         }
 
+        let account = identity.accountKey
+
+        if forceRefresh, let pending = pendingKeys[account] {
+            return try await pending.task.value
+        }
+
         if forceRefresh {
             reset(identity: identity)
         }
 
         if let existing = NomvaCloudKeychain.loadString(
             service: keyService,
-            account: identity.accountKey
+            account: account
         ), !existing.isEmpty {
             return existing
         }
 
-        let challengePayload = try await requestChallenge(baseURL: baseURL, identity: identity)
-        let keyId = try await DCAppAttestService.shared.generateKeyAsync()
-        let clientDataHash = Data(SHA256.hash(data: Data(challengePayload.challenge.utf8)))
-        let attestation = try await DCAppAttestService.shared.attestKeyAsync(
-            keyId: keyId,
-            clientDataHash: clientDataHash
-        )
-        try await verifyAttestation(
-            baseURL: baseURL,
-            identity: identity,
-            keyId: keyId,
-            challenge: challengePayload.challenge,
-            attestation: attestation
-        )
+        if let pending = pendingKeys[account] {
+            return try await pending.task.value
+        }
 
-        NomvaCloudKeychain.saveString(keyId, service: keyService, account: identity.accountKey)
-        return keyId
+        let id = UUID()
+        let task = Task {
+            let challengePayload = try await requestChallenge(baseURL: baseURL, identity: identity)
+            let keyId = try await DCAppAttestService.shared.generateKeyAsync()
+            let clientDataHash = Data(SHA256.hash(data: Data(challengePayload.challenge.utf8)))
+            let attestation = try await DCAppAttestService.shared.attestKeyAsync(
+                keyId: keyId,
+                clientDataHash: clientDataHash
+            )
+            try await verifyAttestation(
+                baseURL: baseURL,
+                identity: identity,
+                keyId: keyId,
+                challenge: challengePayload.challenge,
+                attestation: attestation
+            )
+            return keyId
+        }
+        pendingKeys[account] = PendingKey(id: id, task: task)
+
+        do {
+            let keyId = try await task.value
+            if pendingKeys[account]?.id == id {
+                pendingKeys[account] = nil
+            }
+            NomvaCloudKeychain.saveString(keyId, service: keyService, account: account)
+            return keyId
+        } catch {
+            if pendingKeys[account]?.id == id {
+                pendingKeys[account] = nil
+            }
+            throw error
+        }
     }
 
     private func requestChallenge(
@@ -1348,8 +1385,14 @@ private actor NomvaCloudAppAttestManager {
 private actor NomvaCloudAuthManager {
     static let shared = NomvaCloudAuthManager()
 
+    private struct PendingRegistration {
+        let id: UUID
+        let task: Task<NomvaCloudSessionPayload, Error>
+    }
+
     private let iso8601 = ISO8601DateFormatter()
     private let sessionService = "com.nomva.cloud.session"
+    private var pendingRegistrations: [String: PendingRegistration] = [:]
 
     func sessionToken(
         baseURL: String,
@@ -1357,6 +1400,12 @@ private actor NomvaCloudAuthManager {
         forceRefresh: Bool = false
     ) async throws -> String {
         let account = identity.accountKey
+
+        if let pending = pendingRegistrations[account] {
+            let payload = try await pending.task.value
+            return payload.token
+        }
+
         if !forceRefresh,
            let cached = NomvaCloudKeychain.load(
             service: sessionService,
@@ -1367,9 +1416,29 @@ private actor NomvaCloudAuthManager {
             return cached.token
         }
 
-        let payload = try await registerSession(baseURL: baseURL, identity: identity)
-        NomvaCloudKeychain.save(payload, service: sessionService, account: account)
-        return payload.token
+        if forceRefresh {
+            NomvaCloudKeychain.delete(service: sessionService, account: account)
+        }
+
+        let id = UUID()
+        let task = Task {
+            try await registerSession(baseURL: baseURL, identity: identity)
+        }
+        pendingRegistrations[account] = PendingRegistration(id: id, task: task)
+
+        do {
+            let payload = try await task.value
+            if pendingRegistrations[account]?.id == id {
+                pendingRegistrations[account] = nil
+            }
+            NomvaCloudKeychain.save(payload, service: sessionService, account: account)
+            return payload.token
+        } catch {
+            if pendingRegistrations[account]?.id == id {
+                pendingRegistrations[account] = nil
+            }
+            throw error
+        }
     }
 
     private func isExpired(_ expiresAt: String) -> Bool {
@@ -1409,15 +1478,16 @@ private actor NomvaCloudAuthManager {
         }
 
         let initial = try await perform(forceReattestation: false)
-        let errorCode = serverErrorCode(from: initial.0)
-        let finalResponse: (Data, HTTPURLResponse)
+        var finalResponse = initial
 
-        if initial.1.statusCode == 401,
-           errorCode == "invalid_app_attest" || errorCode == "app_attest_required" || errorCode == "stale_app_attest" {
-            NomvaCloudKeychain.delete(service: sessionService, account: identity.accountKey)
-            finalResponse = try await perform(forceReattestation: true)
-        } else {
-            finalResponse = initial
+        if appAttestShouldRetry(status: initial.1.statusCode, data: initial.0) {
+            let freshAssertion = try await perform(forceReattestation: false)
+            finalResponse = freshAssertion
+
+            if appAttestShouldRetry(status: freshAssertion.1.statusCode, data: freshAssertion.0) {
+                await NomvaCloudAppAttestManager.shared.reset(identity: identity)
+                finalResponse = try await perform(forceReattestation: false)
+            }
         }
 
         if finalResponse.1.statusCode == 401 {
@@ -1440,6 +1510,47 @@ private actor NomvaCloudAuthManager {
 enum NomvaCloudSessionController {
     static func invalidateCurrentSession() async {
         await NomvaCloudAuthManager.shared.reset(identity: .current())
+    }
+}
+
+actor NomvaCloudAttestedRequestGate {
+    static let shared = NomvaCloudAttestedRequestGate()
+
+    private var isRunning = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withExclusiveAccess<T: Sendable>(
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        await acquire()
+        do {
+            let result = try await operation()
+            release()
+            return result
+        } catch {
+            release()
+            throw error
+        }
+    }
+
+    private func acquire() async {
+        guard isRunning else {
+            isRunning = true
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            isRunning = false
+            return
+        }
+
+        waiters.removeFirst().resume()
     }
 }
 
@@ -1525,24 +1636,27 @@ private actor NomvaNetworkAnalytics {
         let batch = Array(queue.prefix(20))
 
         do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 10
-            request.httpBody = try encoder.encode(NomvaNetworkAnalyticsEnvelope(events: batch))
+            let body = try encoder.encode(NomvaNetworkAnalyticsEnvelope(events: batch))
+            let (_, response) = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 10
+                request.httpBody = body
 
-            try await NomvaCloudAppAttestManager.shared.applyHeaders(
-                to: &request,
-                baseURL: baseURL,
-                identity: identity
-            )
-            let token = try await NomvaCloudAuthManager.shared.sessionToken(
-                baseURL: baseURL,
-                identity: identity
-            )
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                let token = try await NomvaCloudAuthManager.shared.sessionToken(
+                    baseURL: baseURL,
+                    identity: identity
+                )
+                try await NomvaCloudAppAttestManager.shared.applyHeaders(
+                    to: &request,
+                    baseURL: baseURL,
+                    identity: identity
+                )
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-            let (_, response) = try await URLSession.shared.data(for: request)
+                return try await URLSession.shared.data(for: request)
+            }
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
@@ -1627,61 +1741,71 @@ private func sendNomvaCloudRequest(
     baseURL: String,
     identity: NomvaCloudIdentity,
     retryOnUnauthorized: Bool = true,
-    buildRequest: @escaping () throws -> URLRequest
+    buildRequest: @Sendable @escaping () throws -> URLRequest
 ) async throws -> (Data, URLResponse) {
-    func perform(forceSessionRefresh: Bool, forceAttestationRefresh: Bool) async throws -> (Data, URLResponse, URLRequest) {
-        var request = try buildRequest()
-        try await NomvaCloudAppAttestManager.shared.applyHeaders(
-            to: &request,
-            baseURL: baseURL,
-            identity: identity,
-            forceReattestation: forceAttestationRefresh
-        )
-        let token = try await NomvaCloudAuthManager.shared.sessionToken(
-            baseURL: baseURL,
-            identity: identity,
-            forceRefresh: forceSessionRefresh
-        )
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        return (data, response, request)
-    }
-
     let startedAt = Date()
     var analyticsRequest: URLRequest?
 
     do {
-        let initial = try await perform(forceSessionRefresh: false, forceAttestationRefresh: false)
-        analyticsRequest = initial.2
-        guard retryOnUnauthorized,
-              let http = initial.1 as? HTTPURLResponse,
-              http.statusCode == 401 else {
-            enqueueNomvaNetworkAnalytics(
-                baseURL: baseURL,
-                identity: identity,
-                request: analyticsRequest,
-                response: initial.1,
-                responseData: initial.0,
-                startedAt: startedAt,
-                errorCode: nil
-            )
-            return (initial.0, initial.1)
-        }
+        let final = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess {
+            func perform(
+                forceSessionRefresh: Bool,
+                forceAttestationRefresh: Bool
+            ) async throws -> (Data, URLResponse, URLRequest) {
+                let token = try await NomvaCloudAuthManager.shared.sessionToken(
+                    baseURL: baseURL,
+                    identity: identity,
+                    forceRefresh: forceSessionRefresh
+                )
+                var request = try buildRequest()
+                try await NomvaCloudAppAttestManager.shared.applyHeaders(
+                    to: &request,
+                    baseURL: baseURL,
+                    identity: identity,
+                    forceReattestation: forceAttestationRefresh
+                )
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                return (data, response, request)
+            }
 
-        let final: (Data, URLResponse, URLRequest)
-        switch serverErrorCode(from: initial.0) {
-        case "invalid_session":
-            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: false)
-        case "entitlement_refresh_required":
-            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: false)
-        case "invalid_app_attest", "app_attest_required", "stale_app_attest":
-            await NomvaCloudAppAttestManager.shared.reset(identity: identity)
-            NomvaCloudKeychain.delete(service: "com.nomva.cloud.session", account: identity.accountKey)
-            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: true)
-        case "simulator_auth_disabled":
-            throw NomvaCloudAuthError.simulatorAuthDisabled
-        default:
-            final = initial
+            let initial = try await perform(
+                forceSessionRefresh: false,
+                forceAttestationRefresh: false
+            )
+            guard retryOnUnauthorized,
+                  let http = initial.1 as? HTTPURLResponse,
+                  http.statusCode == 401 else {
+                return initial
+            }
+
+            switch serverErrorCode(from: initial.0) {
+            case "invalid_session", "entitlement_refresh_required":
+                return try await perform(
+                    forceSessionRefresh: true,
+                    forceAttestationRefresh: false
+                )
+            case "invalid_app_attest", "app_attest_required", "stale_app_attest":
+                let freshAssertion = try await perform(
+                    forceSessionRefresh: false,
+                    forceAttestationRefresh: false
+                )
+
+                if let retryHTTP = freshAssertion.1 as? HTTPURLResponse,
+                   appAttestShouldRetry(status: retryHTTP.statusCode, data: freshAssertion.0) {
+                    await NomvaCloudAppAttestManager.shared.reset(identity: identity)
+                    await NomvaCloudAuthManager.shared.reset(identity: identity)
+                    return try await perform(
+                        forceSessionRefresh: true,
+                        forceAttestationRefresh: false
+                    )
+                }
+                return freshAssertion
+            case "simulator_auth_disabled":
+                throw NomvaCloudAuthError.simulatorAuthDisabled
+            default:
+                return initial
+            }
         }
 
         analyticsRequest = final.2
@@ -1712,6 +1836,16 @@ private func sendNomvaCloudRequest(
 
 private func serverErrorCode(from data: Data) -> String? {
     (try? JSONDecoder().decode(NomvaCloudServerErrorPayload.self, from: data))?.error
+}
+
+private func appAttestShouldRetry(status: Int, data: Data) -> Bool {
+    guard status == 401 else { return false }
+    switch serverErrorCode(from: data) {
+    case "invalid_attestation", "invalid_app_attest", "app_attest_required", "stale_app_attest":
+        return true
+    default:
+        return false
+    }
 }
 
 private func errorForAuthResponse(_ statusCode: Int, data: Data) -> Error {
@@ -1932,12 +2066,13 @@ struct GarminCloudService {
             URLQueryItem(name: "days", value: String(days)),
             URLQueryItem(name: "localDate", value: dateFormatter.string(from: .now)),
         ]
+        let url = try validatedURL(from: components)
 
         let (data, response) = try await sendNomvaCloudRequest(
             baseURL: baseURL,
             identity: identity
         ) {
-            var request = URLRequest(url: try validatedURL(from: components))
+            var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.timeoutInterval = 20

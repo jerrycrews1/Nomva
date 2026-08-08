@@ -131,6 +131,29 @@ struct NomvaCoreTests {
         #expect(try destinationContext.fetch(FetchDescriptor<DailyGoal>()).first?.calories == 2_000)
     }
 
+    @Test("Attested cloud requests never overlap")
+    func attestedCloudRequestSerialization() async {
+        let gate = NomvaCloudAttestedRequestGate()
+        let probe = ConcurrencyProbe()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    try? await gate.withExclusiveAccess {
+                        await probe.enter()
+                        try await Task.sleep(for: .milliseconds(5))
+                        await probe.leave()
+                    }
+                }
+            }
+        }
+
+        let maximumActive = await probe.maximumActive
+        let completed = await probe.completed
+        #expect(maximumActive == 1)
+        #expect(completed == 20)
+    }
+
     @MainActor
     private func food(
         name: String,
@@ -163,5 +186,21 @@ struct NomvaCoreTests {
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
+    }
+}
+
+private actor ConcurrencyProbe {
+    private(set) var maximumActive = 0
+    private(set) var completed = 0
+    private var active = 0
+
+    func enter() {
+        active += 1
+        maximumActive = max(maximumActive, active)
+    }
+
+    func leave() {
+        active -= 1
+        completed += 1
     }
 }
