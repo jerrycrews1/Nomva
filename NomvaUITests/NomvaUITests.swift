@@ -60,6 +60,25 @@ final class NomvaUITests: XCTestCase {
     }
 
     @MainActor
+    func testGarminConnectionControlDoesNotBecomeStranded() throws {
+        let app = launch(startingAt: "-NomvaStartSettings", appearance: "Light")
+
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 8))
+        let garminRow = app.descendants(matching: .any)["settings.garmin"].firstMatch
+        XCTAssertTrue(garminRow.waitForExistence(timeout: 5))
+        garminRow.tap()
+
+        XCTAssertTrue(app.navigationBars["Garmin"].waitForExistence(timeout: 5))
+        let connectionAction = app.descendants(matching: .any)["garmin.connectionAction"].firstMatch
+        XCTAssertTrue(connectionAction.waitForExistence(timeout: 20))
+        expectation(
+            for: NSPredicate(format: "hittable == true"),
+            evaluatedWith: connectionAction
+        )
+        waitForExpectations(timeout: 25)
+    }
+
+    @MainActor
     private func launch(
         startingAt startArgument: String,
         appearance: String,

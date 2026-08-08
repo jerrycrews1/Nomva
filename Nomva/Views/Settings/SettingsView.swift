@@ -72,6 +72,7 @@ struct SettingsView: View {
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityIdentifier("settings.garmin")
                             }
                         }
 
@@ -554,8 +555,8 @@ private struct GarminSettingsDetailView: View {
                             Spacer()
 
                             NomvaTag(
-                                text: garminManager.isConnected ? "Live" : garminManager.isConfigured ? "Ready" : "Setup",
-                                tint: garminManager.isConnected ? NomvaTheme.success : NomvaTheme.accent
+                                text: connectionBadgeText,
+                                tint: connectionBadgeTint
                             )
                         }
 
@@ -615,21 +616,41 @@ private struct GarminSettingsDetailView: View {
                                     .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(NomvaSecondaryButtonStyle())
+                                .accessibilityIdentifier("garmin.connectionAction")
 
                                 Button("Disconnect") {
                                     Task { await garminManager.disconnect() }
                                 }
                                 .buttonStyle(NomvaSecondaryButtonStyle())
                             } else {
-                                Button("Connect Garmin") {
-                                    Task { await garminManager.connect() }
+                                if garminManager.hasResolvedStatus && !garminManager.isConfigured {
+                                    Button("Check Again") {
+                                        Task { await garminManager.refresh() }
+                                    }
+                                    .buttonStyle(NomvaSecondaryButtonStyle())
+                                    .accessibilityIdentifier("garmin.connectionAction")
+                                    .disabled(garminManager.isLoading)
+                                } else {
+                                    Button {
+                                        Task { await garminManager.connect() }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            if garminManager.isConnecting {
+                                                ProgressView()
+                                                    .tint(.white)
+                                            }
+                                            Text(garminManager.hasResolvedStatus ? "Connect Garmin" : "Check Connection")
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(NomvaPrimaryButtonStyle())
+                                    .accessibilityIdentifier("garmin.connectionAction")
+                                    .disabled(garminManager.isConnecting || garminManager.isLoading)
                                 }
-                                .buttonStyle(NomvaPrimaryButtonStyle())
-                                .disabled(!garminManager.isConfigured || garminManager.isConnecting)
                             }
                         }
 
-                        if garminManager.isConfigured, let lastError = garminManager.lastErrorMessage, !lastError.isEmpty {
+                        if let lastError = garminManager.lastErrorMessage, !lastError.isEmpty {
                             Text(lastError)
                                 .font(.caption.bold())
                                 .foregroundStyle(NomvaTheme.danger)
@@ -658,13 +679,23 @@ private struct GarminSettingsDetailView: View {
         .navigationTitle("Garmin")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await garminManager.refreshIfNeeded()
+            await garminManager.refresh()
         }
     }
 
     private var connectionSubtitle: String {
+        if garminManager.isLoading && !garminManager.hasResolvedStatus {
+            return "Checking your Garmin connection…"
+        }
+        if let lastError = garminManager.lastErrorMessage,
+           !lastError.isEmpty,
+           !garminManager.hasResolvedStatus {
+            return "Couldn't check your saved Garmin connection."
+        }
         if !garminManager.isConfigured {
-            return "Garmin integration isn't set up yet."
+            return garminManager.hasResolvedStatus
+                ? "Garmin is temporarily unavailable on Nomva Cloud."
+                : "Connection status hasn't loaded yet."
         }
         if let lastWebhook = garminManager.status.lastWebhookAt {
             return "Last synced: \(formattedTimestamp(lastWebhook))"
@@ -673,6 +704,30 @@ private struct GarminSettingsDetailView: View {
             return "Connected — waiting for today's activity data."
         }
         return "Tap Connect to link your Garmin account."
+    }
+
+    private var connectionBadgeText: String {
+        if garminManager.isLoading && !garminManager.hasResolvedStatus {
+            return "Checking"
+        }
+        if garminManager.lastErrorMessage != nil && !garminManager.hasResolvedStatus {
+            return "Retry"
+        }
+        if !garminManager.isConfigured {
+            return "Unavailable"
+        }
+        return garminManager.isConnected ? "Live" : "Ready"
+    }
+
+    private var connectionBadgeTint: Color {
+        if garminManager.isConnected {
+            return NomvaTheme.success
+        }
+        if garminManager.lastErrorMessage != nil ||
+            (garminManager.hasResolvedStatus && !garminManager.isConfigured) {
+            return NomvaTheme.danger
+        }
+        return NomvaTheme.accent
     }
 
     private func formattedTimestamp(_ isoString: String) -> String {

@@ -921,27 +921,43 @@ struct NomvaCloudIdentity: Sendable {
 
     private static let userIdKey = "nomva_cloud_user_id"
     private static let deviceTokenKey = "nomva_cloud_device_token"
+    private static let keychainService = "com.nomva.cloud.identity"
 
     static func current() -> NomvaCloudIdentity {
         let defaults = UserDefaults.standard
-
-        let userId: String
-        if let existing = defaults.string(forKey: userIdKey), !existing.isEmpty {
-            userId = existing
-        } else {
-            userId = UUID().uuidString.lowercased()
-            defaults.set(userId, forKey: userIdKey)
-        }
-
-        let deviceToken: String
-        if let existing = defaults.string(forKey: deviceTokenKey), !existing.isEmpty {
-            deviceToken = existing
-        } else {
-            deviceToken = UUID().uuidString.lowercased()
-            defaults.set(deviceToken, forKey: deviceTokenKey)
-        }
+        let userId = persistentIdentifier(
+            account: userIdKey,
+            defaults: defaults
+        )
+        let deviceToken = persistentIdentifier(
+            account: deviceTokenKey,
+            defaults: defaults
+        )
 
         return NomvaCloudIdentity(userId: userId, deviceToken: deviceToken)
+    }
+
+    private static func persistentIdentifier(
+        account: String,
+        defaults: UserDefaults
+    ) -> String {
+        if let keychainValue = NomvaCloudKeychain.loadString(
+            service: keychainService,
+            account: account
+        ), !keychainValue.isEmpty {
+            defaults.set(keychainValue, forKey: account)
+            return keychainValue
+        }
+
+        let value = defaults.string(forKey: account).flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
+        defaults.set(value, forKey: account)
+        NomvaCloudKeychain.saveString(
+            value,
+            service: keychainService,
+            account: account
+        )
+        return value
     }
 
     var accountKey: String {
@@ -1923,6 +1939,7 @@ struct GarminCloudService {
         ) {
             var request = URLRequest(url: try validatedURL(from: components))
             request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
             request.timeoutInterval = 20
             return request
         }
@@ -2019,8 +2036,8 @@ final class GarminManager: NSObject, ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isConnecting = false
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var hasResolvedStatus = false
 
-    private var hasLoadedOnce = false
     private var lastSyncAttempt: Date?
     private var authSession: ASWebAuthenticationSession?
 
@@ -2029,7 +2046,7 @@ final class GarminManager: NSObject, ObservableObject {
     var averageActiveCalories: Double? { status.averageActiveCalories }
 
     func refreshIfNeeded() async {
-        guard !hasLoadedOnce else { return }
+        guard !hasResolvedStatus else { return }
         await refresh()
     }
 
@@ -2062,7 +2079,7 @@ final class GarminManager: NSObject, ObservableObject {
             }
 
             status = fetched
-            hasLoadedOnce = true
+            hasResolvedStatus = true
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -2084,6 +2101,7 @@ final class GarminManager: NSObject, ObservableObject {
             let service = GarminCloudService()
             let snapshot = try await service.fetchStatus()
             status = snapshot
+            hasResolvedStatus = true
 
             guard snapshot.configured else {
                 throw GarminCloudError.notConfigured
@@ -2129,7 +2147,7 @@ final class GarminManager: NSObject, ObservableObject {
                 recentSummaries: [],
                 latestSummary: nil
             )
-            hasLoadedOnce = true
+            hasResolvedStatus = true
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
