@@ -7,9 +7,10 @@ const OpenAI = require("openai");
 
 const prompts = require("../prompts");
 const { createFoodSearchStore } = require("../foodSearchStore");
-const { resolveFoodCandidate } = require("../foodResolver");
+const { FOOD_SELECTION_SCHEMA, resolveFoodCandidate } = require("../foodResolver");
+const { requestStructuredJSON } = require("../structuredLLM");
 
-const model = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+const model = process.env.NOMVA_FOOD_RESOLUTION_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const store = createFoodSearchStore({
   dbPath: process.env.FOODS_DB_PATH || path.join(__dirname, "..", "..", "Nomva", "Resources", "foods.sqlite"),
@@ -57,34 +58,21 @@ async function askJSON(systemPrompt, userPrompt, maxTokens) {
   return JSON.parse(response.choices[0]?.message?.content || "{}");
 }
 
-async function verifyPick(payload) {
-  const { selectedFood } = payload;
-  const userPrompt = [
-    `User said: "${payload.userMessage}"`,
-    `Food mention: "${payload.foodMention}"`,
-    `Selected row: "${selectedFood.name}"${selectedFood.brand ? `\nSelected brand: ${selectedFood.brand}` : ""}`,
-    `Selected serving: ${selectedFood.servingDescription || "unknown"}`,
-    `Selected serving grams: ${selectedFood.servingGrams || "unknown"}`,
-    `Selected source: ${selectedFood.source || "unknown"}`,
-    `Selected basis: ${selectedFood.portionBasis || "grams"}`,
-    `Selected calories per serving: ${selectedFood.caloriesPerServing ?? "unknown"}`,
-    `Proposed servings: ${payload.servings}`,
-    `Proposed portion: "${payload.portionDescription}"`,
-    `Proposed serving unit: "${payload.servingUnit}"`,
-    `Proposed confident: ${payload.confident === true}`,
-    `Proposed hasExplicitPortion: ${payload.hasExplicitPortion === true}`,
-  ].join("\n");
-  const result = await askJSON(prompts.VERIFY_RESOLVED_FOOD_PICK, userPrompt, 220);
-  return {
-    accept: result.accept === true,
-    servings: typeof result.servings === "number" && result.servings > 0 ? result.servings : payload.servings,
-    portionDescription: result.portionDescription || payload.portionDescription,
-    servingUnit: result.servingUnit || payload.servingUnit,
-    confident: typeof result.confident === "boolean" ? result.confident : payload.confident,
-    hasExplicitPortion: typeof result.hasExplicitPortion === "boolean" ? result.hasExplicitPortion : payload.hasExplicitPortion,
-    retryQuery: result.retryQuery || null,
-    feedback: result.feedback || null,
-  };
+async function selectFood(userPrompt) {
+  const { value } = await requestStructuredJSON({
+    openai,
+    model,
+    instructions: prompts.SELECT_FOOD_CANDIDATE,
+    input: userPrompt,
+    schemaName: "food_candidate_selection",
+    schema: FOOD_SELECTION_SCHEMA,
+    reasoningEffort: "none",
+    maxOutputTokens: 700,
+    timeoutMs: 10_000,
+    maxRetries: 0,
+    cacheKey: "nomva_food_candidate_smoke_v1",
+  });
+  return value;
 }
 
 async function run() {
@@ -116,8 +104,7 @@ async function run() {
       userMessage,
       foodMention,
       foodSearchStore: store,
-      askAgent: (prompt) => askJSON(prompts.RESOLVE_FOOD_CANDIDATE_AGENT, prompt, 360),
-      verifyPick,
+      askAgent: selectFood,
       onEvent: (event) => trace.push(event),
     });
     const identity = `${outcome.body?.name || ""} ${outcome.body?.brand || ""}`;

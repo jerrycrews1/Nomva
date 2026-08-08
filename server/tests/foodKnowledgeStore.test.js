@@ -28,6 +28,7 @@ function fixture(overrides = {}) {
     sourceUrl: "https://www.starbucks.com/menu/product/413/hot/nutrition",
     sourceTitle: "Starbucks Caramel Macchiato",
     evidence: "Official nutrition for the selected size.",
+    components: [],
     ...overrides,
   };
 }
@@ -99,4 +100,29 @@ test("a successful insert clears an earlier miss for the same query", (t) => {
   store.upsert(fixture(), ["venti caramel macchiato from Starbucks"]);
   assert.equal(store.hasFreshMiss("venti caramel macchiato from Starbucks"), false);
   assert.equal(store.stats().activeFoods, 1);
+});
+
+test("persists structured components for reusable estimates", (t) => {
+  const store = storeForTest(t);
+  const components = [{
+    name: "Coffee",
+    servingDescription: "1 cup",
+    calories: 4,
+    proteinG: 0.3,
+    carbsG: 0,
+    fatG: 0,
+    fiberG: 0,
+    sugarG: 0,
+    sodiumMg: 5,
+  }];
+  const inserted = store.upsert(fixture({
+    name: "Estimated coffee",
+    brand: null,
+    quality: "estimated",
+    confidence: 0.7,
+    sourceUrl: "https://example.com/coffee",
+    components,
+  }));
+
+  assert.deepEqual(store.inspect(inserted.rowId).components, components);
 });

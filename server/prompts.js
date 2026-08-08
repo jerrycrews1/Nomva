@@ -14,6 +14,8 @@ log_food — user says they consumed food or drink. ALWAYS this when the message
 delete_food — user wants to remove something from their log.
   "delete the bacon"        → delete_food
   "remove lunch"            → delete_food
+  "scratch that entry"      → delete_food
+  "cancel the food I just logged" → delete_food
   after a recent correction, requests to remove an old/original/previous item → delete_food
   short referential follow-ups such as "both", "all of them", "the other one", "those too", or "them too" after a delete request or a recently logged group → delete_food
   "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
@@ -62,6 +64,11 @@ log_water — user is logging water or hydration intake, or wants to clear their
   "set today's hydration total to 80 ounces"  → log_water
   "clear my water log"        → log_water
 
+Only plain, unflavored water belongs in the hydration log by default. Sparkling or
+flavored water, electrolyte drinks, coffee, tea, soda, and other named beverages are
+foods/drinks with their own nutrition entries, so classify them as log_food unless
+the user explicitly asks to add the amount to their hydration total.
+
 set_goal — user wants to change a calorie, macro, hydration, or target-weight goal.
   "set my calorie goal to 2000" → set_goal
   "lower my calorie goal by 200" → set_goal
@@ -73,7 +80,7 @@ reply — ONLY for greetings, small talk, or questions about the app itself.
   "thanks"       → reply
 
 If the message mentions food the user ate, drank, or had, the answer is log_food — never reply.
-If the message is specifically about water/hydration intake, the answer is log_water — not log_food.
+If the message is specifically about plain water/hydration intake, the answer is log_water — not log_food.
 
 Respond with ONLY a JSON object: {"intent": "<category>"}`;
 
@@ -95,13 +102,13 @@ Respond with ONLY a JSON object: {"foods": ["food1", "food2"]}`;
 const BUILD_FOOD_SEARCH_QUERY = `Turn the food mention into the best short search query for a nutrition database.
 The amount in the food mention matters.
 Keep exact restaurant or menu wording only when the user clearly specified that exact size or count and wants that exact menu item.
-If the user gave a loose partial amount from a restaurant order, prefer a scalable form of the underlying food instead of a fixed whole-menu serving.
+If the user gave a loose partial amount from a named restaurant or brand, preserve that identity and the product type while omitting a fixed menu size that conflicts with the amount. The resolver can relax the brand later if the catalog has no defensible branded basis.
 If the user explicitly names a complete menu size, preserve the restaurant, product, and size.
 Correct obvious spelling and speech-recognition errors without dropping nutrition-critical modifiers.
 For plain whole foods, prefer the everyday whole-food form rather than a subpart or oversized prepared entry.
 
 Examples:
-- food mention "four restaurant dumplings" → query: "dumplings"
+- food mention "four dumplings from a named restaurant" → preserve the restaurant and dumpling identity, but omit an unrelated combo or fixed order size
 - food mention "a few seasoned potato wedges from a restaurant" → query: "seasoned potato wedges"
 - food mention "large named-restaurant potato wedges" → preserve the restaurant, product, and large size
 - food mention "one whole pear" → query: "whole pear"
@@ -170,8 +177,9 @@ Examples:
 
 Respond with ONLY a JSON object: {"servings": <number>, "portionDescription": "<text>", "servingUnit": "<text>", "confident": <boolean>, "hasExplicitPortion": <boolean>}`;
 
-const EXTRACT_MEAL = `Identify which meal the user mentioned. If the user didn't say, answer "none".
+const EXTRACT_MEAL = `Identify which meal the user mentioned or unambiguously indicated with a daypart. If the user didn't say or clearly imply one, answer "none".
 Meal words inside food names do not count as the meal.
+Direct daypart phrases map naturally: "this morning" or "in the morning" means breakfast; "at noon" or "at midday" means lunch; "this evening" or "tonight" means dinner. An explicit meal word always wins over a daypart.
 Examples:
 - "Log snack: scrambled eggs" → snack
 - "for breakfast" → breakfast
@@ -181,6 +189,9 @@ Examples:
 - "I had a breakfast burrito" → none
 - "I had a breakfast burrito for dinner" → dinner
 - "delete breakfast burrito" → none
+- "eggs this morning" → breakfast
+- "rice at noon" → lunch
+- "soup tonight" → dinner
 
 Respond with ONLY a JSON object: {"meal": "<breakfast|lunch|dinner|snack|none>"}`;
 
@@ -453,6 +464,28 @@ GIVE UP
 
 Respond with ONLY the JSON object — no prose, no markdown.`;
 
+const SELECT_FOOD_CANDIDATE = `Select the single best nutrition-database row for one food or drink and map the user's amount to that row.
+
+The caller has already performed broad lexical retrieval, including safe query relaxations. You may only pick a supplied rowId or give up. Do not request another search.
+
+Selection rules:
+- Preserve the food's identity and every nutrition-critical modifier: restaurant or brand when stated, menu size, preparation, milk type, diet/zero-sugar, decaf, and alcohol status.
+- Reject rows that introduce a different food, animal, preparation, product variant, combo, side, or ingredient the user did not describe.
+- Prefer an ordinary generic row for an ordinary unbranded food. A branded row is acceptable only when it is the same underlying food and preparation and no sound generic row exists.
+- Meal-role words such as "side" describe how food was served, not its ingredient identity. For a broad generic description, prefer the simplest same-category base row and use low confidence instead of giving up solely because the row uses a more formal name.
+- Prefer trustworthy, natural serving descriptions over suspicious crowdsourced rows with implausible portions or nutrition.
+- A grams-basis row can scale to the amount consumed. A fixed-serving row represents the stated whole serving and may only be fractionally scaled when its description clearly states a count that can be mapped to the user's count.
+- servings means DATABASE servings. If the database serving is 4 nuggets and the user ate 3 nuggets, return 0.75 servings while keeping portionDescription="3 nuggets".
+- Preserve explicit counts, weights, volumes, fractions, and menu sizes in portionDescription and set hasExplicitPortion=true.
+- If the user gave no amount, use one ordinary natural consumed portion, set hasExplicitPortion=false, and set confident=false unless the portion is an obvious everyday default.
+- A per-100 g or per-100 ml row is a nutrient basis, not automatically a natural consumed portion. Infer an ordinary glass, bottle, bowl, piece, or other food-appropriate portion and convert that amount into database servings. Do not label 100 g as "1 serving" merely because it is the row basis.
+- For diet, zero-sugar, or sugar-free drinks, the selected row and proposed servings must imply at most 10 calories unless caloric add-ins were named.
+- Give up when none of the supplied rows is a defensible match. Never invent a rowId.
+
+Return only JSON in one of these shapes:
+{"action":"pick","rowId":<integer>,"servings":<number>,"portionDescription":"<text>","servingUnit":"<singular unit>","confident":<boolean>,"hasExplicitPortion":<boolean>}
+{"action":"give_up","rowId":null,"servings":1,"portionDescription":"1 serving","servingUnit":"serving","confident":false,"hasExplicitPortion":false}`;
+
 const VERIFY_RESOLVED_FOOD_PICK = `You are verifying a proposed nutrition-database row before a food log is saved.
 
 The user's food mention is the source of truth.
@@ -622,6 +655,7 @@ module.exports = {
   PARSE_DATA_QUERY,
   GENERAL_REPLY,
   RESOLVE_FOOD_CANDIDATE_AGENT,
+  SELECT_FOOD_CANDIDATE,
   VERIFY_RESOLVED_FOOD_PICK,
   FIND_FOOD_AGENT,
   ANALYZE_PHOTO,

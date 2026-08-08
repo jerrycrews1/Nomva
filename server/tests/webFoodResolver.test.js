@@ -7,10 +7,14 @@ const test = require("node:test");
 const { loadFoodKnowledgeStore } = require("../foodKnowledgeStore");
 const {
   createWebFoodResolver,
+  hasUnresolvedLeadingIdentity,
   identityMatchesMention,
+  requiresExactMenuResearch,
   sanitizeWebFoodResult,
+  shouldBlockStaticFallback,
   shouldTryWebFirst,
   validPublicURL,
+  webFoodSanitizeFailureReason,
 } = require("../webFoodResolver");
 
 function response(overrides = {}) {
@@ -33,6 +37,7 @@ function response(overrides = {}) {
     sourceUrl: "https://www.starbucks.com/menu/product/413/hot/nutrition",
     sourceTitle: "Starbucks Caramel Macchiato",
     notes: "Official nutrition for the hot venti size.",
+    components: [],
     servings: 1,
     portionDescription: "1 venti caramel macchiato",
     servingUnit: "drink",
@@ -45,9 +50,11 @@ function harness(t, outputs) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nomva-web-food-"));
   const knowledgeStore = loadFoodKnowledgeStore({ dbPath: path.join(directory, "catalog.sqlite") });
   let calls = 0;
+  const requests = [];
   const openai = {
     responses: {
-      create: async () => {
+      create: async (request) => {
+        requests.push(request);
         const output = outputs[Math.min(calls, outputs.length - 1)];
         calls += 1;
         if (output instanceof Error) throw output;
@@ -60,7 +67,7 @@ function harness(t, outputs) {
     knowledgeStore.close();
     fs.rmSync(directory, { recursive: true, force: true });
   });
-  return { resolver, knowledgeStore, calls: () => calls };
+  return { resolver, knowledgeStore, calls: () => calls, requests };
 }
 
 test("accepts, labels, and caches published restaurant nutrition", async (t) => {
@@ -103,6 +110,12 @@ test("keeps ingredient-based menu nutrition visibly estimated", async (t) => {
     notes: "Estimated from the published ingredients and assumed portions.",
     portionDescription: "1 Lower's Bowl",
     servingUnit: "bowl",
+    components: [
+      { name: "Acai base", servingDescription: "1 bowl base", calories: 300, proteinG: 3, carbsG: 60, fatG: 6, fiberG: 8, sugarG: 35, sodiumMg: 15 },
+      { name: "Banana and berries", servingDescription: "1 cup", calories: 120, proteinG: 1, carbsG: 30, fatG: 0, fiberG: 5, sugarG: 20, sodiumMg: 2 },
+      { name: "Granola", servingDescription: "1/2 cup", calories: 180, proteinG: 4, carbsG: 25, fatG: 7, fiberG: 3, sugarG: 8, sodiumMg: 80 },
+      { name: "Nut butter", servingDescription: "1 tbsp", calories: 100, proteinG: 4, carbsG: 4, fatG: 8, fiberG: 1, sugarG: 1, sodiumMg: 60 },
+    ],
   })]);
 
   const result = await setup.resolver.resolve({
@@ -113,7 +126,48 @@ test("keeps ingredient-based menu nutrition visibly estimated", async (t) => {
   assert.equal(result.source, "web_estimate");
   assert.equal(result.quality, "estimated");
   assert.equal(result.confident, false);
-  assert.match(result.evidence, /Estimated/i);
+  assert.equal(result.caloriesPerServing, 700);
+  assert.equal(result.sodiumMg, 157);
+  assert.equal(result.components.length, 4);
+  assert.match(result.evidence, /Estimated component breakdown/i);
+});
+
+test("supports source-backed estimates for recognized uncataloged dishes", async (t) => {
+  const setup = harness(t, [response({
+    name: "Doro wat",
+    brand: "",
+    aliases: ["doro wat", "Ethiopian chicken stew"],
+    servingDescription: "1 cup",
+    servingGrams: 260,
+    caloriesPerServing: 360,
+    proteinG: 28,
+    carbsG: 15,
+    fatG: 20,
+    fiberG: 3,
+    sugarG: 5,
+    sodiumMg: 620,
+    quality: "estimated",
+    confidence: 0.7,
+    sourceUrl: "https://www.africanbites.com/doro-wat-ethiopian-chicken-stew/",
+    sourceTitle: "Doro Wat Ethiopian Chicken Stew",
+    notes: "Estimated for one cup from the source recipe ingredients.",
+    portionDescription: "1 cup doro wat",
+    servingUnit: "cup",
+    hasExplicitPortion: false,
+    components: [
+      { name: "Chicken", servingDescription: "4 oz cooked", calories: 180, proteinG: 27, carbsG: 0, fatG: 8, fiberG: 0, sugarG: 0, sodiumMg: 70 },
+      { name: "Egg", servingDescription: "1 large", calories: 70, proteinG: 6, carbsG: 0.5, fatG: 5, fiberG: 0, sugarG: 0, sodiumMg: 70 },
+      { name: "Berbere onion sauce", servingDescription: "1/2 cup", calories: 110, proteinG: 2, carbsG: 14.5, fatG: 7, fiberG: 3, sugarG: 5, sodiumMg: 480 },
+    ],
+  })]);
+
+  const result = await setup.resolver.resolve({
+    userMessage: "I ate doro wat",
+    foodMention: "doro wat",
+  });
+
+  assert.equal(result.source, "web_estimate");
+  assert.match(setup.requests[0].instructions, /recognized generic or cultural composite dish/i);
 });
 
 test("rejects unsafe provenance and nutrition that does not reconcile", () => {
@@ -124,6 +178,43 @@ test("rejects unsafe provenance and nutrition that does not reconcile", () => {
   assert.equal(sanitizeWebFoodResult(response({ proteinG: null })), null);
   assert.equal(sanitizeWebFoodResult(response({ caloriesPerServing: 40, proteinG: 50 })), null);
   assert.equal(sanitizeWebFoodResult(response({ caloriesPerServing: 9, carbsG: 20 })), null);
+  assert.equal(sanitizeWebFoodResult(response({ quality: "estimated", components: [] })), null);
+});
+
+test("estimated totals and evidence are derived from structured components", () => {
+  const result = sanitizeWebFoodResult(response({
+    name: "Source-backed bowl",
+    quality: "estimated",
+    confidence: 0.7,
+    caloriesPerServing: 999,
+    proteinG: 99,
+    carbsG: 99,
+    fatG: 99,
+    fiberG: 99,
+    sugarG: 99,
+    sodiumMg: 0,
+    notes: "An inconsistent free-text total of 999 calories.",
+    components: [
+      { name: "Chicken", servingDescription: "4 oz", calories: 180, proteinG: 27, carbsG: 0, fatG: 8, fiberG: 0, sugarG: 0, sodiumMg: 70 },
+      { name: "Rice", servingDescription: "1 cup", calories: 210, proteinG: 4, carbsG: 45, fatG: 1, fiberG: 1, sugarG: 0, sodiumMg: 5 },
+    ],
+  }));
+
+  assert.equal(result.caloriesPerServing, 390);
+  assert.equal(result.proteinG, 31);
+  assert.equal(result.sodiumMg, 75);
+  assert.doesNotMatch(result.evidence, /999/);
+});
+
+test("reports bounded validation reasons without recording model food content", () => {
+  assert.equal(webFoodSanitizeFailureReason(null), "missing_payload");
+  assert.equal(webFoodSanitizeFailureReason({ found: false }), "model_no_match");
+  assert.equal(webFoodSanitizeFailureReason({
+    found: true,
+    quality: "estimated",
+    components: [],
+  }), "missing_estimate_components");
+  assert.equal(webFoodSanitizeFailureReason({ found: true, quality: "published" }), "invalid_payload");
 });
 
 test("rejects a plausible wrong-brand product and missing critical size", async (t) => {
@@ -167,6 +258,50 @@ test("web-first routing covers menu, composite, and database-empty queries", () 
   assert.equal(shouldTryWebFirst("unlisted composed dish", []), true);
   assert.equal(shouldTryWebFirst("Greek yogurt", [{ name: "Greek yogurt" }]), false);
   assert.equal(shouldTryWebFirst("egg", []), false);
+  assert.equal(shouldTryWebFirst("medium banana", [{ name: "Banana" }]), false);
+});
+
+test("exact-size menu research does not mistake generic produce sizes for restaurants", () => {
+  assert.equal(requiresExactMenuResearch("venti caramel macchiato from Starbucks"), true);
+  assert.equal(requiresExactMenuResearch("large fries from a restaurant"), true);
+  assert.equal(requiresExactMenuResearch("20 oz cola at the cafe"), true);
+  assert.equal(requiresExactMenuResearch("medium banana"), false);
+  assert.equal(requiresExactMenuResearch("lowers bowl from Alohana"), false);
+});
+
+test("a generic reference cannot silently drop a leading named identity", () => {
+  const genericBowl = [{
+    name: "Burrito bowl, chicken",
+    brand: null,
+    source: "survey_fndds",
+  }];
+  assert.equal(
+    hasUnresolvedLeadingIdentity("Chipotle chicken burrito bowl", genericBowl),
+    true
+  );
+  assert.equal(
+    hasUnresolvedLeadingIdentity("chicken burrito bowl", genericBowl),
+    false
+  );
+  assert.equal(
+    hasUnresolvedLeadingIdentity("medium banana", [{ name: "Banana", source: "survey_fndds" }]),
+    false
+  );
+});
+
+test("a failed current-menu lookup cannot fall through to the static catalog", () => {
+  assert.equal(shouldBlockStaticFallback({
+    requiresCurrentMenuSource: true,
+    attemptedWebResolution: true,
+  }), true);
+  assert.equal(shouldBlockStaticFallback({
+    requiresCurrentMenuSource: false,
+    attemptedWebResolution: true,
+  }), false);
+  assert.equal(shouldBlockStaticFallback({
+    requiresCurrentMenuSource: true,
+    attemptedWebResolution: false,
+  }), false);
 });
 
 test("learned-food identity can be supported by its saved aliases", () => {
@@ -177,4 +312,32 @@ test("learned-food identity can be supported by its saved aliases", () => {
       aliases: ["quesadilla with cheese flour tortilla beans meat and corn"],
     }
   ), true);
+});
+
+test("attached portions and one omitted flavor retain a safe base identity", () => {
+  assert.equal(identityMatchesMention(
+    "20oz Cherry Coke Zero",
+    {
+      name: "Coke Zero",
+      brand: "Coca-Cola",
+      aliases: [],
+    }
+  ), true);
+});
+
+test("an unspecified restaurant drink can use its published hot default", () => {
+  const publishedHot = {
+    name: "Venti Hot Caramel Macchiato with 2% Milk",
+    brand: "Starbucks",
+    aliases: ["Starbucks Venti Caramel Macchiato"],
+    quality: "published",
+  };
+  assert.equal(
+    identityMatchesMention("venti caramel macchiato from Starbucks", publishedHot),
+    true
+  );
+  assert.equal(
+    identityMatchesMention("venti iced caramel macchiato from Starbucks", publishedHot),
+    false
+  );
 });

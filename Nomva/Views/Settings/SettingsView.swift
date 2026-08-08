@@ -33,8 +33,8 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
 
                         SettingsSectionCard("Nutrition", detail: "Review targets, formulas, and connected activity data.") {
-                            Button {
-                                showGoals = true
+                            NavigationLink {
+                                GoalsSettingsView()
                             } label: {
                                 SettingsLinkRow(
                                     icon: "target",
@@ -43,7 +43,10 @@ struct SettingsView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Calorie & Macro Goals")
                             .accessibilityHint("Opens calorie goals and activity calculations")
+                            .accessibilityIdentifier("settings.goals")
                         }
 
                         SettingsSectionCard("Integrations", detail: "Connect activity sources that can adjust your calorie target.") {

@@ -94,6 +94,13 @@ function defaultAppAttestStore() {
   };
 }
 
+function ensureColumn(db, tableName, columnName, definition) {
+  const columns = db.pragma(`table_info(${tableName})`);
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
 function ensureSchema(db) {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
@@ -143,7 +150,14 @@ function ensureSchema(db) {
       device_token_hash TEXT,
       created_at TEXT,
       last_seen_at TEXT,
-      expires_at TEXT
+      expires_at TEXT,
+      trust_mode TEXT,
+      trust_environment TEXT,
+      entitlement_status TEXT,
+      entitlement_source TEXT,
+      entitlement_environment TEXT,
+      entitlement_verified_at TEXT,
+      entitlement_expires_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_app_sessions_identity_key
@@ -156,12 +170,32 @@ function ensureSchema(db) {
       sign_count INTEGER NOT NULL,
       created_at TEXT,
       updated_at TEXT,
-      last_asserted_at TEXT
+      last_asserted_at TEXT,
+      environment TEXT
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_app_attestations_key_id
       ON app_attestations(key_id);
+
+    CREATE TABLE IF NOT EXISTS api_rate_limits (
+      scope_key TEXT NOT NULL,
+      window_start INTEGER NOT NULL,
+      request_count INTEGER NOT NULL,
+      PRIMARY KEY (scope_key, window_start)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_window_start
+      ON api_rate_limits(window_start);
   `);
+
+  ensureColumn(db, "app_sessions", "trust_mode", "TEXT");
+  ensureColumn(db, "app_sessions", "trust_environment", "TEXT");
+  ensureColumn(db, "app_sessions", "entitlement_status", "TEXT");
+  ensureColumn(db, "app_sessions", "entitlement_source", "TEXT");
+  ensureColumn(db, "app_sessions", "entitlement_environment", "TEXT");
+  ensureColumn(db, "app_sessions", "entitlement_verified_at", "TEXT");
+  ensureColumn(db, "app_sessions", "entitlement_expires_at", "TEXT");
+  ensureColumn(db, "app_attestations", "environment", "TEXT");
 }
 
 function hasRows(db, tableName) {
@@ -253,8 +287,15 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
         device_token_hash,
         created_at,
         last_seen_at,
-        expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        expires_at,
+        trust_mode,
+        trust_environment,
+        entitlement_status,
+        entitlement_source,
+        entitlement_environment,
+        entitlement_verified_at,
+        entitlement_expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertAppAttestation = db.prepare(`
@@ -265,8 +306,9 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
         sign_count,
         created_at,
         updated_at,
-        last_asserted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        last_asserted_at,
+        environment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const [nomvaUserId, user] of Object.entries(garminState.users || {})) {
@@ -322,7 +364,14 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
         session.deviceTokenHash || null,
         session.createdAt || null,
         session.lastSeenAt || null,
-        session.expiresAt || null
+        session.expiresAt || null,
+        session.trustMode || null,
+        session.trustEnvironment || null,
+        session.entitlement?.status || null,
+        session.entitlement?.source || null,
+        session.entitlement?.environment || null,
+        session.entitlement?.verifiedAt || null,
+        session.entitlement?.expiresAt || null
       );
     }
 
@@ -334,7 +383,8 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
         attestation.signCount ?? 0,
         attestation.createdAt || null,
         attestation.updatedAt || null,
-        attestation.lastAssertedAt || null
+        attestation.lastAssertedAt || null,
+        attestation.environment || null
       );
     }
   });
@@ -480,7 +530,14 @@ function loadAppSessionStoreFromDB(db) {
       device_token_hash,
       created_at,
       last_seen_at,
-      expires_at
+      expires_at,
+      trust_mode,
+      trust_environment,
+      entitlement_status,
+      entitlement_source,
+      entitlement_environment,
+      entitlement_verified_at,
+      entitlement_expires_at
     FROM app_sessions
   `).all();
 
@@ -493,6 +550,15 @@ function loadAppSessionStoreFromDB(db) {
       lastSeenAt: row.last_seen_at || undefined,
       lastSeenPersistedAt: row.last_seen_at || undefined,
       expiresAt: row.expires_at || undefined,
+      trustMode: row.trust_mode || undefined,
+      trustEnvironment: row.trust_environment || undefined,
+      entitlement: row.entitlement_status ? {
+        status: row.entitlement_status,
+        source: row.entitlement_source || null,
+        environment: row.entitlement_environment || null,
+        verifiedAt: row.entitlement_verified_at || null,
+        expiresAt: row.entitlement_expires_at || null,
+      } : undefined,
     };
     if (row.identity_key) {
       store.identityIndex[row.identity_key] = row.token_hash;
@@ -513,7 +579,8 @@ function loadAppAttestStoreFromDB(db) {
       sign_count,
       created_at,
       updated_at,
-      last_asserted_at
+      last_asserted_at,
+      environment
     FROM app_attestations
   `).all();
 
@@ -525,6 +592,7 @@ function loadAppAttestStoreFromDB(db) {
       createdAt: row.created_at || undefined,
       updatedAt: row.updated_at || undefined,
       lastAssertedAt: row.last_asserted_at || undefined,
+      environment: row.environment || undefined,
     };
     store.keyIndex[row.key_id] = row.identity_key;
   }
@@ -543,6 +611,47 @@ function loadServerState(options) {
     SET last_seen_at = ?
     WHERE token_hash = ?
   `);
+  const readRateLimit = db.prepare(`
+    SELECT request_count
+    FROM api_rate_limits
+    WHERE scope_key = ? AND window_start = ?
+  `);
+  const insertRateLimit = db.prepare(`
+    INSERT INTO api_rate_limits (scope_key, window_start, request_count)
+    VALUES (?, ?, 1)
+  `);
+  const incrementRateLimit = db.prepare(`
+    UPDATE api_rate_limits
+    SET request_count = request_count + 1
+    WHERE scope_key = ? AND window_start = ?
+  `);
+  const pruneRateLimits = db.prepare(`
+    DELETE FROM api_rate_limits
+    WHERE window_start < ?
+  `);
+  const consumeRateLimit = db.transaction(({ scopeKey, windowMs, max, now }) => {
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    const row = readRateLimit.get(scopeKey, windowStart);
+    const currentCount = row?.request_count || 0;
+    if (currentCount >= max) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: windowStart + windowMs,
+      };
+    }
+
+    if (row) {
+      incrementRateLimit.run(scopeKey, windowStart);
+    } else {
+      insertRateLimit.run(scopeKey, windowStart);
+    }
+    return {
+      allowed: true,
+      remaining: Math.max(0, max - currentCount - 1),
+      resetAt: windowStart + windowMs,
+    };
+  });
 
   return {
     garminStore: loadGarminStoreFromDB(db),
@@ -553,6 +662,15 @@ function loadServerState(options) {
     },
     updateAppSessionLastSeen(tokenHash, lastSeenAt) {
       updateAppSessionLastSeen.run(lastSeenAt, tokenHash);
+    },
+    consumeRateLimit({ scopeKey, windowMs, max, now = Date.now() }) {
+      if (!scopeKey || !Number.isFinite(windowMs) || windowMs <= 0 || !Number.isFinite(max) || max <= 0) {
+        throw new Error("Invalid API rate-limit configuration.");
+      }
+      return consumeRateLimit({ scopeKey, windowMs, max, now });
+    },
+    pruneRateLimits(before = Date.now() - (2 * 24 * 60 * 60 * 1000)) {
+      return pruneRateLimits.run(before).changes;
     },
   };
 }

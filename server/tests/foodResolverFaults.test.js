@@ -35,7 +35,6 @@ test("an empty-completion agent error falls back to the seeded search instead of
     foodMention: "greek yogurt",
     foodSearchStore: fakeStore([YOGURT]),
     askAgent: async () => { throw new Error("empty completion from test-model"); },
-    verifyPick: async () => { throw new Error("should not be called"); },
   });
 
   assert.equal(outcome.status, 200);
@@ -44,7 +43,7 @@ test("an empty-completion agent error falls back to the seeded search instead of
   assert.equal(outcome.body.servings, 1);
 });
 
-test("a failing verifier does not discard a resolved database row", async () => {
+test("a guarded one-shot selection preserves the model's portion mapping", async () => {
   const outcome = await resolveFoodCandidate({
     userMessage: "I had greek yogurt",
     foodMention: "greek yogurt",
@@ -58,13 +57,12 @@ test("a failing verifier does not discard a resolved database row", async () => 
       confident: true,
       hasExplicitPortion: true,
     }),
-    verifyPick: async () => { throw new Error("verifier upstream 500"); },
   });
 
   assert.equal(outcome.status, 200);
   assert.equal(outcome.body.rowId, 42);
   assert.equal(outcome.body.servings, 1.5);
-  assert.equal(outcome.body.confident, false, "unverified pick must not claim confidence");
+  assert.equal(outcome.body.confident, true);
 });
 
 test("absurd servings from the model are clamped at the pick boundary", async () => {
@@ -81,16 +79,6 @@ test("absurd servings from the model are clamped at the pick boundary", async ()
       confident: true,
       hasExplicitPortion: true,
     }),
-    verifyPick: async (payload) => ({
-      accept: true,
-      servings: payload.servings,
-      portionDescription: payload.portionDescription,
-      servingUnit: payload.servingUnit,
-      confident: payload.confident,
-      hasExplicitPortion: payload.hasExplicitPortion,
-      retryQuery: null,
-      feedback: null,
-    }),
   });
 
   assert.equal(outcome.status, 200);
@@ -104,7 +92,6 @@ test("an exhausted deadline still returns the deterministic fallback", async () 
     foodSearchStore: fakeStore([YOGURT]),
     deadlineMs: 0,
     askAgent: async () => { throw new Error("should not be called after deadline"); },
-    verifyPick: async () => { throw new Error("should not be called"); },
   });
 
   assert.equal(outcome.status, 200);
@@ -117,7 +104,6 @@ test("no usable candidates still yields a clean 422, not an exception", async ()
     foodMention: "unobtainium stew",
     foodSearchStore: fakeStore([]),
     askAgent: async () => { throw new Error("empty completion"); },
-    verifyPick: async () => { throw new Error("unused"); },
   });
 
   assert.equal(outcome.status, 422);

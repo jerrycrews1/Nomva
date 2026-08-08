@@ -1,14 +1,5 @@
 import Foundation
 
-enum SubscriptionAccessPolicy {
-    private static let testFlightReceiptName = "sandboxReceipt"
-
-    static func grantsComplimentaryProAccess(receiptURL: URL?) -> Bool {
-        guard let receiptURL else { return false }
-        return receiptURL.lastPathComponent.caseInsensitiveCompare(testFlightReceiptName) == .orderedSame
-    }
-}
-
 enum SubscriptionOperation {
     case purchase
     case restore

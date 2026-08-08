@@ -75,10 +75,15 @@ actor DatabaseManager {
             JOIN foods_fts ON foods_fts.rowid = f.id
             WHERE foods_fts MATCH ?
             ORDER BY
+                CASE
+                    WHEN f.source = 'foundation' THEN 0
+                    WHEN f.source = 'survey_fndds' THEN 1
+                    WHEN f.source = 'sr_legacy' THEN 2
+                    ELSE 3
+                END ASC,
                 CASE WHEN lower(f.name) = ? THEN 0 ELSE 1 END ASC,
                 CASE WHEN lower(f.name) LIKE ? THEN 0 ELSE 1 END ASC,
                 CASE WHEN lower(f.name) LIKE ? THEN 0 ELSE 1 END ASC,
-                CASE WHEN f.source = 'open_food_facts' THEN 1 ELSE 0 END ASC,
                 rank ASC,
                 LENGTH(f.name) ASC
             LIMIT ?
@@ -114,7 +119,9 @@ actor DatabaseManager {
 
         guard !tokens.isEmpty else { return [] }
 
-        let whereClause = tokens.map { _ in "(lower(f.name) LIKE ? OR lower(IFNULL(f.brand, '')) LIKE ?)" }
+        let whereClause = tokens.map { _ in
+            "(lower(f.name) LIKE ? OR lower(IFNULL(f.brand, '')) LIKE ? OR lower(IFNULL(f.search_terms, '')) LIKE ?)"
+        }
             .joined(separator: " AND ")
 
         let sql = """
@@ -122,7 +129,13 @@ actor DatabaseManager {
             FROM foods f
             WHERE \(whereClause)
             ORDER BY
-                CASE WHEN f.source = 'open_food_facts' THEN 1 ELSE 0 END ASC,
+                CASE
+                    WHEN f.source = 'foundation' THEN 0
+                    WHEN f.source = 'survey_fndds' THEN 1
+                    WHEN f.source = 'sr_legacy' THEN 2
+                    WHEN f.source = 'branded' THEN 3
+                    ELSE 4
+                END ASC,
                 CASE WHEN f.brand IS NULL OR f.brand = '' THEN 0 ELSE 1 END ASC,
                 LENGTH(f.name) ASC
             LIMIT ?
@@ -135,6 +148,8 @@ actor DatabaseManager {
             var bindIndex: Int32 = 1
             for token in tokens {
                 let like = "%\(token)%"
+                sqlite3_bind_text(stmt, bindIndex, like, -1, sqliteTransient)
+                bindIndex += 1
                 sqlite3_bind_text(stmt, bindIndex, like, -1, sqliteTransient)
                 bindIndex += 1
                 sqlite3_bind_text(stmt, bindIndex, like, -1, sqliteTransient)

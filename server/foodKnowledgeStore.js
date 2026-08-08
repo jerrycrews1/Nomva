@@ -8,6 +8,9 @@ const QUERY_NOISE = new Set([
   "a", "an", "the", "i", "had", "ate", "drank", "log", "add", "please",
   "from", "at", "for", "of", "with", "and", "some", "about", "my", "one",
   "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "oz", "ounce", "ounces", "fl", "fluid", "g", "gram", "grams", "kg",
+  "ml", "milliliter", "milliliters", "l", "liter", "liters", "lb", "lbs",
+  "pound", "pounds", "cup", "cups", "serving", "servings", "portion", "portions",
 ]);
 
 function normalizeFoodText(value) {
@@ -20,10 +23,15 @@ function normalizeFoodText(value) {
     .replace(/\s+/g, " ");
 }
 
+function isPortionToken(token) {
+  return /^\d+(?:\.\d+)?$/.test(token)
+    || /^\d+(?:\.\d+)?(?:oz|ounce|ounces|g|gram|grams|kg|ml|l|lb|lbs)$/.test(token);
+}
+
 function foodTokens(value) {
   return normalizeFoodText(value)
     .split(" ")
-    .filter((token) => token && !QUERY_NOISE.has(token));
+    .filter((token) => token && !QUERY_NOISE.has(token) && !isPortionToken(token));
 }
 
 function finiteOrNull(value) {
@@ -42,6 +50,17 @@ function parseAliases(value) {
   try {
     const aliases = JSON.parse(value || "[]");
     return Array.isArray(aliases) ? aliases.filter((alias) => typeof alias === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseComponents(value) {
+  try {
+    const components = JSON.parse(value || "[]");
+    return Array.isArray(components) ? components.filter((component) => (
+      component && typeof component === "object" && typeof component.name === "string"
+    )) : [];
   } catch {
     return [];
   }
@@ -152,6 +171,7 @@ function formatLearnedRow(row, searchScore = 0) {
     sourceUrl: row.source_url || null,
     sourceTitle: row.source_title || null,
     evidence: row.evidence || null,
+    components: parseComponents(row.components_json),
     aliases: parseAliases(row.aliases_json),
     updatedAt: row.updated_at,
     expiresAt: row.expires_at,
@@ -187,6 +207,7 @@ function loadFoodKnowledgeStore(options = {}) {
       source_url TEXT NOT NULL,
       source_title TEXT,
       evidence TEXT,
+      components_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
@@ -202,6 +223,13 @@ function loadFoodKnowledgeStore(options = {}) {
       expires_at TEXT NOT NULL
     );
   `);
+
+  const learnedFoodColumns = new Set(
+    db.prepare("PRAGMA table_info(learned_foods)").all().map((column) => column.name)
+  );
+  if (!learnedFoodColumns.has("components_json")) {
+    db.exec("ALTER TABLE learned_foods ADD COLUMN components_json TEXT NOT NULL DEFAULT '[]'");
+  }
 
   const selectActive = db.prepare(`
     SELECT * FROM learned_foods
@@ -228,9 +256,9 @@ function loadFoodKnowledgeStore(options = {}) {
     INSERT INTO learned_foods (
       canonical_key, name, brand, aliases_json, serving_desc, serving_g,
       calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
-      quality, confidence, source_url, source_title, evidence,
+      quality, confidence, source_url, source_title, evidence, components_json,
       created_at, updated_at, expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(canonical_key) DO UPDATE SET
       name = excluded.name,
       brand = excluded.brand,
@@ -249,6 +277,7 @@ function loadFoodKnowledgeStore(options = {}) {
       source_url = excluded.source_url,
       source_title = excluded.source_title,
       evidence = excluded.evidence,
+      components_json = excluded.components_json,
       updated_at = excluded.updated_at,
       expires_at = excluded.expires_at
   `);
@@ -319,6 +348,7 @@ function loadFoodKnowledgeStore(options = {}) {
       boundedText(food.sourceUrl, 1_000),
       boundedText(food.sourceTitle, 300),
       boundedText(food.evidence, 1_500),
+      JSON.stringify(Array.isArray(food.components) ? food.components.slice(0, 30) : []),
       existing?.created_at || timestamp.toISOString(),
       timestamp.toISOString(),
       expiresAt.toISOString()

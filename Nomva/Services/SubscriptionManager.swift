@@ -25,6 +25,7 @@ final class SubscriptionManager: ObservableObject {
     @Published var purchaseState: PurchaseState = .idle
     @Published var subscriptionExpirationDate: Date?
     @Published private(set) var hasTestFlightAccess: Bool
+    @Published private(set) var hasResolvedAccess: Bool
 
     let freeTrialLimit = 0
 
@@ -63,24 +64,26 @@ final class SubscriptionManager: ObservableObject {
 
     private var transactionListenerTask: Task<Void, Never>?
     private let legacyDevOverrideKey = "is_premium_dev_override"
+    private let debugPowerTestAccess: Bool
 
     private init() {
-        let receiptGrantsAccess = SubscriptionAccessPolicy.grantsComplimentaryProAccess(
-            receiptURL: Bundle.main.appStoreReceiptURL
-        )
         #if DEBUG
-        let debugPowerTestAccess = ProcessInfo.processInfo.arguments.contains("-NomvaPowerTestAccess")
+        debugPowerTestAccess = ProcessInfo.processInfo.arguments.contains("-NomvaPowerTestAccess")
         #else
-        let debugPowerTestAccess = false
+        debugPowerTestAccess = false
         #endif
-        hasTestFlightAccess = receiptGrantsAccess || debugPowerTestAccess
+        hasTestFlightAccess = debugPowerTestAccess
+        hasResolvedAccess = debugPowerTestAccess
         UserDefaults.standard.removeObject(forKey: legacyDevOverrideKey)
 
-        if !hasTestFlightAccess {
+        if NomvaRuntime.isAutomatedTest || debugPowerTestAccess {
+            transactionListenerTask = nil
+        } else {
             transactionListenerTask = listenForTransactions()
         }
 
         Task {
+            await refreshDistributionAccess()
             if !hasTestFlightAccess {
                 await fetchProduct()
                 await checkEntitlements()
@@ -139,13 +142,20 @@ final class SubscriptionManager: ObservableObject {
         purchaseState = .purchasing
 
         do {
-            let result = try await product.purchase()
+            let purchaseOptions: Set<Product.PurchaseOption>
+            if let accountToken = UUID(uuidString: NomvaCloudIdentity.current().userId) {
+                purchaseOptions = [.appAccountToken(accountToken)]
+            } else {
+                purchaseOptions = []
+            }
+            let result = try await product.purchase(options: purchaseOptions)
 
             switch result {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 setVerifiedSubscription(true)
+                await NomvaCloudSessionController.invalidateCurrentSession()
                 purchaseState = .idle
 
             case .userCancelled:
@@ -198,8 +208,12 @@ final class SubscriptionManager: ObservableObject {
 
     /// Walk through all current entitlements and update premium status.
     func checkEntitlements() async {
+        if !hasResolvedAccess {
+            await refreshDistributionAccess()
+        }
         guard !hasTestFlightAccess else { return }
 
+        let previouslyActive = hasVerifiedSubscription
         var foundActive = false
         var expirationDate: Date?
 
@@ -214,6 +228,9 @@ final class SubscriptionManager: ObservableObject {
 
         subscriptionExpirationDate = expirationDate
         setVerifiedSubscription(foundActive)
+        if previouslyActive != foundActive {
+            await NomvaCloudSessionController.invalidateCurrentSession()
+        }
     }
 
     // MARK: - Transaction Listener
@@ -239,6 +256,27 @@ final class SubscriptionManager: ObservableObject {
             throw error
         case .verified(let value):
             return value
+        }
+    }
+
+    private func refreshDistributionAccess() async {
+        guard !hasResolvedAccess else { return }
+        defer { hasResolvedAccess = true }
+
+        guard !debugPowerTestAccess else {
+            hasTestFlightAccess = true
+            return
+        }
+
+        do {
+            let result = try await AppTransaction.shared
+            guard case .verified(let appTransaction) = result else {
+                hasTestFlightAccess = false
+                return
+            }
+            hasTestFlightAccess = appTransaction.environment == .sandbox
+        } catch {
+            hasTestFlightAccess = false
         }
     }
 

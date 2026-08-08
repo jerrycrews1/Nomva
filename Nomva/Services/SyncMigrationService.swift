@@ -1104,6 +1104,10 @@ struct ResolvedFoodEvidenceRecord: Codable {
     var candidateSummary: String
     var resolutionConfidence: Double
     var wasClarified: Bool
+    var quality: String?
+    var sourceURL: String?
+    var sourceTitle: String?
+    var evidence: String?
 
     init(_ model: ResolvedFoodEvidence) {
         id = model.id
@@ -1118,6 +1122,10 @@ struct ResolvedFoodEvidenceRecord: Codable {
         candidateSummary = model.candidateSummary
         resolutionConfidence = model.resolutionConfidence
         wasClarified = model.wasClarified
+        quality = model.quality
+        sourceURL = model.sourceURL
+        sourceTitle = model.sourceTitle
+        evidence = model.evidence
     }
 
     func restore() -> ResolvedFoodEvidence {
@@ -1131,7 +1139,11 @@ struct ResolvedFoodEvidenceRecord: Codable {
             searchTerms: searchTerms,
             candidateSummary: candidateSummary,
             resolutionConfidence: resolutionConfidence,
-            wasClarified: wasClarified
+            wasClarified: wasClarified,
+            quality: quality,
+            sourceURL: sourceURL,
+            sourceTitle: sourceTitle,
+            evidence: evidence
         )
         apply(to: model)
         return model
@@ -1150,6 +1162,10 @@ struct ResolvedFoodEvidenceRecord: Codable {
         model.candidateSummary = candidateSummary
         model.resolutionConfidence = resolutionConfidence
         model.wasClarified = wasClarified
+        model.quality = quality
+        model.sourceURL = sourceURL
+        model.sourceTitle = sourceTitle
+        model.evidence = evidence
     }
 }
 

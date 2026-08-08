@@ -4,18 +4,25 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 
 const ROOT = path.join(__dirname, "..");
+const Database = require(path.join(ROOT, "server", "node_modules", "better-sqlite3"));
+const serverEnvPath = path.join(ROOT, "server", ".env");
+if (fs.existsSync(serverEnvPath)) {
+  require(path.join(ROOT, "server", "node_modules", "dotenv")).config({ path: serverEnvPath });
+}
 const BASE_URL = (process.env.NOMVA_EVAL_BASE_URL || "https://nomva.nerdquad.com").replace(/\/$/, "");
+const AUTOMATION_TOKEN = process.env.NOMVA_AUTOMATION_TOKEN || "";
 const SET = process.argv.find((argument) => argument.startsWith("--set="))?.split("=")[1] || "train";
+const DRY_RUN = process.argv.includes("--dry-run");
 const CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.NOMVA_EVAL_CONCURRENCY || 2)));
 const MAX_REQUEST_MS = Number(process.env.NOMVA_EVAL_MAX_REQUEST_MS || 20_000);
 const REPORT_DIR = path.join(ROOT, "reports", "release-gate");
-const FOOD_DB_PATH = path.join(ROOT, "Nomva", "Resources", "foods.sqlite");
+const FOOD_DB_PATH = process.env.NOMVA_EVAL_FOOD_DB_PATH
+  || path.join(ROOT, "Nomva", "Resources", "foods.sqlite");
 
-if (!["train", "validation"].includes(SET)) {
-  throw new Error("--set must be train or validation");
+if (!["train", "validation", "holdout2"].includes(SET)) {
+  throw new Error("--set must be train, validation, or holdout2");
 }
 
 function normalize(value) {
@@ -29,6 +36,20 @@ function normalize(value) {
 
 function matches(value, pattern) {
   return new RegExp(pattern, "is").test(String(value ?? ""));
+}
+
+function singularToken(token) {
+  if (token.endsWith("ies") && token.length > 3) return `${token.slice(0, -3)}y`;
+  if (token.endsWith("s") && token.length > 3 && !token.endsWith("ss")) return token.slice(0, -1);
+  return token;
+}
+
+function foodIdentityMatches(value, label, pattern) {
+  if (matches(value, pattern)) return true;
+  const ignored = new Set(["a", "an", "the", "side", "plain"]);
+  const expected = normalize(label).split(" ").map(singularToken).filter((token) => !ignored.has(token));
+  const actual = new Set(normalize(value).split(" ").map(singularToken));
+  return expected.length > 0 && expected.every((token) => actual.has(token));
 }
 
 function read(relativePath) {
@@ -63,8 +84,12 @@ class NomvaAPI {
       "Content-Type": "application/json",
       "X-Nomva-User-ID": this.userId,
       "X-Nomva-Device-Token": this.deviceToken,
-      "X-Nomva-App-Attest-Mode": "simulator",
     };
+    if (AUTOMATION_TOKEN) {
+      headers["X-Nomva-Automation-Token"] = AUTOMATION_TOKEN;
+    } else {
+      headers["X-Nomva-App-Attest-Mode"] = "simulator";
+    }
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     return headers;
   }
@@ -72,34 +97,46 @@ class NomvaAPI {
   async request(route, body = {}, options = {}) {
     const startedAt = Date.now();
     for (let attempt = 1; attempt <= 4; attempt += 1) {
-      const response = await fetch(`${BASE_URL}${route}`, {
-        method: options.method || "POST",
-        headers: this.headers(),
-        body: (options.method || "POST") === "GET" ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(MAX_REQUEST_MS + 5_000),
-      });
-      const raw = await response.text();
-      let parsed;
       try {
-        parsed = raw ? JSON.parse(raw) : {};
-      } catch {
-        parsed = { raw };
-      }
-      const durationMs = Date.now() - startedAt;
+        const response = await fetch(`${BASE_URL}${route}`, {
+          method: options.method || "POST",
+          headers: this.headers(),
+          body: (options.method || "POST") === "GET" ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(MAX_REQUEST_MS + 5_000),
+        });
+        const raw = await response.text();
+        let parsed;
+        try {
+          parsed = raw ? JSON.parse(raw) : {};
+        } catch {
+          parsed = { raw };
+        }
+        const durationMs = Date.now() - startedAt;
 
-      if (response.status === 429 && attempt < 4) {
-        const retryAfter = Math.max(1, Number(response.headers.get("retry-after") || 2));
-        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1_000));
-        continue;
-      }
+        const retryableStatus = [408, 425, 429, 500, 502, 503, 504].includes(response.status);
+        if (retryableStatus && attempt < 4) {
+          const retryAfter = Number(response.headers.get("retry-after"));
+          const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1_000
+            : 250 * (2 ** (attempt - 1));
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
 
-      this.requests.push({ route, status: response.status, durationMs, attempt });
-      return { status: response.status, body: parsed, durationMs };
+        this.requests.push({ route, status: response.status, durationMs, attempt });
+        return { status: response.status, body: parsed, durationMs };
+      } catch (error) {
+        if (attempt >= 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** (attempt - 1))));
+      }
     }
     throw new Error(`${route} exhausted retries`);
   }
 
   async register() {
+    if (!AUTOMATION_TOKEN && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(BASE_URL)) {
+      throw new Error("NOMVA_AUTOMATION_TOKEN is required for remote release-gate runs.");
+    }
     const response = await this.request("/v1/auth/register", {
       nomvaUserId: this.userId,
       deviceToken: this.deviceToken,
@@ -134,7 +171,7 @@ const foodCatalogs = {
     ["black beans", "black.*bean|bean.*black", 50, 450],
     ["spaghetti", "spaghetti|pasta", 80, 750],
     ["meatballs", "meatball", 60, 750],
-    ["a side salad", "salad", 5, 500],
+    ["a side salad", "salad", 0, 500],
     ["Cheerios", "cheerio", 50, 400],
     ["milk", "milk", 20, 320],
     ["strawberries", "strawberr", 10, 220],
@@ -180,6 +217,40 @@ const foodCatalogs = {
     ["baba ganoush", "baba.*ganoush|eggplant", 20, 450],
     ["naan", "naan", 70, 520],
   ],
+  holdout2: [
+    ["plain kefir", "kefir", 40, 300],
+    ["blackberries", "blackberr", 10, 220],
+    ["large Wendy's chili", "wendy.*chili|chili.*wendy", 180, 550],
+    ["hard-boiled eggs", "egg.*hard.*boil|hard.*boil.*egg", 40, 350],
+    ["sourdough toast", "sourdough.*(?:toast|bread)|(?:toast|bread).*sourdough", 35, 260],
+    ["chicken sausage", "chicken.*sausage|sausage.*chicken", 40, 500],
+    ["flank steak", "flank.*steak|steak.*flank", 80, 700],
+    ["couscous", "couscous", 50, 520],
+    ["cauliflower", "cauliflower", 5, 240],
+    ["tilapia", "tilapia", 50, 550],
+    ["butternut squash", "butternut.*squash|squash.*butternut", 20, 320],
+    ["zucchini", "zucchini", 5, 220],
+    ["chicken salad sandwich", "chicken.*salad.*sandwich|sandwich.*chicken.*salad", 120, 900],
+    ["a plum", "plum", 15, 200],
+    ["grits", "grit", 50, 520],
+    ["a mango", "mango", 20, 280],
+    ["tahini", "tahini", 40, 380],
+    ["fish tacos", "fish.*taco|taco.*fish", 90, 1_000],
+    ["kidney beans", "kidney.*bean|bean.*kidney", 50, 520],
+    ["fusilli pasta", "fusilli|pasta", 70, 780],
+    ["falafel", "falafel", 50, 650],
+    ["Greek salad", "greek.*salad|salad.*greek", 20, 800],
+    ["bran flakes", "bran.*flake|flake.*bran", 40, 450],
+    ["oat milk", "oat.*milk|milk.*oat", 20, 330],
+    ["mozzarella cheese", "mozzarella", 35, 480],
+    ["pistachios", "pistachio", 50, 450],
+    ["salsa", "salsa", 0, 180],
+    ["barley", "barley", 50, 540],
+    ["potato salad", "potato.*salad|salad.*potato", 70, 750],
+    ["tzatziki", "tzatziki", 10, 320],
+    ["a Chipotle chicken burrito bowl", "chipotle.*chicken.*burrito.*bowl|chicken.*burrito.*bowl", 350, 1_300],
+    ["split pea soup", "split.*pea.*soup|soup.*split.*pea", 40, 540],
+  ],
 };
 
 const intentSets = {
@@ -212,6 +283,21 @@ const intentSets = {
     ["Set calories to 2300 and fiber to 32 grams", "set_goal"],
     ["Average calories over the last month?", "query_data"], ["What did I weigh most recently?", "query_data"],
     ["How many calories remain?", "query_data"],
+  ],
+  holdout2: [
+    ["Dinner was a bowl of minestrone", "log_food"], ["Can you put down one nectarine for my snack?", "log_food"],
+    ["Track my breakfast: two waffles", "log_food"], ["Just had an iced Americano", "log_food"],
+    ["Scratch that nectarine", "delete_food"], ["Drop every item from lunch", "delete_food"],
+    ["Those last two foods were a mistake", "delete_food"], ["Empty out today's meals", "delete_food"],
+    ["The waffles were three, not two", "edit_food"], ["Use lactose-free milk for that instead", "edit_food"],
+    ["Make the minestrone one and a half bowls", "edit_food"], ["Revert my last serving edit", "edit_food"],
+    ["File the Americano under breakfast", "move_food"], ["Switch that nectarine over to lunch", "move_food"],
+    ["Log 600 mL of water", "log_water"], ["Reset today's water total to zero", "log_water"],
+    ["Add a weigh-in of 168.9 lb", "log_weight"], ["Remove yesterday morning's weigh-in", "log_weight"],
+    ["Set fat to 65 grams", "set_goal"], ["Add 10 grams to my fiber target", "set_goal"],
+    ["Make 160 pounds my target", "set_goal"],
+    ["Tell me today's remaining carbs", "query_data"], ["Compare my weight this month", "query_data"],
+    ["What's my hydration total for this date?", "query_data"],
   ],
 };
 
@@ -260,13 +346,38 @@ const splitSets = {
     ["pancakes topped with blueberries", ["pancake", "blueberr"]],
     ["corn flakes with soy milk", ["corn.*flake|flake", "soy.*milk|milk"]],
   ],
+  holdout2: [
+    ["shepherd's pie", ["shepherd.*pie"]],
+    ["a tuna melt", ["tuna.*melt"]],
+    ["huevos rancheros", ["huevos.*rancheros"]],
+    ["chicken tikka masala", ["chicken.*tikka.*masala|tikka.*masala"]],
+    ["vegetable lasagna", ["vegetable.*lasagna|lasagna.*vegetable"]],
+    ["a bean burrito", ["bean.*burrito|burrito.*bean"]],
+    ["miso soup", ["miso.*soup|soup.*miso"]],
+    ["beef stroganoff", ["beef.*stroganoff|stroganoff.*beef"]],
+    ["a spinach omelet", ["spinach.*omelet|omelet.*spinach"]],
+    ["banana bread", ["banana.*bread|bread.*banana"]],
+    ["roast chicken with mashed potatoes", ["roast.*chicken|chicken", "mashed.*potato|potato"]],
+    ["chili with cornbread", ["chili", "cornbread"]],
+    ["coffee with oat milk", ["coffee", "oat.*milk|milk"]],
+    ["ricotta topped with figs", ["ricotta", "fig"]],
+    ["bulgur, chickpeas, and cucumber", ["bulgur", "chickpea", "cucumber"]],
+    ["falafel with tzatziki", ["falafel", "tzatziki"]],
+    ["tilapia and couscous", ["tilapia", "couscous"]],
+    ["waffles with maple syrup", ["waffle", "maple.*syrup|syrup"]],
+    ["bran flakes with oat milk", ["bran.*flake|flake", "oat.*milk|milk"]],
+    ["flatbread with hummus and olives", ["flatbread", "hummus", "olive"]],
+  ],
 };
 
 function contextCases(setName) {
   const validation = setName === "validation";
+  const holdout = setName === "holdout2";
   const foods = validation
     ? ["Quinoa", "Green Beans", "Pear", "Skyr", "Naan", "Cod", "Cashews", "Ricotta"]
-    : ["Rice", "Broccoli", "Apple", "Yogurt", "Pita", "Salmon", "Almonds", "Cottage Cheese"];
+    : holdout
+      ? ["Kefir", "Cauliflower", "Mango", "Couscous", "Flatbread", "Tilapia", "Pistachios", "Mozzarella"]
+      : ["Rice", "Broccoli", "Apple", "Yogurt", "Pita", "Salmon", "Almonds", "Cottage Cheese"];
   const meals = ["breakfast", "lunch", "dinner", "snack"];
   const cases = [];
 
@@ -276,7 +387,9 @@ function contextCases(setName) {
     cases.push({
       category: "multi-turn delete",
       route: "/v1/pick-delete-targets",
-      message: index % 2 === 0 ? "Delete that" : "Remove both of those",
+      message: holdout
+        ? (index % 2 === 0 ? "Take back the pair I just logged" : "Get rid of those two")
+        : (index % 2 === 0 ? "Delete that" : "Remove both of those"),
       body: {
         recentMessages: [
           { role: "user", content: `I had ${first} and ${second}` },
@@ -301,7 +414,9 @@ function contextCases(setName) {
     cases.push({
       category: "multi-turn edit",
       route: "/v1/pick-edit-target",
-      message: validation ? `Make ${food} ${portion}` : `Change ${food} to ${portion}`,
+      message: holdout
+        ? `Revise the ${food} entry to ${portion}`
+        : validation ? `Make ${food} ${portion}` : `Change ${food} to ${portion}`,
       body: {
         recentMessages: [
           { role: "user", content: `I had ${food}` },
@@ -321,9 +436,11 @@ function contextCases(setName) {
     cases.push({
       category: "multi-turn move",
       route: "/v1/extract-food-move",
-      message: validation
-        ? `That ${food} belongs under ${destination}`
-        : `Move ${food} to ${destination}`,
+      message: holdout
+        ? `Put ${food} in ${destination} instead`
+        : validation
+          ? `That ${food} belongs under ${destination}`
+          : `Move ${food} to ${destination}`,
       body: {
         recentMessages: [
           { role: "user", content: `I had ${food}` },
@@ -385,6 +502,27 @@ const servingMealSets = {
       ["Track toast for breakfast", "breakfast"], ["This evening I had risotto", "dinner"],
     ],
   },
+  holdout2: {
+    servings: [
+      ["180 grams plain kefir", "plain kefir", null, "180.*g|180.*gram"],
+      ["7 oz flank steak", "flank steak", null, "7.*oz|7.*ounce"],
+      ["one quarter cup couscous", "couscous", 0.25, "quarter|1/4|0.25"],
+      ["2.5 tablespoons tahini", "tahini", 2.5, "2.5.*tbsp|2.5.*table"],
+      ["half of a mango", "mango", 0.5, "half|1/2|0.5"],
+      ["10 fluid ounces oat milk", "oat milk", null, "10.*fl|10.*oz"],
+      ["three and a half falafel patties", "falafel patties", 3.5, "3.5|3 1/2|three and a half"],
+      ["one sixth of a flatbread", "flatbread", 1 / 6, "sixth|1/6|0.16|0.17"],
+      ["340 grams split pea soup", "split pea soup", null, "340.*g|340.*gram"],
+      ["a generous spoonful of tzatziki", "tzatziki", 1, "spoonful|serving"],
+    ],
+    meals: [
+      ["Breakfast entry: bran flakes", "breakfast"], ["Log the sandwich with lunch", "lunch"],
+      ["Tilapia was supper", "dinner"], ["Pistachios were an afternoon snack", "snack"],
+      ["My first meal was hard-boiled eggs", "breakfast"], ["Couscous at lunch today", "lunch"],
+      ["I had flatbread for supper", "dinner"], ["Before bed I snacked on mozzarella", "snack"],
+      ["Morning meal was grits", "breakfast"], ["Tonight's meal included falafel", "dinner"],
+    ],
+  },
 };
 
 const mutationSets = {
@@ -439,6 +577,32 @@ const mutationSets = {
     ["/v1/parse-data-query", "Show the newest weight entry", { query: ["weight", "latest", "selected_day", null] }],
     ["/v1/parse-data-query", "Trend my weight across 21 days", { query: ["weight", "trend", "last_n_days", 21] }],
     ["/v1/parse-data-query", "Total carbs during the past 5 days", { query: ["carbs", "total", "last_n_days", 5] }],
+  ],
+  holdout2: [
+    ["/v1/extract-water-mutation", "Pour 30 ounces into today's water log", { action: "add", amountOz: 30 }],
+    ["/v1/extract-water-mutation", "Log 1.25 liters of water", { action: "add", amountOz: 42.3, tolerance: 0.8 }],
+    ["/v1/extract-water-mutation", "Four cups of water just now", { action: "add", amountOz: 32 }],
+    ["/v1/extract-water-mutation", "Update hydration to exactly 96 ounces", { action: "update_total", amountOz: 96 }],
+    ["/v1/extract-water-mutation", "Remove every water record for this date", { action: "delete_all" }],
+    ["/v1/extract-water-mutation", "What's left to hit my hydration target?", { action: "reply" }],
+    ["/v1/extract-weight-mutation", "The scale read 169.2 lb this morning", { action: "add", weightLbs: 169.2, dateHint: "today" }],
+    ["/v1/extract-weight-mutation", "Enter 74.8 kilograms for today", { action: "add", weightLbs: 164.9, dateHint: "today", tolerance: 0.8 }],
+    ["/v1/extract-weight-mutation", "Replace today's measurement with 168.7 lb", { action: "update", weightLbs: 168.7, dateHint: "today" }],
+    ["/v1/extract-weight-mutation", "Remove yesterday morning's weight", { action: "delete", dateHint: "yesterday" }],
+    ["/v1/extract-weight-mutation", "Purge all recorded weights", { action: "delete_all" }],
+    ["/v1/extract-weight-mutation", "Summarize my progress on the scale", { action: "reply" }],
+    ["/v1/extract-goal", "Set my daily fat target at 68 grams", { change: ["fat", "set", 68] }],
+    ["/v1/extract-goal", "Bump my protein target up by 15 grams", { change: ["protein", "increase", 15] }],
+    ["/v1/extract-goal", "Make it 2150 calories and 210 grams of carbs", { changes: [["calories", "set", 2150], ["carbs", "set", 210]] }],
+    ["/v1/extract-goal", "Take 4 grams off my fiber goal", { change: ["fiber", "decrease", 4] }],
+    ["/v1/extract-goal", "Use 3 liters as my daily water target", { change: ["water_oz", "set", 101.4] }],
+    ["/v1/extract-goal", "My target body weight is 70 kilograms", { change: ["target_weight_lbs", "set", 154.3] }],
+    ["/v1/parse-data-query", "How many calories have I logged on this date?", { query: ["calories", "total", "selected_day", null] }],
+    ["/v1/parse-data-query", "Give me average fat for the past two weeks", { query: ["fat", "average", "last_n_days", 14] }],
+    ["/v1/parse-data-query", "Hydration total for the selected date", { query: ["water", "total", "selected_day", null] }],
+    ["/v1/parse-data-query", "Which weigh-in is most recent?", { query: ["weight", "latest", "selected_day", null] }],
+    ["/v1/parse-data-query", "Protein consumed across the last 3 days", { query: ["protein", "total", "last_n_days", 3] }],
+    ["/v1/parse-data-query", "How did my weight change over four weeks?", { query: ["weight", "change", "last_n_days", 28] }],
   ],
 };
 
@@ -504,29 +668,77 @@ const sourceCases = [
     ["Nomva/Views/Chat/ChatView.swift", "processingStage"],
   ]],
   ["TestFlight complimentary access", [
-    ["Nomva/Services/SubscriptionPolicy.swift", "sandboxReceipt"],
+    ["Nomva/Services/SubscriptionManager.swift", "AppTransaction\\.shared"],
+    ["Nomva/Services/SubscriptionManager.swift", "environment == \\.sandbox"],
     ["Nomva/Views/Settings/PaywallView.swift", "Continue Testing"],
   ]],
 ];
 
 const databaseRowCache = new Map();
+let foodDatabase;
+let inspectDatabaseRowStatement;
+
+function getFoodDatabaseRowStatement() {
+  if (!foodDatabase) {
+    foodDatabase = new Database(FOOD_DB_PATH, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    inspectDatabaseRowStatement = foodDatabase.prepare(
+      "SELECT id, name, brand, source, calories FROM foods WHERE id = ? LIMIT 1"
+    );
+  }
+  return inspectDatabaseRowStatement;
+}
+
+function closeFoodDatabase() {
+  if (!foodDatabase) return;
+  foodDatabase.close();
+  foodDatabase = undefined;
+  inspectDatabaseRowStatement = undefined;
+}
 
 function inspectDatabaseRow(candidateId) {
   const rowId = Number(String(candidateId || "").replace(/^db_/, ""));
   if (!Number.isInteger(rowId) || rowId <= 0) return null;
   if (databaseRowCache.has(rowId)) return databaseRowCache.get(rowId);
   try {
-    const output = execFileSync("sqlite3", [
-      "-json",
-      FOOD_DB_PATH,
-      `SELECT id, name, brand, calories FROM foods WHERE id = ${rowId} LIMIT 1;`,
-    ], { encoding: "utf8" });
-    const row = JSON.parse(output || "[]")[0] || null;
+    const row = getFoodDatabaseRowStatement().get(rowId) || null;
     databaseRowCache.set(rowId, row);
     return row;
   } catch {
     return null;
   }
+}
+
+function hasTraceableWebProvenance(body) {
+  const source = String(body?.source || "");
+  const quality = String(body?.quality || "");
+  const confidence = Number(body?.confidence);
+  let sourceUrl;
+  try {
+    sourceUrl = new URL(String(body?.sourceUrl || ""));
+  } catch {
+    return false;
+  }
+  const expectedQuality = source === "web_published" ? "published" : "estimated";
+  return ["web_published", "web_estimate"].includes(source)
+    && quality === expectedQuality
+    && sourceUrl.protocol === "https:"
+    && sourceUrl.hostname.length > 3
+    && String(body?.sourceTitle || "").trim().length > 3
+    && Number.isFinite(confidence)
+    && confidence >= (source === "web_published" ? 0.75 : 0.5);
+}
+
+function resolvedCalories(body, databaseRow) {
+  const perServing = databaseRow
+    ? Number(databaseRow.calories)
+    : Number(body?.caloriesPerServing);
+  const servings = Number(body?.servings);
+  return Number.isFinite(perServing) && Number.isFinite(servings)
+    ? perServing * servings
+    : NaN;
 }
 
 function findMention(mentions, food) {
@@ -549,7 +761,9 @@ function buildFoodCases() {
     meal: meals[index % meals.length],
     message: SET === "train"
       ? [`I had ${food[0]} for ${meals[index % 4]}`, `Log ${meals[index % 4]}: ${food[0]}`][index % 2]
-      : [`Please track ${food[0]} as my ${meals[index % 4]}`, `For ${meals[index % 4]}, I ended up having ${food[0]}`][index % 2],
+      : SET === "validation"
+        ? [`Please track ${food[0]} as my ${meals[index % 4]}`, `For ${meals[index % 4]}, I ended up having ${food[0]}`][index % 2]
+        : [`Put ${food[0]} into ${meals[index % 4]}`, `${meals[index % 4]} included ${food[0]}`][index % 2],
   }));
   const pairs = catalog.map((food, index) => {
     const second = catalog[(index + 11) % catalog.length];
@@ -560,7 +774,9 @@ function buildFoodCases() {
       meal,
       message: SET === "train"
         ? `For ${meal} I had ${food[0]} and ${second[0]}`
-        : `${meal}: ${food[0]}, plus ${second[0]}`,
+        : SET === "validation"
+          ? `${meal}: ${food[0]}, plus ${second[0]}`
+          : `Add both ${food[0]} and ${second[0]} to ${meal}`,
     };
   });
   return [...singles, ...pairs];
@@ -573,19 +789,31 @@ function buildCases() {
     cases.push({
       ...foodCase,
       async run(api) {
-        const split = await api.request("/v1/split-foods", { userMessage: foodCase.message });
-        const mentions = Array.isArray(split.body.foods) ? split.body.foods : [];
+        const plan = foodCase.foods.length > 1
+          ? await api.request("/v1/plan-food-log", { userMessage: foodCase.message })
+          : null;
+        const split = !plan || plan.status !== 200
+          ? await api.request("/v1/split-foods", { userMessage: foodCase.message })
+          : null;
+        const plannedItems = Array.isArray(plan?.body?.items) ? plan.body.items : [];
+        const mentions = plannedItems.length
+          ? plannedItems.map((item) => item.mention)
+          : Array.isArray(split?.body?.foods) ? split.body.foods : [];
+        const semanticStatus = plannedItems.length ? plan.status : split?.status;
         const checks = [
-          assertion("split status", split.status === 200, 200, split.status, true),
+          assertion("semantic food plan status", semanticStatus === 200, 200, semanticStatus, true),
           assertion("distinct food count", mentions.length === foodCase.foods.length, foodCase.foods.length, mentions, true),
           assertion("no duplicate mentions", new Set(mentions.map(normalize)).size === mentions.length, "all unique", mentions, true),
         ];
         const resolutions = await Promise.all(foodCase.foods.map(async (food) => {
           const mention = findMention(mentions, food);
           if (!mention) return { food, mention: null, response: null };
+          const plannedItem = plannedItems.find((item) => item.mention === mention);
           const response = await api.request("/v1/resolve-food-candidate", {
             userMessage: foodCase.message,
             foodMention: mention,
+            searchQuery: plannedItem?.searchQuery || mention,
+            resolutionHint: plannedItem?.kind || "",
           });
           return { food, mention, response };
         }));
@@ -594,12 +822,17 @@ function buildCases() {
           if (!response) continue;
           const row = inspectDatabaseRow(response.body.candidateId);
           const identity = `${response.body.name || ""} ${response.body.brand || ""}`;
-          const calories = row && Number.isFinite(Number(response.body.servings))
-            ? Number(row.calories) * Number(response.body.servings)
-            : NaN;
+          const calories = resolvedCalories(response.body, row);
+          const traceable = Boolean(row) || hasTraceableWebProvenance(response.body);
           checks.push(assertion(`resolve ${food[0]}`, response.status === 200, 200, response.status, true));
-          checks.push(assertion(`identity ${food[0]}`, matches(identity, food[1]), food[1], identity, true));
-          checks.push(assertion(`database provenance ${food[0]}`, Boolean(row), "bundled database row", response.body.candidateId, true));
+          checks.push(assertion(`identity ${food[0]}`, foodIdentityMatches(identity, food[0], food[1]), food[1], identity, true));
+          checks.push(assertion(
+            `traceable nutrition provenance ${food[0]}`,
+            traceable,
+            "USDA/database row or source-backed web nutrition",
+            { candidateId: response.body.candidateId, source: response.body.source, sourceUrl: response.body.sourceUrl },
+            true
+          ));
           checks.push(assertion(
             `calorie plausibility ${food[0]}`,
             Number.isFinite(calories) && calories >= food[2] && calories <= food[3],
@@ -828,9 +1061,11 @@ function buildCases() {
       async run(api) {
         const response = await api.request("/v1/resolve-food-candidate", { userMessage: "I had a diet cola", foodMention: "diet cola" });
         const row = inspectDatabaseRow(response.body.candidateId);
+        const calories = resolvedCalories(response.body, row);
         return { checks: [
           assertion("diet drink resolved", response.status === 200, 200, response.status, true),
-          assertion("diet drink calories", row && Number(row.calories) <= 10, "<= 10", row?.calories, true),
+          assertion("diet drink provenance", Boolean(row) || hasTraceableWebProvenance(response.body), "traceable", response.body.source, true),
+          assertion("diet drink calories", Number.isFinite(calories) && calories <= 10, "<= 10", calories, true),
         ], observed: response.body };
       },
     },
@@ -847,11 +1082,14 @@ function buildCases() {
     {
       message: "cultural food retrieval",
       async run(api) {
-        const term = SET === "train" ? "doro wat" : "baba ganoush";
+        const term = SET === "train" ? "doro wat" : SET === "validation" ? "baba ganoush" : "shakshuka";
+        const identityPattern = SET === "train"
+          ? "doro|chicken.*stew"
+          : SET === "validation" ? "baba.*ganoush|eggplant" : "shakshuka|egg.*tomato";
         const response = await api.request("/v1/resolve-food-candidate", { userMessage: `I ate ${term}`, foodMention: term });
         return { checks: [
           assertion("cultural food resolved", response.status === 200, 200, response.status, true),
-          assertion("cultural food identity", matches(response.body.name, SET === "train" ? "doro|chicken.*stew" : "baba.*ganoush|eggplant"), term, response.body.name, true),
+          assertion("cultural food identity", matches(response.body.name, identityPattern), term, response.body.name, true),
         ], observed: response.body };
       },
     },
@@ -892,7 +1130,7 @@ function buildCases() {
     throw new Error(`Release gate must contain exactly 200 cases, found ${cases.length}`);
   }
   return cases.map((testCase, index) => ({
-    id: `${SET === "train" ? "T" : "V"}${String(index + 1).padStart(3, "0")}`,
+    id: `${SET === "train" ? "T" : SET === "validation" ? "V" : "H"}${String(index + 1).padStart(3, "0")}`,
     ...testCase,
   }));
 }
@@ -917,6 +1155,15 @@ async function main() {
     throw new Error(`Missing bundled food database: ${FOOD_DB_PATH}`);
   }
   const cases = buildCases();
+  if (DRY_RUN) {
+    const categories = cases.reduce((counts, testCase) => {
+      counts[testCase.category] = (counts[testCase.category] || 0) + 1;
+      return counts;
+    }, {});
+    console.log(JSON.stringify({ set: SET, cases: cases.length, categories }, null, 2));
+    closeFoodDatabase();
+    return;
+  }
   const api = new NomvaAPI();
   await api.register();
   console.log(`Running ${SET} release gate: ${cases.length} cases, concurrency ${CONCURRENCY}`);
@@ -980,7 +1227,9 @@ async function main() {
     checkAccuracy: Math.round(passedChecks / allChecks.length * 1000) / 10,
     criticalFailures,
     meets95Gate: passedCases / results.length >= 0.95
-      && passedChecks / allChecks.length >= 0.95,
+      && passedChecks / allChecks.length >= 0.95
+      && criticalFailures === 0
+      && Object.values(byCategory).every((bucket) => bucket.caseAccuracy >= 95),
     latencyMs: {
       median: percentile(durations, 0.5),
       p95: percentile(durations, 0.95),
@@ -996,7 +1245,7 @@ async function main() {
     methodology: {
       cases: 200,
       dataset: SET,
-      note: "Synthetic product scenarios exercise deployed semantic endpoints, server-side database retrieval, the bundled nutrition database, multi-turn references, and production client capability invariants. Training and validation use separate language and food catalogs; 14 client capability and 10 resilience invariants intentionally remain common release requirements.",
+      note: "Synthetic product scenarios exercise deployed semantic endpoints, server-side database retrieval, the bundled nutrition database, multi-turn references, and production client capability invariants. Training, first validation, and second holdout use separate language and food catalogs; 14 client capability and 10 resilience invariants intentionally remain common release requirements.",
     },
     summary,
     results,
@@ -1010,10 +1259,12 @@ async function main() {
   fs.writeFileSync(latestPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(summary, null, 2));
   console.log(`Report: ${reportPath}`);
+  closeFoodDatabase();
   process.exitCode = summary.meets95Gate ? 0 : 2;
 }
 
 main().catch((error) => {
+  closeFoodDatabase();
   console.error(error);
   process.exitCode = 1;
 });

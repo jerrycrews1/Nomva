@@ -5,6 +5,7 @@ import Combine
 import CryptoKit
 import DeviceCheck
 import Security
+import StoreKit
 import UIKit
 
 /// Calls the Nomva API server (Node.js on Lightsail) which proxies to the configured OpenAI model.
@@ -188,6 +189,7 @@ struct RemoteAPIProvider: LLMProvider {
         try await resolveFoodCandidate(
             userMessage: userMessage,
             foodMention: foodMention,
+            searchQuery: nil,
             resolutionHint: nil
         )
     }
@@ -195,20 +197,24 @@ struct RemoteAPIProvider: LLMProvider {
     private func resolveFoodCandidate(
         userMessage: String,
         foodMention: String,
+        searchQuery: String?,
         resolutionHint: String?
     ) async throws -> ResolvedFoodCandidate {
         var body: [String: Any] = [
             "userMessage": userMessage,
             "foodMention": foodMention,
         ]
+        if let searchQuery, !searchQuery.isEmpty {
+            body["searchQuery"] = searchQuery
+        }
         if let resolutionHint, !resolutionHint.isEmpty {
             body["resolutionHint"] = resolutionHint
         }
         let data: Data
         do {
-            // Food resolution runs a multi-turn agent loop server-side with a
-            // 12s internal deadline; 30s here keeps the server, not this
-            // timeout, as the thing that decides the request's fate.
+            // Local catalog selection is bounded server-side; the longer client
+            // budget is reserved for a genuinely missing menu item that needs
+            // a current web lookup.
             data = try await postRaw("/v1/resolve-food-candidate", body: body, timeout: 30)
         } catch RemoteError.serverError(422) {
             throw ResolveFoodCandidateError.noMatch
@@ -236,6 +242,7 @@ struct RemoteAPIProvider: LLMProvider {
     func resolveFoodCandidates(
         userMessage: String,
         foodMentions: [String],
+        searchQueries: [String] = [],
         resolutionHints: [String?] = []
     ) async -> [ResolvedFoodCandidate?] {
         await withTaskGroup(of: (Int, ResolvedFoodCandidate?).self) { group in
@@ -247,6 +254,9 @@ struct RemoteAPIProvider: LLMProvider {
                             try await self.resolveFoodCandidate(
                                 userMessage: userMessage,
                                 foodMention: mention,
+                                searchQuery: searchQueries.indices.contains(index)
+                                    ? searchQueries[index]
+                                    : nil,
                                 resolutionHint: resolutionHints.indices.contains(index)
                                     ? resolutionHints[index]
                                     : nil
@@ -942,6 +952,64 @@ struct NomvaCloudIdentity: Sendable {
 private struct NomvaCloudSessionPayload: Codable {
     let token: String
     let expiresAt: String
+    let entitlement: NomvaCloudEntitlementStatus?
+}
+
+private struct NomvaCloudEntitlementStatus: Codable {
+    let status: String
+    let source: String?
+    let environment: String?
+    let verifiedAt: String?
+    let expiresAt: String?
+}
+
+private struct NomvaCloudEntitlementEvidence: Encodable, Sendable {
+    let appTransactionJWS: String?
+    let subscriptionTransactionJWS: String?
+
+    static func current() async -> NomvaCloudEntitlementEvidence {
+        if NomvaRuntime.isAutomatedTest {
+            return NomvaCloudEntitlementEvidence(
+                appTransactionJWS: nil,
+                subscriptionTransactionJWS: nil
+            )
+        }
+
+        async let appTransaction = currentAppTransactionJWS()
+        async let subscription = currentSubscriptionTransactionJWS()
+        return await NomvaCloudEntitlementEvidence(
+            appTransactionJWS: appTransaction,
+            subscriptionTransactionJWS: subscription
+        )
+    }
+
+    private static func currentAppTransactionJWS() async -> String? {
+        do {
+            let result = try await AppTransaction.shared
+            guard case .verified = result else { return nil }
+            return result.jwsRepresentation
+        } catch {
+            return nil
+        }
+    }
+
+    private static func currentSubscriptionTransactionJWS() async -> String? {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result,
+                  transaction.productID == NomvaProduct.proMonthly,
+                  transaction.revocationDate == nil,
+                  transaction.isUpgraded == false,
+                  transaction.expirationDate.map({ $0 > Date() }) == true else {
+                continue
+            }
+            return result.jwsRepresentation
+        }
+        return nil
+    }
+}
+
+private struct NomvaCloudRegistrationPayload: Encodable {
+    let entitlementEvidence: NomvaCloudEntitlementEvidence
 }
 
 private struct NomvaCloudAttestationChallengePayload: Codable {
@@ -968,6 +1036,7 @@ private enum NomvaCloudAuthError: LocalizedError {
     case appAttestUnavailable
     case appAttestFailed
     case simulatorAuthDisabled
+    case entitlementRequired
 
     var errorDescription: String? {
         switch self {
@@ -985,6 +1054,8 @@ private enum NomvaCloudAuthError: LocalizedError {
             return "Nomva Cloud couldn't verify this app installation."
         case .simulatorAuthDisabled:
             return "Nomva Cloud simulator access is disabled on this server."
+        case .entitlementRequired:
+            return "An active Nomva Pro subscription is required for AI features."
         }
     }
 }
@@ -1297,13 +1368,16 @@ private actor NomvaCloudAuthManager {
         guard let url = URL(string: baseURL + "/v1/auth/register") else {
             throw NomvaCloudAuthError.badURL
         }
+        let evidence = await NomvaCloudEntitlementEvidence.current()
 
         func perform(forceReattestation: Bool) async throws -> (Data, HTTPURLResponse) {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.timeoutInterval = 15
-            request.httpBody = Data("{}".utf8)
+            request.httpBody = try JSONEncoder().encode(
+                NomvaCloudRegistrationPayload(entitlementEvidence: evidence)
+            )
             try await NomvaCloudAppAttestManager.shared.applyHeaders(
                 to: &request,
                 baseURL: baseURL,
@@ -1340,6 +1414,16 @@ private actor NomvaCloudAuthManager {
             throw NomvaCloudAuthError.invalidResponse
         }
         return payload
+    }
+
+    func reset(identity: NomvaCloudIdentity) {
+        NomvaCloudKeychain.delete(service: sessionService, account: identity.accountKey)
+    }
+}
+
+enum NomvaCloudSessionController {
+    static func invalidateCurrentSession() async {
+        await NomvaCloudAuthManager.shared.reset(identity: .current())
     }
 }
 
@@ -1510,6 +1594,8 @@ private func analyticsErrorCode(for error: Error) -> String {
         return "app_attest_failed"
     case NomvaCloudAuthError.unauthorized:
         return "unauthorized"
+    case NomvaCloudAuthError.entitlementRequired:
+        return "entitlement_required"
     case NomvaCloudAuthError.serverError(let statusCode):
         return "auth_http_\(statusCode)"
     default:
@@ -1570,6 +1656,8 @@ private func sendNomvaCloudRequest(
         switch serverErrorCode(from: initial.0) {
         case "invalid_session":
             final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: false)
+        case "entitlement_refresh_required":
+            final = try await perform(forceSessionRefresh: true, forceAttestationRefresh: false)
         case "invalid_app_attest", "app_attest_required", "stale_app_attest":
             await NomvaCloudAppAttestManager.shared.reset(identity: identity)
             NomvaCloudKeychain.delete(service: "com.nomva.cloud.session", account: identity.accountKey)
@@ -1619,6 +1707,8 @@ private func errorForAuthResponse(_ statusCode: Int, data: Data) -> Error {
         return NomvaCloudAuthError.appAttestFailed
     case "invalid_session", "unauthorized":
         return NomvaCloudAuthError.unauthorized
+    case "entitlement_required", "entitlement_refresh_required":
+        return NomvaCloudAuthError.entitlementRequired
     default:
         if statusCode == 401 {
             return NomvaCloudAuthError.unauthorized

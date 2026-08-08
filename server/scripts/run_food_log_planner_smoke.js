@@ -3,11 +3,13 @@ require("dotenv").config();
 const assert = require("node:assert/strict");
 const OpenAI = require("openai");
 const {
+  FOOD_LOG_PLAN_SCHEMA,
   FOOD_LOG_PLANNER_PROMPT,
   sanitizeFoodLogPlan,
 } = require("../foodLogPlanner");
+const { requestStructuredJSON } = require("../structuredLLM");
 
-const model = process.env.NOMVA_FOOD_LOG_PLANNING_MODEL || "gpt-5.6-sol";
+const model = process.env.NOMVA_FOOD_LOG_PLANNING_MODEL || "gpt-5.6-luna";
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   timeout: 20_000,
@@ -50,6 +52,7 @@ const cases = [
     check(plan) {
       assert.equal(plan.items.length, 2);
       assert.ok(plan.items.every((item) => item.servings === 2));
+      assert.ok(plan.items.every((item) => /^2 servings$/i.test(item.portionDescription)));
     },
   },
   {
@@ -112,17 +115,19 @@ const cases = [
 
 async function runCase(testCase) {
   const startedAt = Date.now();
-  const response = await openai.chat.completions.create({
+  const { response, value: raw } = await requestStructuredJSON({
+    openai,
     model,
-    response_format: { type: "json_object" },
-    reasoning_effort: "low",
-    messages: [
-      { role: "system", content: FOOD_LOG_PLANNER_PROMPT },
-      { role: "user", content: `User message: "${testCase.message}"` },
-    ],
-    max_completion_tokens: 3_600,
+    instructions: FOOD_LOG_PLANNER_PROMPT,
+    input: `User message: "${testCase.message}"`,
+    schemaName: "food_log_plan",
+    schema: FOOD_LOG_PLAN_SCHEMA,
+    reasoningEffort: "low",
+    maxOutputTokens: 2_400,
+    timeoutMs: 20_000,
+    maxRetries: 0,
+    cacheKey: "nomva_plan_food_log_smoke_v1",
   });
-  const raw = JSON.parse(response.choices?.[0]?.message?.content || "{}");
   const plan = sanitizeFoodLogPlan(raw);
   assert.ok(plan, `${testCase.name}: model returned no usable plan`);
   try {

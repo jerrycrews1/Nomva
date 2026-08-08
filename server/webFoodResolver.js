@@ -1,10 +1,25 @@
 const { boundedServings } = require("./numericGuards");
 const { foodTokens, normalizeFoodText } = require("./foodKnowledgeStore");
+const { canonicalFoodToken, canonicalFoodTokenSet } = require("./foodTokenNormalizer");
+const {
+  NUTRITION_COMPONENT_SCHEMA,
+  aggregateNutritionComponents,
+  componentEvidence,
+  sanitizeNutritionComponents,
+} = require("./nutritionEstimate");
 
-const MENU_CUE = /\b(from|at|restaurant|cafe|coffee shop|menu|short|tall|grande|venti|trenta)\b/i;
+const VENUE_CUE = /\b(from|at|restaurant|cafe|coffee shop|menu)\b/i;
+const CHAIN_SIZE_CUE = /\b(short|tall|grande|venti|trenta)\b/i;
 const COMPOSITE_CUE = /\b(with|topped|filled|made with|including)\b/i;
-const CRITICAL_IDENTITY_TOKENS = new Set([
+const CRITICAL_IDENTITY_TOKENS = canonicalFoodTokenSet([
   "zero", "diet", "decaf", "iced", "hot", "short", "tall", "grande", "venti", "trenta",
+  "small", "medium", "large",
+  "chicken", "beef", "pork", "fish", "turkey", "lamb", "duck", "goose", "quail", "venison",
+]);
+const FORBIDDEN_UNSTATED_VARIANTS = canonicalFoodTokenSet([
+  "duck", "goose", "quail", "turkey", "venison", "lamb",
+  "powder", "powdered", "liquid", "frozen", "dried", "dehydrated",
+  "white", "yolk", "decaf", "iced", "hot", "diet", "zero",
 ]);
 
 function finiteNumber(value) {
@@ -48,9 +63,7 @@ function sanitizeAliases(value) {
 }
 
 function singularToken(token) {
-  if (token.endsWith("ies") && token.length > 3) return `${token.slice(0, -3)}y`;
-  if (token.endsWith("s") && token.length > 3 && !token.endsWith("ss")) return token.slice(0, -1);
-  return token;
+  return canonicalFoodToken(token);
 }
 
 function tokensEquivalent(left, right) {
@@ -94,8 +107,20 @@ function identityMatchesMention(foodMention, candidate) {
   const matched = mentionTokens.filter((mentionToken) => (
     candidateTokens.some((candidateToken) => tokensEquivalent(mentionToken, candidateToken))
   ));
-  const requiredCoverage = mentionTokens.length <= 2 ? 1 : 0.67;
+  const requiredCoverage = mentionTokens.length <= 2 ? 1 : 2 / 3;
   if (matched.length / mentionTokens.length < requiredCoverage) return false;
+
+  const allowsDefaultHotMenuVariant = (token) => (
+    token === "hot"
+      && isMenuFoodMention(foodMention)
+      && !mentionTokens.includes("iced")
+      && ["published", "estimated"].includes(candidate?.quality)
+  );
+  if ([...primaryTokens].some((token) => (
+    FORBIDDEN_UNSTATED_VARIANTS.has(token)
+      && !mentionTokens.includes(token)
+      && !allowsDefaultHotMenuVariant(token)
+  ))) return false;
 
   return mentionTokens
     .filter((token) => CRITICAL_IDENTITY_TOKENS.has(token))
@@ -111,11 +136,17 @@ function sanitizeWebFoodResult(raw) {
     : raw.quality === "estimated"
       ? "estimated"
       : null;
-  const calories = numericWithin(raw.caloriesPerServing, 0, 5_000);
-  const protein = numericWithin(raw.proteinG, 0, 500);
-  const carbs = numericWithin(raw.carbsG, 0, 1_000);
-  const fat = numericWithin(raw.fatG, 0, 500);
-  const fiber = numericWithin(raw.fiberG, 0, 250);
+  const components = sanitizeNutritionComponents(raw.components, { required: quality === "estimated" });
+  if (components === null) return null;
+  const componentTotals = quality === "estimated"
+    ? aggregateNutritionComponents(components)
+    : null;
+  const calories = componentTotals?.caloriesPerServing
+    ?? numericWithin(raw.caloriesPerServing, 0, 5_000);
+  const protein = componentTotals?.proteinG ?? numericWithin(raw.proteinG, 0, 500);
+  const carbs = componentTotals?.carbsG ?? numericWithin(raw.carbsG, 0, 1_000);
+  const fat = componentTotals?.fatG ?? numericWithin(raw.fatG, 0, 500);
+  const fiber = componentTotals?.fiberG ?? numericWithin(raw.fiberG, 0, 250);
   if (!name || !sourceUrl || !quality || calories === null || protein === null
       || carbs === null || fat === null || fiber === null) {
     return null;
@@ -134,8 +165,10 @@ function sanitizeWebFoodResult(raw) {
   const servingGrams = raw.servingGrams === null
     ? null
     : numericWithin(raw.servingGrams, 1, 5_000);
-  const sugar = raw.sugarG === null ? 0 : numericWithin(raw.sugarG, 0, 1_000);
-  const sodium = raw.sodiumMg === null ? 0 : numericWithin(raw.sodiumMg, 0, 20_000);
+  const sugar = componentTotals?.sugarG
+    ?? (raw.sugarG === null ? 0 : numericWithin(raw.sugarG, 0, 1_000));
+  const sodium = componentTotals?.sodiumMg
+    ?? (raw.sodiumMg === null ? 0 : numericWithin(raw.sodiumMg, 0, 20_000));
   if (raw.servingGrams !== null && servingGrams === null) return null;
   if (raw.sugarG !== null && sugar === null) return null;
   if (raw.sodiumMg !== null && sodium === null) return null;
@@ -157,8 +190,20 @@ function sanitizeWebFoodResult(raw) {
     confidence,
     sourceUrl,
     sourceTitle: boundedText(raw.sourceTitle, 300),
-    evidence: boundedText(raw.notes, 1_500),
+    evidence: quality === "estimated"
+      ? componentEvidence(components)
+      : boundedText(raw.notes, 1_500),
+    components,
   };
+}
+
+function webFoodSanitizeFailureReason(raw) {
+  if (!raw || typeof raw !== "object") return "missing_payload";
+  if (raw.found !== true) return "model_no_match";
+  if (raw.quality === "estimated" && (!Array.isArray(raw.components) || raw.components.length === 0)) {
+    return "missing_estimate_components";
+  }
+  return "invalid_payload";
 }
 
 function inferredServingCount(text) {
@@ -216,6 +261,7 @@ function resolvedCandidateBody(candidate, consumption = {}) {
     sourceUrl: candidate.sourceUrl || null,
     sourceTitle: candidate.sourceTitle || null,
     evidence: candidate.evidence || null,
+    components: Array.isArray(candidate.components) ? candidate.components : [],
   };
 }
 
@@ -228,7 +274,7 @@ function webFoodSchema() {
       "found", "name", "brand", "aliases", "servingDescription", "servingGrams",
       "caloriesPerServing", "proteinG", "carbsG", "fatG", "fiberG", "sugarG",
       "sodiumMg", "quality", "confidence", "sourceUrl", "sourceTitle", "notes",
-      "servings", "portionDescription", "servingUnit", "hasExplicitPortion",
+      "components", "servings", "portionDescription", "servingUnit", "hasExplicitPortion",
     ],
     properties: {
       found: { type: "boolean" },
@@ -249,6 +295,11 @@ function webFoodSchema() {
       sourceUrl: { type: "string" },
       sourceTitle: { type: "string" },
       notes: { type: "string" },
+      components: {
+        type: "array",
+        items: NUTRITION_COMPONENT_SCHEMA,
+        maxItems: 30,
+      },
       servings: { type: "number", minimum: 0.1, maximum: 100 },
       portionDescription: { type: "string" },
       servingUnit: { type: "string" },
@@ -263,6 +314,7 @@ function createWebFoodResolver({
   model = "gpt-5.6-luna",
   searchTool = "web_search_preview",
   searchContextSize = "medium",
+  reasoningEffort = "none",
   onEvent = () => {},
 }) {
   async function resolve({ userMessage = "", foodMention, signal, allowCached = true }) {
@@ -279,7 +331,7 @@ function createWebFoodResolver({
           portionDescription: mention,
           servingUnit: inferredServingUnit(cached),
           confident: cached.quality === "published" && cached.confidence >= 0.8,
-          hasExplicitPortion: servings !== 1 || MENU_CUE.test(mention),
+          hasExplicitPortion: servings !== 1 || isMenuFoodMention(mention),
         });
       }
       if (knowledgeStore.hasFreshMiss(mention)) return null;
@@ -294,7 +346,12 @@ function createWebFoodResolver({
       "Preserve stated brand, restaurant, size, preparation, milk, flavor, and modifiers. Never substitute another product.",
       "Include the requested menu size or variant in the canonical food name so different sizes remain distinct catalog entries.",
       "Use quality=published only when a source explicitly publishes nutrition for that exact item and size.",
-      "If the exact menu item and ingredients are published but nutrition is not, estimate from those ingredients, set quality=estimated, and state portion assumptions in notes.",
+      "For published nutrition, components must be an empty array.",
+      "If the exact menu item and ingredients are published but nutrition is not, estimate from those ingredients and set quality=estimated.",
+      "For a recognized generic or cultural composite dish without published nutrition, use a reputable recipe or culinary source to establish the dish and ingredients, estimate one ordinary serving from that recipe, and set quality=estimated.",
+      "For every estimated result, return one structured component for every material ingredient with its assumed consumed amount and complete nutrition. Components must not be empty.",
+      "If a recognized configurable menu item omits choices, use one clearly labeled ordinary/default configuration and make every assumed option explicit in the components. Do not refuse only because the user omitted configurable choices.",
+      "For estimates, aggregate calories and nutrients must equal the component sums. Estimate sugar and sodium too; never use zero as a placeholder for an unknown value. If a complete defensible component estimate is impossible, return found=false.",
       "If identity, serving, source, or a defensible estimate cannot be established, return found=false and quality=none.",
       "Calories and macros must describe the same serving and reconcile arithmetically.",
     ].join(" ");
@@ -307,12 +364,12 @@ function createWebFoodResolver({
     try {
       response = await openai.responses.create({
         model,
-        reasoning: { effort: "low" },
+        reasoning: { effort: reasoningEffort },
         tools: [{ type: searchTool, search_context_size: searchContextSize }],
         tool_choice: { type: searchTool },
         instructions,
         input,
-        max_output_tokens: 1_200,
+        max_output_tokens: Number(process.env.NOMVA_WEB_FOOD_MAX_OUTPUT_TOKENS || 2_000),
         text: {
           format: {
             type: "json_schema",
@@ -337,7 +394,13 @@ function createWebFoodResolver({
     const sanitized = sanitizeWebFoodResult(raw);
     if (!sanitized) {
       if (raw?.found === false) knowledgeStore.rememberMiss(mention);
-      onEvent({ type: "no_match", model, durationMs: Date.now() - startedAt, usage: response.usage });
+      onEvent({
+        type: "no_match",
+        reason: webFoodSanitizeFailureReason(raw),
+        model,
+        durationMs: Date.now() - startedAt,
+        usage: response.usage,
+      });
       return null;
     }
     if (!identityMatchesMention(mention, sanitized)) {
@@ -368,18 +431,56 @@ function createWebFoodResolver({
 function shouldTryWebFirst(foodMention, candidates = []) {
   const mention = String(foodMention || "");
   const meaningfulCount = normalizeFoodText(mention).split(" ").filter(Boolean).length;
-  return MENU_CUE.test(mention)
+  return isMenuFoodMention(mention)
     || (COMPOSITE_CUE.test(mention) && meaningfulCount >= 3)
     || (candidates.length === 0 && meaningfulCount >= 2);
+}
+
+function isMenuFoodMention(foodMention) {
+  const mention = String(foodMention || "");
+  return VENUE_CUE.test(mention) || CHAIN_SIZE_CUE.test(mention);
+}
+
+function requiresExactMenuResearch(foodMention) {
+  const mention = String(foodMention || "");
+  return CHAIN_SIZE_CUE.test(mention)
+    || (VENUE_CUE.test(mention)
+      && /\b(small|medium|large|\d+(?:\.\d+)?\s*(?:fl\s*)?(?:oz|ounce|ounces|ml))\b/i.test(mention));
+}
+
+function hasUnresolvedLeadingIdentity(foodMention, candidates = []) {
+  const mentionTokens = foodTokens(foodMention).map(singularToken);
+  if (mentionTokens.length < 3) return false;
+
+  const [leadingToken, ...remainingTokens] = mentionTokens;
+  return candidates.slice(0, 20).some((candidate) => {
+    if (!["foundation", "survey_fndds", "sr_legacy"].includes(String(candidate?.source || ""))) {
+      return false;
+    }
+    const candidateTokens = foodTokens(`${candidate?.brand || ""} ${candidate?.name || ""}`)
+      .map(singularToken);
+    const contains = (token) => candidateTokens.some((candidateToken) => tokensEquivalent(token, candidateToken));
+    return !contains(leadingToken)
+      && remainingTokens.filter(contains).length >= 2;
+  });
+}
+
+function shouldBlockStaticFallback({ requiresCurrentMenuSource, attemptedWebResolution }) {
+  return requiresCurrentMenuSource === true && attemptedWebResolution === true;
 }
 
 module.exports = {
   createWebFoodResolver,
   identityMatchesMention,
   inferredServingCount,
+  hasUnresolvedLeadingIdentity,
+  isMenuFoodMention,
+  requiresExactMenuResearch,
   resolvedCandidateBody,
   sanitizeWebFoodResult,
+  shouldBlockStaticFallback,
   shouldTryWebFirst,
   validPublicURL,
+  webFoodSanitizeFailureReason,
   webFoodSchema,
 };

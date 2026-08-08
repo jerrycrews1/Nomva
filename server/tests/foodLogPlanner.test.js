@@ -18,6 +18,12 @@ function compositeEstimate(overrides = {}) {
     fiberG: 10,
     sugarG: 6,
     sodiumMg: 980,
+    components: [
+      { name: "Flour tortilla", servingDescription: "1 large", calories: 220, proteinG: 6, carbsG: 36, fatG: 5, fiberG: 2, sugarG: 1, sodiumMg: 400 },
+      { name: "Cheese", servingDescription: "2 oz", calories: 180, proteinG: 11, carbsG: 2, fatG: 14, fiberG: 0, sugarG: 0.5, sodiumMg: 300 },
+      { name: "Meat", servingDescription: "3 oz cooked", calories: 150, proteinG: 15, carbsG: 1, fatG: 9, fiberG: 0, sugarG: 0, sodiumMg: 180 },
+      { name: "Beans and corn", servingDescription: "1/2 cup", calories: 90, proteinG: 4, carbsG: 17, fatG: 1, fiberG: 4, sugarG: 3, sodiumMg: 100 },
+    ],
     confidence: 0.86,
     assumptions: "One 10-inch tortilla with ordinary portions of cheese, beans, meat, and corn.",
     ...overrides,
@@ -127,6 +133,23 @@ test("normalizes a contradictory counted portion from the model", () => {
   assert.equal(plan.items[0].portionDescription, "2 eggs");
 });
 
+test("normalizes a contradictory generic serving description", () => {
+  const plan = sanitizeFoodLogPlan({
+    quantityScope: "per_item",
+    items: [{
+      mention: "Greek yogurt",
+      kind: "single",
+      servings: 2,
+      portionDescription: "1 serving",
+      servingUnit: "serving",
+      hasExplicitPortion: true,
+    }],
+  });
+
+  assert.equal(plan.items[0].servings, 2);
+  assert.equal(plan.items[0].portionDescription, "2 servings");
+});
+
 test("accepts bounded self-consistent composite nutrition as an estimate", () => {
   const plan = sanitizeFoodLogPlan({
     quantityScope: "none",
@@ -141,6 +164,9 @@ test("accepts bounded self-consistent composite nutrition as an estimate", () =>
 
   assert.equal(plan.items[0].nutritionEstimate.canonicalName, "Loaded quesadilla");
   assert.equal(plan.items[0].nutritionEstimate.caloriesPerServing, 640);
+  assert.equal(plan.items[0].nutritionEstimate.proteinG, 36);
+  assert.equal(plan.items[0].nutritionEstimate.sodiumMg, 980);
+  assert.equal(plan.items[0].nutritionEstimate.components.length, 4);
   assert.equal(plan.items[0].nutritionEstimate.confidence, 0.8);
 });
 
@@ -149,7 +175,7 @@ test("drops impossible estimates and any estimate attached to a non-composite", 
     items: [{
       mention: "assembled meal",
       kind: "composite",
-      nutritionEstimate: compositeEstimate({ caloriesPerServing: 50, fatG: 100 }),
+      nutritionEstimate: compositeEstimate({ components: [] }),
     }],
   });
   const single = sanitizeFoodLogPlan({
@@ -182,10 +208,12 @@ test("planner sanitizer rejects empty plans, duplicates, and absurd serving coun
   assert.equal(plan.items[0].servings, 1);
 });
 
-test("structured planner is reserved for relational or scoped meal language", () => {
+test("structured planner handles relational, conjunctive, or scoped meal language", () => {
   assert.equal(shouldUseStructuredFoodPlan("one banana"), false);
   assert.equal(shouldUseStructuredFoodPlan("Venti caramel macchiato from Starbucks"), false);
   assert.equal(shouldUseStructuredFoodPlan("tea with honey"), true);
+  assert.equal(shouldUseStructuredFoodPlan("salmon and rice"), true);
+  assert.equal(shouldUseStructuredFoodPlan("mac and cheese"), true);
   assert.equal(shouldUseStructuredFoodPlan("soup and bread, two servings of everything"), true);
 });
 

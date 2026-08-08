@@ -1,4 +1,10 @@
 const { boundedServings } = require("./numericGuards");
+const {
+  NUTRITION_COMPONENT_SCHEMA,
+  aggregateNutritionComponents,
+  componentEvidence,
+  sanitizeNutritionComponents,
+} = require("./nutritionEstimate");
 
 const MEALS = new Set(["breakfast", "lunch", "dinner", "snack"]);
 const ITEM_KINDS = new Set(["single", "composite", "menu"]);
@@ -19,8 +25,8 @@ Rules:
 - servings is a count of the natural portion in portionDescription, not calories, grams, or ounces converted into an arbitrary serving count.
 - kind=menu for a named restaurant/manufacturer menu item, composite for a dish described by components, and single otherwise.
 - searchQuery should be concise but must retain every modifier needed to identify the food correctly.
-- For every composite item, estimate nutrition for ONE ordinary natural serving from the described ingredients and common portion knowledge. State the portion and every material assumption. Ambiguous ingredients may use a reasonable default, but confidence must reflect that uncertainty.
-- Composite estimate calories and macros must describe the same serving and reconcile arithmetically. Use confidence 0.5-0.8. This is an explicitly labeled estimate, never published nutrition.
+- For every composite item, estimate nutrition for ONE ordinary natural serving from the described ingredients and common portion knowledge. Return one structured component for every material ingredient with its assumed consumed amount and complete nutrition. Ambiguous ingredients may use a reasonable default, but confidence must reflect that uncertainty.
+- Composite aggregate calories and nutrients must equal the component sums. Estimate sugar and sodium too; never use zero as a placeholder for an unknown value. If a complete defensible component estimate is impossible, use nutritionEstimate=null. Use confidence 0.5-0.8. This is an explicitly labeled estimate, never published nutrition.
 - For menu and single items, nutritionEstimate must be null; those are resolved from current menu sources or the nutrition database instead.
 - Return at most 12 items. Do not invent foods.
 
@@ -30,7 +36,84 @@ Examples:
 - "Tea with one tablespoon honey" means tea plus honey because the add-in has its own explicit measurement.
 
 Respond with ONLY a JSON object:
-{"meal":"<breakfast|lunch|dinner|snack|none>","quantityScope":"<none|per_item|all_items>","globalServings":<number|null>,"items":[{"mention":"<food wording>","searchQuery":"<concise search wording>","kind":"<single|composite|menu>","servings":<number>,"portionDescription":"<amount and unit>","servingUnit":"<singular unit>","confident":<boolean>,"hasExplicitPortion":<boolean>,"nutritionEstimate":<null|{"canonicalName":"<short useful name>","servingDescription":"<one natural serving>","servingGrams":<number|null>,"caloriesPerServing":<number>,"proteinG":<number>,"carbsG":<number>,"fatG":<number>,"fiberG":<number>,"sugarG":<number|null>,"sodiumMg":<number|null>,"confidence":<number>,"assumptions":"<portion and ingredient assumptions>"}>}]}`;
+{"meal":"<breakfast|lunch|dinner|snack|none>","quantityScope":"<none|per_item|all_items>","globalServings":<number|null>,"items":[{"mention":"<food wording>","searchQuery":"<concise search wording>","kind":"<single|composite|menu>","servings":<number>,"portionDescription":"<amount and unit>","servingUnit":"<singular unit>","confident":<boolean>,"hasExplicitPortion":<boolean>,"nutritionEstimate":<null|{"canonicalName":"<short useful name>","servingDescription":"<one natural serving>","servingGrams":<number|null>,"caloriesPerServing":<number>,"proteinG":<number>,"carbsG":<number>,"fatG":<number>,"fiberG":<number>,"sugarG":<number>,"sodiumMg":<number>,"components":[{"name":"<ingredient>","servingDescription":"<assumed amount>","calories":<number>,"proteinG":<number>,"carbsG":<number>,"fatG":<number>,"fiberG":<number>,"sugarG":<number>,"sodiumMg":<number>}],"confidence":<number>,"assumptions":"<portion and ingredient assumptions>"}>}]}`;
+
+const NUTRITION_ESTIMATE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    canonicalName: { type: "string" },
+    servingDescription: { type: "string" },
+    servingGrams: { anyOf: [{ type: "number" }, { type: "null" }] },
+    caloriesPerServing: { type: "number" },
+    proteinG: { type: "number" },
+    carbsG: { type: "number" },
+    fatG: { type: "number" },
+    fiberG: { type: "number" },
+    sugarG: { anyOf: [{ type: "number" }, { type: "null" }] },
+    sodiumMg: { anyOf: [{ type: "number" }, { type: "null" }] },
+    components: { type: "array", items: NUTRITION_COMPONENT_SCHEMA, maxItems: 30 },
+    confidence: { type: "number" },
+    assumptions: { type: "string" },
+  },
+  required: [
+    "canonicalName",
+    "servingDescription",
+    "servingGrams",
+    "caloriesPerServing",
+    "proteinG",
+    "carbsG",
+    "fatG",
+    "fiberG",
+    "sugarG",
+    "sodiumMg",
+    "components",
+    "confidence",
+    "assumptions",
+  ],
+};
+
+const FOOD_LOG_PLAN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    meal: { type: "string", enum: ["breakfast", "lunch", "dinner", "snack", "none"] },
+    quantityScope: { type: "string", enum: ["none", "per_item", "all_items"] },
+    globalServings: { anyOf: [{ type: "number" }, { type: "null" }] },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          mention: { type: "string" },
+          searchQuery: { type: "string" },
+          kind: { type: "string", enum: ["single", "composite", "menu"] },
+          servings: { type: "number" },
+          portionDescription: { type: "string" },
+          servingUnit: { type: "string" },
+          confident: { type: "boolean" },
+          hasExplicitPortion: { type: "boolean" },
+          nutritionEstimate: {
+            anyOf: [NUTRITION_ESTIMATE_SCHEMA, { type: "null" }],
+          },
+        },
+        required: [
+          "mention",
+          "searchQuery",
+          "kind",
+          "servings",
+          "portionDescription",
+          "servingUnit",
+          "confident",
+          "hasExplicitPortion",
+          "nutritionEstimate",
+        ],
+      },
+    },
+  },
+  required: ["meal", "quantityScope", "globalServings", "items"],
+};
 
 function boundedText(value, maxLength = 220) {
   const text = String(value || "").trim();
@@ -101,11 +184,13 @@ function sanitizeCompositeEstimate(rawEstimate) {
   const canonicalName = boundedText(rawEstimate.canonicalName, 180);
   const servingDescription = boundedText(rawEstimate.servingDescription, 180);
   const assumptions = boundedText(rawEstimate.assumptions, 1_500);
-  const calories = numberWithin(rawEstimate.caloriesPerServing, 10, 5_000);
-  const protein = numberWithin(rawEstimate.proteinG, 0, 500);
-  const carbs = numberWithin(rawEstimate.carbsG, 0, 1_000);
-  const fat = numberWithin(rawEstimate.fatG, 0, 500);
-  const fiber = numberWithin(rawEstimate.fiberG, 0, 250);
+  const components = sanitizeNutritionComponents(rawEstimate.components, { required: true });
+  const totals = aggregateNutritionComponents(components);
+  const calories = totals?.caloriesPerServing ?? null;
+  const protein = totals?.proteinG ?? null;
+  const carbs = totals?.carbsG ?? null;
+  const fat = totals?.fatG ?? null;
+  const fiber = totals?.fiberG ?? null;
   if (!canonicalName || !servingDescription || !assumptions || calories === null
       || protein === null || carbs === null || fat === null || fiber === null) {
     return null;
@@ -122,14 +207,6 @@ function sanitizeCompositeEstimate(rawEstimate) {
     : numberWithin(rawServingGrams, 1, 5_000);
   if (rawServingGrams !== null && rawServingGrams !== undefined && servingGrams === null) return null;
 
-  const optionalNumber = (value, maximum) => (
-    value === null || value === undefined ? null : numberWithin(value, 0, maximum)
-  );
-  const sugar = optionalNumber(rawEstimate.sugarG, 1_000);
-  const sodium = optionalNumber(rawEstimate.sodiumMg, 20_000);
-  if (rawEstimate.sugarG !== null && rawEstimate.sugarG !== undefined && sugar === null) return null;
-  if (rawEstimate.sodiumMg !== null && rawEstimate.sodiumMg !== undefined && sodium === null) return null;
-
   return {
     canonicalName,
     servingDescription,
@@ -139,10 +216,11 @@ function sanitizeCompositeEstimate(rawEstimate) {
     carbsG: carbs,
     fatG: fat,
     fiberG: fiber,
-    sugarG: sugar,
-    sodiumMg: sodium,
+    sugarG: totals.sugarG,
+    sodiumMg: totals.sodiumMg,
     confidence: Math.min(rawConfidence, 0.8),
-    assumptions,
+    assumptions: componentEvidence(components),
+    components,
   };
 }
 
@@ -196,7 +274,7 @@ function sanitizeFoodLogPlan(raw) {
     const servings = globalServings ?? itemServings;
     const servingUnit = singularUnit(rawItem.servingUnit);
     const rawPortion = boundedText(rawItem.portionDescription, 180);
-    const countedUnitNeedsNormalization = servings !== 1 && servingUnit !== "serving";
+    const countedUnitNeedsNormalization = servings !== 1;
     const portionDescription = globalServings !== null || countedUnitNeedsNormalization
       ? describedServingCount(servings, servingUnit)
       : rawPortion || `1 ${servingUnit}`;
@@ -232,12 +310,14 @@ function shouldUseStructuredFoodPlan(message) {
   const text = String(message || "");
   if (!text.trim()) return false;
   const relationshipCue = /\b(with|plus|alongside|topped|filled|made|including|side|dip|dipped)\b/i.test(text);
+  const conjunctionCue = /\s+and\s+/i.test(text);
   const globalScopeCue = /\b(?:servings?|portions?|plates?|bowls?)\b[^.!?]{0,30}\b(?:everything|all|each)\b|\b(?:everything|all|each)\b[^.!?]{0,30}\b(?:servings?|portions?|plates?|bowls?)\b/i.test(text);
   const listCue = /[,;]/.test(text) && /\b(and|plus|also)\b/i.test(text);
-  return relationshipCue || globalScopeCue || listCue;
+  return relationshipCue || conjunctionCue || globalScopeCue || listCue;
 }
 
 module.exports = {
+  FOOD_LOG_PLAN_SCHEMA,
   FOOD_LOG_PLANNER_PROMPT,
   sanitizeFoodLogPlan,
   shouldUseStructuredFoodPlan,

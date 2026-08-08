@@ -18,8 +18,10 @@ struct NomvaApp: App {
                 .environmentObject(subscriptionManager)
                 .environmentObject(garminManager)
                 .environmentObject(routeCenter)
-                .task { await subscriptionManager.checkEntitlements() }
-                .task { await garminManager.refreshIfNeeded() }
+                .task {
+                    guard !NomvaRuntime.isAutomatedTest else { return }
+                    await garminManager.refreshIfNeeded()
+                }
                 .onOpenURL { url in
                     routeCenter.handle(url: url)
                 }
@@ -113,6 +115,10 @@ final class ModelContainerManager: ObservableObject {
         schema: Schema,
         cloudKitIdentifier: String
     ) -> (container: ModelContainer, kind: StoreKind, error: String?) {
+        if NomvaRuntime.isAutomatedTest {
+            return (createInMemoryContainer(schema: schema), .local, nil)
+        }
+
         let desiredStore = desiredStoreKind()
         do {
             let container = try makeContainer(

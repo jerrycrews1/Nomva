@@ -25,7 +25,16 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             Group {
-                if subManager.canUseAI {
+                if !subManager.hasResolvedAccess {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Checking Nomva Pro access...")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .nomvaScreenBackground()
+                } else if subManager.canUseAI {
                     ChatView()
                 } else {
                     PaywallView()

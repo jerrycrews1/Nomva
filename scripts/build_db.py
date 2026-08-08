@@ -3,7 +3,7 @@
 USDA + Open Food Facts → SQLite pipeline for Nomva.
 
 Builds `Nomva/Resources/foods.sqlite` from:
-  - USDA SR Legacy JSON exports
+  - USDA Foundation, Survey/FNDDS, and SR Legacy JSON exports
   - USDA Branded Foods JSON exports
   - Optional Open Food Facts JSONL/NDJSON dump (plain or gzip-compressed)
 
@@ -26,6 +26,8 @@ import os
 import re
 import sqlite3
 
+from usda_reference_data import discover_single_json, insert_reference_foods, rebuild_search_index
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 DB_PATH = os.environ.get(
@@ -34,6 +36,12 @@ DB_PATH = os.environ.get(
 )
 SR_LEGACY_DIR = os.environ.get("USDA_SR_LEGACY_DIR", os.path.join(PROJECT_ROOT, "sr_legacy"))
 BRANDED_DIR = os.environ.get("USDA_BRANDED_DIR", os.path.join(PROJECT_ROOT, "branded"))
+FOUNDATION_DIR = os.environ.get(
+    "USDA_FOUNDATION_DIR", os.path.join(PROJECT_ROOT, "_build_data", "foundation")
+)
+FNDDS_DIR = os.environ.get(
+    "USDA_FNDDS_DIR", os.path.join(PROJECT_ROOT, "_build_data", "fndds")
+)
 
 OFF_GLOB_PATTERNS = [
     os.path.join(PROJECT_ROOT, "open_food_facts", "**", "*.jsonl.gz"),
@@ -507,11 +515,15 @@ def create_schema(conn):
             fdc_id          INTEGER UNIQUE,
             name            TEXT NOT NULL,
             brand           TEXT,
-            source          TEXT NOT NULL,  -- 'sr_legacy' | 'branded' | 'open_food_facts'
+            source          TEXT NOT NULL,
+            search_terms    TEXT,
             serving_g       REAL,
             serving_desc    TEXT,
             portion_basis   TEXT NOT NULL DEFAULT 'grams',
             serving_source  TEXT,
+            default_serving_g REAL,
+            default_serving_desc TEXT,
+            default_serving_source TEXT,
             calories        REAL,
             protein_g       REAL,
             carbs_g         REAL,
@@ -542,6 +554,7 @@ def create_schema(conn):
         CREATE VIRTUAL TABLE IF NOT EXISTS foods_fts USING fts5(
             name,
             brand,
+            search_terms,
             content='foods',
             content_rowid='id'
         )
@@ -1144,12 +1157,15 @@ def build_fts_index(conn):
     print("FTS5 index built")
 
 
-def write_metadata(conn, sr_count, branded_count, off_summary):
+def write_metadata(conn, sr_count, foundation_count, fndds_count, branded_count, off_summary):
     total_foods = conn.execute("SELECT COUNT(*) FROM foods").fetchone()[0]
     values = {
         "total_foods": str(total_foods),
         "build_date": conn.execute("SELECT date('now')").fetchone()[0],
         "sr_legacy_count": str(sr_count),
+        "foundation_count": str(foundation_count),
+        "survey_fndds_count": str(fndds_count),
+        "reference_data_version": "foundation-2026-04-30;fndds-2021-2023",
         "branded_count": str(branded_count),
         "open_food_facts_seen": str(off_summary["seen"]),
         "open_food_facts_merged": str(off_summary["merged"]),
@@ -1177,7 +1193,25 @@ def main():
     create_schema(conn)
 
     print("Inserting SR Legacy...")
-    sr_count = insert_sr_legacy(conn)
+    sr_json = discover_single_json(SR_LEGACY_DIR)
+    if not sr_json:
+        raise RuntimeError("SR Legacy JSON is missing")
+    sr_count = insert_reference_foods(
+        conn, sr_json, "SRLegacyFoods", "sr_legacy"
+    )["inserted"]
+
+    foundation_json = discover_single_json(FOUNDATION_DIR)
+    fndds_json = discover_single_json(FNDDS_DIR)
+    if not foundation_json or not fndds_json:
+        raise RuntimeError(
+            "USDA Foundation and FNDDS JSON are required. Run rebuild_full_db.py to download them."
+        )
+    foundation_count = insert_reference_foods(
+        conn, foundation_json, "FoundationFoods", "foundation"
+    )["inserted"]
+    fndds_count = insert_reference_foods(
+        conn, fndds_json, "SurveyFoods", "survey_fndds"
+    )["inserted"]
 
     print("Inserting Branded Foods...")
     branded_count = insert_branded(conn)
@@ -1186,9 +1220,11 @@ def main():
     off_summary = merge_open_food_facts(conn)
 
     print("Building FTS5 index...")
-    build_fts_index(conn)
+    rebuild_search_index(conn)
 
-    total_foods = write_metadata(conn, sr_count, branded_count, off_summary)
+    total_foods = write_metadata(
+        conn, sr_count, foundation_count, fndds_count, branded_count, off_summary
+    )
     conn.close()
 
     size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)

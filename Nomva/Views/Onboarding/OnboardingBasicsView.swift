@@ -8,6 +8,8 @@ struct OnboardingBasicsView: View {
     @Binding var currentWeightLbs: Double
     @Binding var activityLevel: ActivityLevel
 
+    @FocusState private var isWeightFocused: Bool
+
     var onContinue: () -> Void
     var onSkip: () -> Void
 
@@ -22,20 +24,14 @@ struct OnboardingBasicsView: View {
     var body: some View {
         OnboardingShell {
             OnboardingSectionCard(
-                title: "Tell us about yourself",
-                subtitle: "This stays on your device unless you decide to turn on iCloud sync.",
+                title: "Your starting point",
+                subtitle: "These details help Nomva personalize your first daily goals.",
                 tone: .hero
             ) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("We use this to set a better starting point for your daily goals.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    HStack(spacing: 10) {
-                        profileChip(title: "Age", value: "\(age)")
-                        profileChip(title: "Height", value: "\(heightFeet)'\(heightInches)\"")
-                        profileChip(title: "Weight", value: "\(currentWeightLbs.formatted(.number.precision(.fractionLength(0...1)))) lb")
-                    }
+                HStack(spacing: 10) {
+                    profileChip(title: "Age", value: "\(age)")
+                    profileChip(title: "Height", value: "\(heightFeet)'\(heightInches)\"")
+                    profileChip(title: "Weight", value: "\(currentWeightLbs.formatted(.number.precision(.fractionLength(0...1)))) lb")
                 }
             }
 
@@ -45,77 +41,93 @@ struct OnboardingBasicsView: View {
             ) {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Biological Sex")
+                        Text("Biological sex")
                             .font(.headline)
 
                         Picker("Biological Sex", selection: $biologicalSex) {
                             ForEach(BiologicalSex.allCases, id: \.self) { sex in
-                                Text(sex.displayName).tag(sex)
+                                Text(sex == .notSpecified ? "Not specified" : sex.displayName)
+                                    .tag(sex)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .controlSize(.large)
 
                         Text("Optional. This can help fine-tune your starting calories.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Age & Height")
-                            .font(.headline)
+                    Divider()
 
-                        HStack(spacing: 12) {
-                            menuField(title: "Birth Year") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Measurements")
+                            .font(.headline)
+                            .padding(.bottom, 6)
+
+                        measurementRow(title: "Birth year", detail: "Age \(age)") {
+                            controlChrome {
                                 Picker("Birth Year", selection: $birthYear) {
                                     ForEach((1930...2010).reversed(), id: \.self) { year in
                                         Text(String(year)).tag(year)
                                     }
                                 }
-                                .pickerStyle(.menu)
-                            }
-
-                            menuField(title: "Feet") {
-                                Picker("Feet", selection: $heightFeet) {
-                                    ForEach(4...7, id: \.self) { feet in
-                                        Text("\(feet) ft").tag(feet)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                            }
-
-                            menuField(title: "Inches") {
-                                Picker("Inches", selection: $heightInches) {
-                                    ForEach(0...11, id: \.self) { inches in
-                                        Text("\(inches) in").tag(inches)
-                                    }
-                                }
+                                .labelsHidden()
                                 .pickerStyle(.menu)
                             }
                         }
-                    }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Current Weight")
-                            .font(.headline)
+                        Divider()
 
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            TextField("160", value: $currentWeightLbs, format: .number.precision(.fractionLength(0...1)))
-                                .keyboardType(.decimalPad)
-                                .font(.system(size: 36, weight: .bold, design: .rounded))
-                                .padding(.vertical, 14)
-                                .padding(.horizontal, 16)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                .frame(maxWidth: 180)
+                        measurementRow(
+                            title: "Height",
+                            detail: "\(heightFeet * 12 + heightInches) inches total"
+                        ) {
+                            HStack(spacing: 8) {
+                                controlChrome {
+                                    Picker("Feet", selection: $heightFeet) {
+                                        ForEach(4...7, id: \.self) { feet in
+                                            Text("\(feet) ft").tag(feet)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
 
-                            Text("lb")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                controlChrome {
+                                    Picker("Inches", selection: $heightInches) {
+                                        ForEach(0...11, id: \.self) { inches in
+                                            Text("\(inches) in").tag(inches)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
+                            }
                         }
 
-                        Text("Use decimals if you want.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Divider()
+
+                        measurementRow(title: "Current weight", detail: "Decimals are welcome") {
+                            controlChrome {
+                                HStack(spacing: 6) {
+                                    TextField(
+                                        "160",
+                                        value: $currentWeightLbs,
+                                        format: .number.precision(.fractionLength(0...1))
+                                    )
+                                    .keyboardType(.decimalPad)
+                                    .focused($isWeightFocused)
+                                    .font(.title3.weight(.semibold))
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 72)
+
+                                    Text("lb")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -137,6 +149,14 @@ struct OnboardingBasicsView: View {
             }
             .buttonStyle(NomvaSecondaryButtonStyle())
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    isWeightFocused = false
+                }
+            }
+        }
     }
 
     private func profileChip(title: String, value: String) -> some View {
@@ -154,21 +174,55 @@ struct OnboardingBasicsView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 12)
         .background(Color(UIColor.secondarySystemBackground).opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func menuField<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(Color(UIColor.secondarySystemBackground).opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    private func measurementRow<Control: View>(
+        title: String,
+        detail: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                measurementLabel(title: title, detail: detail)
+                Spacer(minLength: 8)
+                control()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                measurementLabel(title: title, detail: detail)
+                control()
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 58)
+        .padding(.vertical, 2)
+    }
+
+    private func measurementLabel(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func controlChrome<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .tint(.primary)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 42)
+            .background(Color(UIColor.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(UIColor.separator).opacity(0.35), lineWidth: 1)
+            }
     }
 }

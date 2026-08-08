@@ -1239,7 +1239,11 @@ struct ChatView: View {
                 searchTerms: draft.searchTerms,
                 candidateSummary: draft.candidateSummary,
                 resolutionConfidence: draft.resolutionConfidence,
-                wasClarified: draft.wasClarified
+                wasClarified: draft.wasClarified,
+                quality: draft.quality,
+                sourceURL: draft.sourceURL,
+                sourceTitle: draft.sourceTitle,
+                evidence: draft.evidence
             ))
         }
     }

@@ -11,6 +11,7 @@ struct FoodEntryEditView: View {
     @State private var didCopyFoodName = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var evidenceRecords: [ResolvedFoodEvidence]
 
     init(entry: FoodEntry) {
         self.entry = entry
@@ -58,6 +59,12 @@ struct FoodEntryEditView: View {
         )
     }
 
+    private var nutritionEvidence: ResolvedFoodEvidence? {
+        evidenceRecords
+            .filter { $0.foodEntryId == entry.id }
+            .max { $0.createdAt < $1.createdAt }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -85,6 +92,35 @@ struct FoodEntryEditView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(didCopyFoodName ? "Food name copied" : "Copy food name")
+                    }
+                }
+
+                if let nutritionEvidence {
+                    Section("Nutrition Source") {
+                        LabeledContent("Type", value: sourceLabel(for: nutritionEvidence))
+
+                        if let sourceURL = nutritionEvidence.sourceURL,
+                           let url = URL(string: sourceURL) {
+                            Link(destination: url) {
+                                Label(
+                                    nutritionEvidence.sourceTitle ?? "View source",
+                                    systemImage: "arrow.up.right.square"
+                                )
+                            }
+                        }
+
+                        if let evidence = nutritionEvidence.evidence,
+                           !evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(evidence)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if nutritionEvidence.sourceType == "web_estimate" {
+                            Text("This nutrition is an estimate based on the cited menu information. Review the source when precision matters.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -185,6 +221,21 @@ struct FoodEntryEditView: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 didCopyFoodName = false
             }
+        }
+    }
+
+    private func sourceLabel(for evidence: ResolvedFoodEvidence) -> String {
+        switch evidence.sourceType {
+        case "web_published":
+            return "Published menu nutrition"
+        case "web_estimate":
+            return "Menu-based estimate"
+        case "custom":
+            return "Custom food"
+        case "recent":
+            return "Previously logged food"
+        default:
+            return evidence.fdcId == nil ? "Food database" : "USDA FoodData Central"
         }
     }
 

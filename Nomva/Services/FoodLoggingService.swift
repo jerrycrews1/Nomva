@@ -42,6 +42,11 @@ private struct SearchCandidate {
     let portionBasis: FoodPortionBasis
     let servingSource: FoodServingSource?
     let per100gValues: NutritionValues
+    var quality: String? = nil
+    var confidence: Double? = nil
+    var sourceURL: String? = nil
+    var sourceTitle: String? = nil
+    var evidence: String? = nil
     var isFavorite: Bool = false
     var score: Int = 0
 
@@ -261,6 +266,10 @@ final class FoodLoggingService {
         let candidateSummary: String
         let resolutionConfidence: Double
         let wasClarified: Bool
+        let quality: String?
+        let sourceURL: String?
+        let sourceTitle: String?
+        let evidence: String?
     }
 
     struct AgentTraceDraft {
@@ -748,18 +757,25 @@ final class FoodLoggingService {
 
         var entries: [FoodEntry] = []
         var confirmLines: [String] = []
+        var evidenceDrafts: [ResolvedFoodEvidenceDraft] = []
 
         var initialServings = foodMentions.map(\.servingsInfo)
         var resolutions = Array<CandidateResolution?>(repeating: nil, count: foodMentions.count)
         var remotelyAttemptedIndices = Set<Int>()
 
-        // Search the on-device database before spending a network round trip
-        // asking about portions. Plain foods with no stated amount can use the
-        // selected row's normal serving; only real portion language needs the
-        // focused portion extractor.
+        // Reuse an exact user-owned food immediately. Bundled database rows go
+        // through the server's guarded selector so lexical rank alone can never
+        // silently decide what the user ate.
         for index in foodMentions.indices {
             if ["composite", "menu"].contains(foodMentions[index].resolutionHint) {
                 resolutions[index] = nil
+            } else if provider is RemoteAPIProvider {
+                resolutions[index] = highConfidencePersonalResolution(
+                    mention: foodMentions[index].text,
+                    recentEntries: recentEntries,
+                    customFoods: customFoods,
+                    initialServingsInfo: initialServings[index]
+                )
             } else {
                 resolutions[index] = await highConfidenceSearchResolution(
                     mention: foodMentions[index].searchQuery,
@@ -813,6 +829,7 @@ final class FoodLoggingService {
             let remoteCandidates = await remoteProvider.resolveFoodCandidates(
                 userMessage: userMessage,
                 foodMentions: unresolvedCandidateIndices.map { foodMentions[$0].text },
+                searchQueries: unresolvedCandidateIndices.map { foodMentions[$0].searchQuery },
                 resolutionHints: unresolvedCandidateIndices.map { foodMentions[$0].resolutionHint }
             )
             for (position, mentionIndex) in unresolvedCandidateIndices.enumerated() {
@@ -870,6 +887,25 @@ final class FoodLoggingService {
             }
 
             entries.append(builtEntry)
+            let candidate = resolution.candidate
+            let sourceType = candidate.source == .database
+                ? (candidate.databaseSource ?? CandidateSource.database.rawValue)
+                : candidate.source.rawValue
+            evidenceDrafts.append(ResolvedFoodEvidenceDraft(
+                sourceType: sourceType,
+                fdcId: candidate.fdcId,
+                matchedName: candidate.name,
+                matchedBrand: candidate.brand,
+                searchTerms: parsedMention.searchQuery,
+                candidateSummary: candidate.evidence
+                    ?? [candidate.brand, candidate.name].compactMap { $0 }.joined(separator: " "),
+                resolutionConfidence: candidate.confidence ?? (candidate.source == .webEstimate ? 0.5 : 1),
+                wasClarified: false,
+                quality: candidate.quality,
+                sourceURL: candidate.sourceURL,
+                sourceTitle: candidate.sourceTitle,
+                evidence: candidate.evidence
+            ))
             let estimateLabel = resolution.candidate.source == .webEstimate ? " estimated" : ""
             confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal\(estimateLabel)")
         }
@@ -877,7 +913,11 @@ final class FoodLoggingService {
         if entries.isEmpty {
             return .recoverableReply("I couldn't find any matching foods to log. Try again or search the local food database.")
         }
-        return .init(action: .logFood(entries), reply: "✓ " + confirmLines.joined(separator: "\n✓ "))
+        return .init(
+            action: .logFood(entries),
+            reply: "✓ " + confirmLines.joined(separator: "\n✓ "),
+            evidenceDrafts: evidenceDrafts
+        )
     }
 
     private func needsSemanticPortionResolution(
@@ -1615,7 +1655,16 @@ final class FoodLoggingService {
         customFoods: [CustomFood],
         initialServingsInfo: ServingsInfo
     ) async -> CandidateResolution? {
-        if let searchResolution = await highConfidenceSearchResolution(
+        if provider is RemoteAPIProvider {
+            if let personalResolution = highConfidencePersonalResolution(
+                mention: mention,
+                recentEntries: recentEntries,
+                customFoods: customFoods,
+                initialServingsInfo: initialServingsInfo
+            ) {
+                return personalResolution
+            }
+        } else if let searchResolution = await highConfidenceSearchResolution(
             mention: mention,
             recentEntries: recentEntries,
             customFoods: customFoods,
@@ -1699,6 +1748,47 @@ final class FoodLoggingService {
             )
         }
         return nil
+    }
+
+    private func highConfidencePersonalResolution(
+        mention: String,
+        recentEntries: [FoodEntry],
+        customFoods: [CustomFood],
+        initialServingsInfo: ServingsInfo
+    ) -> CandidateResolution? {
+        let mentionTokens = Set(identityTokens(in: mention).map(singularized))
+        guard !mentionTokens.isEmpty else { return nil }
+
+        var candidates = buildCustomCandidates(from: customFoods) + buildRecentCandidates(from: recentEntries)
+        for index in candidates.indices {
+            candidates[index].score = calculateScore(candidates[index], query: mention)
+        }
+        candidates.sort {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.isFavorite != $1.isFavorite { return $0.isFavorite }
+            return $0.name < $1.name
+        }
+
+        guard let candidate = candidates.first(where: { candidate in
+            let candidateNameTokens = Set(identityTokens(in: candidate.name).map(singularized))
+            let candidateTokens = Set(
+                identityTokens(in: "\(candidate.brand ?? "") \(candidate.name)").map(singularized)
+            )
+            let exactIdentity = candidateNameTokens == mentionTokens
+                || (brandMatchesMention(candidate.brand, mention: mention)
+                    && candidateTokens.isSuperset(of: mentionTokens))
+            return exactIdentity && isStrongFoodIdentityMatch(candidate, mention: mention)
+        }) else {
+            return nil
+        }
+
+        if candidate.portionBasis == .fixedServing,
+           initialServingsInfo.hasExplicitPortion,
+           let adjusted = adjustedFixedServingInfo(candidate: candidate, servingsInfo: initialServingsInfo) {
+            return CandidateResolution(candidate: candidate, servingsInfo: adjusted)
+        }
+
+        return CandidateResolution(candidate: candidate, servingsInfo: initialServingsInfo)
     }
 
     private func isStrongFoodIdentityMatch(_ candidate: SearchCandidate, mention: String) -> Bool {
@@ -1954,7 +2044,12 @@ final class FoodLoggingService {
                 fiber: fiber * per100Factor,
                 sugar: sugar * per100Factor,
                 sodium: sodium * per100Factor
-            )
+            ),
+            quality: resolved.quality,
+            confidence: resolved.confidence,
+            sourceURL: resolved.sourceURL,
+            sourceTitle: resolved.sourceTitle,
+            evidence: resolved.evidence
         )
     }
 

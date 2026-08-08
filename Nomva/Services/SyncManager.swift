@@ -50,7 +50,9 @@ final class SyncManager: ObservableObject {
         lastBackupURL?.lastPathComponent
     }
 
-    private let cloudContainer = CKContainer(identifier: "iCloud.com.nomva.app")
+    private var cloudContainer: CKContainer {
+        CKContainer(identifier: "iCloud.com.nomva.app")
+    }
     private let lastTransferDateKey = "icloud_sync_last_transfer_date"
     private let lastBackupPathKey = "icloud_sync_last_backup_path"
     private let lastTransferSummaryKey = "icloud_sync_last_transfer_summary"
@@ -81,6 +83,10 @@ final class SyncManager: ObservableObject {
     }
 
     func updateAccountStatus() async {
+        guard !NomvaRuntime.isAutomatedTest else {
+            isAccountAvailable = false
+            return
+        }
         let status = try? await cloudContainer.accountStatus()
         isAccountAvailable = (status == .available)
     }

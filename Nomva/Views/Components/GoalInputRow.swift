@@ -5,26 +5,48 @@ struct GoalInputRow: View {
     @Binding var value: Double
     let unit: String
     let range: ClosedRange<Double>
+    var step: Double = 1
+    var tint: Color = NomvaTheme.accent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
                 Text(label)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
+
                 Spacer()
+
                 HStack(spacing: 4) {
-                    TextField("", value: $value, format: .number)
+                    TextField(
+                        label,
+                        value: $value,
+                        format: .number.precision(.fractionLength(0))
+                    )
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
-                        .frame(width: 70)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .frame(width: 72)
+
                     Text(unit)
-                        .foregroundColor(.secondary)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .frame(minHeight: 38)
+                .background(Color(UIColor.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(UIColor.separator).opacity(0.35), lineWidth: 1)
                 }
             }
 
-            Slider(value: $value, in: range)
-                .tint(NomvaTheme.accent)
+            Slider(value: $value, in: range, step: step)
+                .tint(tint)
+                .accessibilityLabel(label)
+                .accessibilityValue("\(value.safeRoundedInt) \(unit)")
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }

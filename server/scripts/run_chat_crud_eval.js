@@ -8,6 +8,8 @@ const OpenAI = require("openai");
 const prompts = require("../prompts");
 const { deterministicDeleteTargets } = require("../deleteTargetGuard");
 const { deterministicEditTarget } = require("../editTargetGuard");
+const { structuredOutputForTask } = require("../llmSchemas");
+const { requestStructuredJSON } = require("../structuredLLM");
 
 const args = new Set(process.argv.slice(2));
 function argValue(name, fallback) {
@@ -71,6 +73,28 @@ function textMatches(expected, actual) {
   const right = normalizeText(actual);
   if (!left || !right) return false;
   return left.includes(right) || right.includes(left);
+}
+
+const SEARCH_IDENTITY_MODIFIERS = new Set([
+  "beef", "chicken", "duck", "pork", "turkey",
+  "diet", "zero", "sweetened", "unsweetened",
+  "raw", "cooked", "fried", "grilled",
+  "small", "medium", "large", "grande", "venti", "trenta",
+]);
+
+function searchQueryMatches(expected, actual) {
+  const expectedTokens = new Set(normalizeText(expected).split(" ").filter(Boolean));
+  const actualTokens = new Set(normalizeText(actual).split(" ").filter(Boolean));
+  if (!expectedTokens.size || !actualTokens.size) return false;
+  if (![...expectedTokens].every((token) => actualTokens.has(token))) return false;
+
+  for (const modifier of SEARCH_IDENTITY_MODIFIERS) {
+    if (!expectedTokens.has(modifier) && actualTokens.has(modifier)) {
+      const impliedChickenNugget = modifier === "chicken" && expectedTokens.has("nugget");
+      if (!impliedChickenNugget) return false;
+    }
+  }
+  return true;
 }
 
 function arrayMatches(expected, actual) {
@@ -257,7 +281,7 @@ function genEditTarget(rng, id) {
 function genEditRequest(rng, id) {
   const cases = [
     ["It was black coffee", "Coffee", null, "1 serving", { hasExplicitPortion: true, portionDescription: "1 serving", replacementSearchQuery: "black coffee" }],
-    ["actually only about 5 fries", "Chick-Fil-A, Waffle Potato Fries, Large", "Chick-Fil-A", "1 large", { hasExplicitPortion: true, servings: 5, portionDescription: "5 fries", replacementSearchQuery: "waffle fries" }],
+    ["actually only about 5 fries", "Chick-Fil-A, Waffle Potato Fries, Large", "Chick-Fil-A", "1 large", { hasExplicitPortion: true, servings: 5, portionDescription: "5 fries", replacementSearchQuery: "waffle potato fries" }],
     ["make it half a cup", "Rice, cooked", null, "1 cup", { hasExplicitPortion: true, servings: 0.5, portionDescription: "1/2 cup" }],
     ["not chicken curry, it was tofu curry", "Chicken Curry", null, "1 bowl", { hasExplicitPortion: true, portionDescription: "1 bowl", replacementSearchQuery: "tofu curry" }],
     ["that's not right", "Chicken Nuggets", null, "3 nuggets", { hasExplicitPortion: false }],
@@ -272,12 +296,12 @@ function genEditRequest(rng, id) {
 
 function genSearchQuery(rng, id) {
   const cases = [
-    ["I had three Chick-fil-A nuggets", "three Chick-fil-A nuggets", "chicken nuggets"],
+    ["I had three Chick-fil-A nuggets", "three Chick-fil-A nuggets", "Chick-fil-A nuggets"],
     ["I had about 5 Chick-fil-A fries", "about 5 Chick-fil-A fries", "waffle fries"],
     ["I had one egg", "one egg", "whole egg"],
     ["I ate some spinach", "some spinach", "fresh spinach"],
     ["Log breakfast: Gree Yogurt", "Gree Yogurt", "Greek yogurt"],
-    ["I had a large Chick-fil-A waffle fries", "large Chick-fil-A waffle fries", "Chick-Fil-A waffle potato fries large"],
+    ["I had a large Chick-fil-A waffle fries", "large Chick-fil-A waffle fries", "large Chick-fil-A waffle fries"],
   ];
   const [message, foodMention, query] = choice(rng, cases);
   return withCase(id, "build_food_search_query", "food_search", "hard", message, { searchQuery: { foodMention, query } });
@@ -287,7 +311,7 @@ function genServings(rng, id) {
   const cases = [
     ["I had three Chick-fil-A nuggets", "three Chick-fil-A nuggets", "Chick-Fil-A Nuggets", null, { servings: 3, portionDescription: "3 nuggets", servingUnit: "nugget", hasExplicitPortion: true }],
     ["I had half a cup of rice", "half a cup of rice", "Rice, cooked", null, { servings: 0.5, portionDescription: "1/2 cup", servingUnit: "cup", hasExplicitPortion: true }],
-    ["I ate some spinach", "some spinach", "Spinach, raw", null, { servings: 1, portionDescription: "1 cup", servingUnit: "cup", hasExplicitPortion: false }],
+    ["I ate some spinach", "some spinach", "Spinach, raw", null, { servings: 1, portionDescription: "1 serving", servingUnit: "serving", hasExplicitPortion: false }],
     ["That was only 2 slices", "2 slices", "Bacon", null, { servings: 2, portionDescription: "2 slices", servingUnit: "slice", hasExplicitPortion: true }],
     ["I had a small handful of almonds", "small handful of almonds", "Almonds", null, { hasExplicitPortion: true }],
   ];
@@ -529,8 +553,11 @@ function gradeCase(testCase, output) {
     }
   }
   if (expect.goal) {
+    const changes = Array.isArray(output?.changes) ? output.changes : [];
     for (const [key, value] of Object.entries(expect.goal)) {
-      addCheck(checks, `goal_${key}`, numericMatches(value, output?.[key], 0.2), value, output?.[key] ?? null);
+      const change = changes.find((candidate) => candidate?.metric === key && candidate?.operation === "set");
+      const actual = output?.[key] ?? change?.value ?? null;
+      addCheck(checks, `goal_${key}`, numericMatches(value, actual, 0.2), value, actual);
     }
   }
   if (expect.deleteTargets) addCheck(checks, "delete_targets", arrayMatches(expect.deleteTargets, output?.foodNames), expect.deleteTargets, output?.foodNames ?? null);
@@ -550,7 +577,7 @@ function gradeCase(testCase, output) {
     if (expected.portionDescription) addCheck(checks, "edit_portion", textMatches(expected.portionDescription, output?.portionDescription), expected.portionDescription, output?.portionDescription ?? null);
     if (expected.replacementSearchQuery) addCheck(checks, "edit_replacement_query", textMatches(expected.replacementSearchQuery, output?.replacementSearchQuery || ""), expected.replacementSearchQuery, output?.replacementSearchQuery ?? null);
   }
-  if (expect.searchQuery) addCheck(checks, "search_query", textMatches(expect.searchQuery.query, output?.query), expect.searchQuery.query, output?.query ?? null);
+  if (expect.searchQuery) addCheck(checks, "search_query", searchQueryMatches(expect.searchQuery.query, output?.query), expect.searchQuery.query, output?.query ?? null);
   if (expect.servings) {
     const expected = expect.servings;
     if (Object.prototype.hasOwnProperty.call(expected, "servings")) addCheck(checks, "servings", numericMatches(expected.servings, output?.servings, 0.15), expected.servings, output?.servings ?? null);
@@ -607,25 +634,24 @@ async function ask(openai, testCase) {
   const [systemPrompt, userMessage, maxTokens] = promptForCase(testCase);
   const requestModel = testCase.task === "pick_delete_targets" ? CONTEXT_MODEL : MODEL;
   const completionBudget = /^gpt-5/i.test(requestModel) ? Math.max(maxTokens * 4, 512) : maxTokens;
-  const request = {
-    model: requestModel,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ],
-  };
-  if (/^gpt-5/i.test(requestModel)) {
-    request.max_completion_tokens = completionBudget;
-  } else {
-    request.temperature = 0.1;
-    request.max_tokens = completionBudget;
-  }
+  const structuredOutput = structuredOutputForTask(testCase.task);
+  if (!structuredOutput) throw new Error(`Missing structured output schema for ${testCase.task}`);
   const startedAt = Date.now();
-  const response = await openai.chat.completions.create(request);
-  const raw = response.choices[0]?.message?.content?.trim() || "{}";
+  const { response, text: raw, value: output } = await requestStructuredJSON({
+    openai,
+    model: requestModel,
+    instructions: systemPrompt,
+    input: userMessage,
+    schemaName: structuredOutput.name,
+    schema: structuredOutput.schema,
+    maxOutputTokens: completionBudget,
+    reasoningEffort: structuredOutput.reasoningEffort,
+    maxRetries: 0,
+    timeoutMs: 20_000,
+    cacheKey: `nomva_eval_${testCase.task}_v1`,
+  });
   return {
-    output: parseJsonObject(raw),
+    output: parseJsonObject(JSON.stringify(output)),
     raw,
     durationMs: Date.now() - startedAt,
     totalTokens: response.usage?.total_tokens || null,

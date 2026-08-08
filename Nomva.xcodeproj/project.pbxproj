@@ -80,6 +80,9 @@
 		F1A10000000000000000000B /* NomvaWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B100000000000000000003 /* NomvaWidgetIntents.swift */; };
 		F1A10000000000000000000C /* NomvaWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F1B10000000000000000000C /* NomvaWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F3A100000000000000000001 /* NutritionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3B100000000000000000001 /* NutritionDetailView.swift */; };
+		F8A100000000000000000001 /* NomvaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B100000000000000000001 /* NomvaRuntime.swift */; };
+		F7A100000000000000000001 /* NomvaCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B100000000000000000001 /* NomvaCoreTests.swift */; };
+		F7A100000000000000000002 /* NomvaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B100000000000000000002 /* NomvaUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +92,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = F1E100000000000000000001;
 			remoteInfo = NomvaWidgets;
+		};
+		F7C100000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1B3BB0B0294D533481006424 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2A69640CF8BD8ED3FC6DC901;
+			remoteInfo = Nomva;
+		};
+		F7C100000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1B3BB0B0294D533481006424 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2A69640CF8BD8ED3FC6DC901;
+			remoteInfo = Nomva;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -172,6 +189,11 @@
 		F1B10000000000000000000B /* NomvaWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NomvaWidgets.entitlements; sourceTree = "<group>"; };
 		F1B10000000000000000000C /* NomvaWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NomvaWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F3B100000000000000000001 /* NutritionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionDetailView.swift; sourceTree = "<group>"; };
+		F8B100000000000000000001 /* NomvaRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaRuntime.swift; sourceTree = "<group>"; };
+		F7B100000000000000000001 /* NomvaCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaCoreTests.swift; sourceTree = "<group>"; };
+		F7B100000000000000000002 /* NomvaUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaUITests.swift; sourceTree = "<group>"; };
+		F7B100000000000000000003 /* NomvaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NomvaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7B100000000000000000004 /* NomvaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NomvaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F74B6706705849459BCDB8C6 /* NomvaUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaUI.swift; sourceTree = "<group>"; };
 		F966C75C27458886DE760BB0 /* FoodItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodItem.swift; sourceTree = "<group>"; };
 		FA22222222222222222222AA /* FoundationModelsProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsProvider.swift; sourceTree = "<group>"; };
@@ -195,6 +217,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F1C100000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7D100000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7D100000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -227,6 +263,8 @@
 			children = (
 				C943E69338201385964FDBE6 /* Nomva.app */,
 				F1B10000000000000000000C /* NomvaWidgets.appex */,
+				F7B100000000000000000003 /* NomvaTests.xctest */,
+				F7B100000000000000000004 /* NomvaUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -271,6 +309,7 @@
 		520672F3BDA8AE927088FE6E /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				F8B100000000000000000001 /* NomvaRuntime.swift */,
 				F08DB8A52F94B17F00C431A3 /* WeightAnalytics.swift */,
 				F1B100000000000000000004 /* NomvaRouteCenter.swift */,
 				F1B100000000000000000005 /* NomvaWidgetSyncBridge.swift */,
@@ -316,6 +355,8 @@
 			children = (
 				F04A50642F931C92004C3C56 /* NomvaProducts.storekit */,
 				450B220DE8EEB27904FC3DC4 /* Nomva */,
+				F7E100000000000000000001 /* NomvaTests */,
+				F7E100000000000000000002 /* NomvaUITests */,
 				30772F61AC9BDC8631745269 /* Products */,
 				3B93B8F79D0A47789478CF60 /* Frameworks */,
 			);
@@ -430,6 +471,22 @@
 			path = NomvaWidgets;
 			sourceTree = "<group>";
 		};
+		F7E100000000000000000001 /* NomvaTests */ = {
+			isa = PBXGroup;
+			children = (
+				F7B100000000000000000001 /* NomvaCoreTests.swift */,
+			);
+			path = NomvaTests;
+			sourceTree = "<group>";
+		};
+		F7E100000000000000000002 /* NomvaUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F7B100000000000000000002 /* NomvaUITests.swift */,
+			);
+			path = NomvaUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -473,6 +530,46 @@
 			productReference = F1B10000000000000000000C /* NomvaWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		F7F100000000000000000001 /* NomvaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7H100000000000000000001 /* Build configuration list for PBXNativeTarget "NomvaTests" */;
+			buildPhases = (
+				F7D100000000000000000005 /* Sources */,
+				F7D100000000000000000001 /* Frameworks */,
+				F7D100000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F7C100000000000000000003 /* PBXTargetDependency */,
+			);
+			name = NomvaTests;
+			packageProductDependencies = (
+			);
+			productName = NomvaTests;
+			productReference = F7B100000000000000000003 /* NomvaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F7F100000000000000000002 /* NomvaUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7H100000000000000000002 /* Build configuration list for PBXNativeTarget "NomvaUITests" */;
+			buildPhases = (
+				F7D100000000000000000006 /* Sources */,
+				F7D100000000000000000002 /* Frameworks */,
+				F7D100000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F7C100000000000000000004 /* PBXTargetDependency */,
+			);
+			name = NomvaUITests;
+			packageProductDependencies = (
+			);
+			productName = NomvaUITests;
+			productReference = F7B100000000000000000004 /* NomvaUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -488,6 +585,14 @@
 					};
 					F1E100000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					F7F100000000000000000001 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = 2A69640CF8BD8ED3FC6DC901;
+					};
+					F7F100000000000000000002 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = 2A69640CF8BD8ED3FC6DC901;
 					};
 				};
 			};
@@ -508,6 +613,8 @@
 			targets = (
 				2A69640CF8BD8ED3FC6DC901 /* Nomva */,
 				F1E100000000000000000001 /* NomvaWidgets */,
+				F7F100000000000000000001 /* NomvaTests */,
+				F7F100000000000000000002 /* NomvaUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -529,6 +636,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7D100000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7D100000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -536,6 +657,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F8A100000000000000000001 /* NomvaRuntime.swift in Sources */,
 				217DC6E3502D9340D1917D49 /* NomvaApp.swift in Sources */,
 				90ADE7D28C771DA5EFF380D6 /* ContentView.swift in Sources */,
 				28597F722B77FCDFB65562FC /* DataModels.swift in Sources */,
@@ -615,6 +737,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7D100000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7A100000000000000000001 /* NomvaCoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7D100000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7A100000000000000000002 /* NomvaUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -622,6 +760,16 @@
 			isa = PBXTargetDependency;
 			target = F1E100000000000000000001 /* NomvaWidgets */;
 			targetProxy = F1E100000000000000000002 /* PBXContainerItemProxy */;
+		};
+		F7C100000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2A69640CF8BD8ED3FC6DC901 /* Nomva */;
+			targetProxy = F7C100000000000000000001 /* PBXContainerItemProxy */;
+		};
+		F7C100000000000000000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2A69640CF8BD8ED3FC6DC901 /* Nomva */;
+			targetProxy = F7C100000000000000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -692,6 +840,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				APP_ATTEST_ENVIRONMENT = production;
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -723,6 +872,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				APP_ATTEST_ENVIRONMENT = development;
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -863,6 +1013,78 @@
 			};
 			name = Release;
 		};
+		F7G100000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nomva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nomva";
+			};
+			name = Debug;
+		};
+		F7G100000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nomva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Nomva";
+			};
+			name = Release;
+		};
+		F7G100000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Nomva;
+			};
+			name = Debug;
+		};
+		F7G100000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9UXM4W53T6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Nomva;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -880,6 +1102,24 @@
 			buildConfigurations = (
 				F2A100000000000000000001 /* Debug */,
 				F2A100000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F7H100000000000000000001 /* Build configuration list for PBXNativeTarget "NomvaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F7G100000000000000000001 /* Debug */,
+				F7G100000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F7H100000000000000000002 /* Build configuration list for PBXNativeTarget "NomvaUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F7G100000000000000000003 /* Debug */,
+				F7G100000000000000000004 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

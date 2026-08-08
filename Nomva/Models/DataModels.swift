@@ -406,6 +406,10 @@ class ResolvedFoodEvidence {
     var candidateSummary: String = ""
     var resolutionConfidence: Double = 0
     var wasClarified: Bool = false
+    var quality: String?
+    var sourceURL: String?
+    var sourceTitle: String?
+    var evidence: String?
 
     init(
         dayDate: Date,
@@ -417,7 +421,11 @@ class ResolvedFoodEvidence {
         searchTerms: String,
         candidateSummary: String,
         resolutionConfidence: Double,
-        wasClarified: Bool
+        wasClarified: Bool,
+        quality: String? = nil,
+        sourceURL: String? = nil,
+        sourceTitle: String? = nil,
+        evidence: String? = nil
     ) {
         self.id = UUID()
         self.createdAt = .now
@@ -431,6 +439,10 @@ class ResolvedFoodEvidence {
         self.candidateSummary = candidateSummary
         self.resolutionConfidence = resolutionConfidence
         self.wasClarified = wasClarified
+        self.quality = quality
+        self.sourceURL = sourceURL
+        self.sourceTitle = sourceTitle
+        self.evidence = evidence
     }
 }
 

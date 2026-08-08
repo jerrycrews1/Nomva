@@ -11,29 +11,61 @@ const { verifyAttestation, verifyAssertion } = require("node-app-attest");
 const prompts = require("./prompts");
 const { loadServerState } = require("./stateStore");
 const { loadAnalyticsStore } = require("./analyticsStore");
-const { createFoodSearchStore } = require("./foodSearchStore");
+const { createFoodSearchStore, isAuthoritativeReferenceSource } = require("./foodSearchStore");
 const { loadFoodKnowledgeStore } = require("./foodKnowledgeStore");
-const { resolveFoodCandidate: runFoodResolver } = require("./foodResolver");
+const {
+  candidateCompatibleWithMention,
+  FOOD_SELECTION_SCHEMA,
+  resolveFoodCandidate: runFoodResolver,
+} = require("./foodResolver");
 const {
   createWebFoodResolver,
+  hasUnresolvedLeadingIdentity,
   identityMatchesMention,
+  isMenuFoodMention,
+  requiresExactMenuResearch,
   resolvedCandidateBody,
+  shouldBlockStaticFallback,
   shouldTryWebFirst,
 } = require("./webFoodResolver");
+const {
+  WORLD_FOOD_ESTIMATE_PROMPT,
+  WORLD_FOOD_ESTIMATE_SCHEMA,
+  firstNonNull,
+  resolveWorldFoodEstimate,
+} = require("./worldFoodEstimator");
 const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("./deleteTargetGuard");
 const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
 const { computeGarminAverages } = require("./garminMetrics");
 const {
+  entitlementIsActive,
+  normalizeEntitlementMode,
+  resolveNonAttestedTrust,
+  sessionTTLForTrust,
+  timingSafeEqualSecret,
+} = require("./authPolicy");
+const { createAppStoreEntitlementVerifier } = require("./appStoreEntitlement");
+const {
   sanitizeRecentFoodCandidates,
   sanitizeSuggestedFoodIds,
 } = require("./recentFoodSuggestionGuard");
 const {
+  FOOD_LOG_PLAN_SCHEMA,
   FOOD_LOG_PLANNER_PROMPT,
   sanitizeFoodLogPlan,
   shouldUseStructuredFoodPlan,
 } = require("./foodLogPlanner");
+const {
+  EmptyStructuredResponseError,
+  requestStructuredJSON,
+} = require("./structuredLLM");
+const {
+  ANALYZE_NUTRITION_LABEL_SCHEMA,
+  ANALYZE_PHOTO_SCHEMA,
+  structuredOutputForTask,
+} = require("./llmSchemas");
 const {
   boundedNumber,
   boundedServings,
@@ -45,15 +77,19 @@ const {
 } = require("./numericGuards");
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMVA_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const FOOD_RESOLUTION_MODEL = process.env.NOMVA_FOOD_RESOLUTION_MODEL || "gpt-5.6-luna";
 const WEB_FOOD_MODEL = process.env.NOMVA_WEB_FOOD_MODEL || "gpt-5.6-luna";
-const FOOD_LOG_PLANNING_MODEL = process.env.NOMVA_FOOD_LOG_PLANNING_MODEL || "gpt-5.6-sol";
+const WEB_FOOD_PUBLISHED_MODEL = process.env.NOMVA_WEB_FOOD_PUBLISHED_MODEL || "gpt-5.6-sol";
+const FOOD_LOG_PLANNING_MODEL = process.env.NOMVA_FOOD_LOG_PLANNING_MODEL || "gpt-5.6-luna";
+const WORLD_FOOD_MODEL = process.env.NOMVA_WORLD_FOOD_MODEL || FOOD_LOG_PLANNING_MODEL;
 const CONTEXT_MODEL = process.env.NOMVA_CONTEXT_MODEL || "gpt-5.4-mini";
+const VISION_MODEL = process.env.NOMVA_VISION_MODEL || "gpt-5.6-luna";
 const AI_ESTIMATE_SOURCE_URL = "https://nomva.nerdquad.com/food-estimates";
 const publicDir = path.join(__dirname, "public");
-const dataDir = path.join(__dirname, "data");
+const dataDir = process.env.NOMVA_DATA_DIR || path.join(__dirname, "data");
 const garminStorePath = path.join(dataDir, "garmin-store.json");
 const appSessionStorePath = path.join(dataDir, "app-sessions.json");
 const stateDBPath = path.join(dataDir, "nomva-state.sqlite");
@@ -65,6 +101,26 @@ const APP_ATTEST_ALLOW_DEVELOPMENT = process.env.APP_ATTEST_ALLOW_DEVELOPMENT
   ? process.env.APP_ATTEST_ALLOW_DEVELOPMENT === "1"
   : process.env.NODE_ENV !== "production";
 const ALLOW_SIMULATOR_AUTH = process.env.ALLOW_SIMULATOR_AUTH === "1";
+const NOMVA_AUTOMATION_TOKEN = process.env.NOMVA_AUTOMATION_TOKEN || "";
+const ENTITLEMENT_MODE = normalizeEntitlementMode(
+  process.env.NOMVA_ENTITLEMENT_MODE,
+  process.env.NODE_ENV
+);
+const APP_STORE_BUNDLE_ID = process.env.APP_STORE_BUNDLE_ID || APP_ATTEST_BUNDLE_ID;
+const APP_STORE_APPLE_ID = Number(process.env.APP_STORE_APPLE_ID || 6762495287);
+const APP_STORE_PRODUCT_ID = process.env.APP_STORE_PRODUCT_ID || "com.nerdquad.nomva.pro.monthly";
+const AI_REQUESTS_PER_DAY = boundedEnvironmentInteger(
+  process.env.NOMVA_AI_REQUESTS_PER_DAY,
+  1_000,
+  100,
+  10_000
+);
+const PHOTO_REQUESTS_PER_DAY = boundedEnvironmentInteger(
+  process.env.NOMVA_PHOTO_REQUESTS_PER_DAY,
+  100,
+  10,
+  1_000
+);
 const ANALYTICS_ADMIN_TOKEN = process.env.ANALYTICS_ADMIN_TOKEN || "";
 const VOWNTIL_BREACH_API_TOKEN = process.env.VOWNTIL_BREACH_API_TOKEN || "";
 const VOWNTIL_EMAIL_FROM = process.env.VOWNTIL_EMAIL_FROM || "";
@@ -91,6 +147,14 @@ if (process.env.GARMIN_OAUTH_AUTHORIZE_URL || process.env.GARMIN_OAUTH_TOKEN_URL
   );
 }
 
+function boundedEnvironmentInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+  return Math.max(minimum, Math.min(maximum, parsed));
+}
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 
 app.use(helmet());
@@ -100,6 +164,15 @@ app.use(express.json({
     req.rawBody = Buffer.from(buf);
   },
 }));
+
+const MAX_STANDARD_BODY_BYTES = 256 * 1024;
+app.use("/v1", (req, res, next) => {
+  const isPhotoAnalysis = req.path === "/analyze-photo";
+  if (!isPhotoAnalysis && (req.rawBody?.length || 0) > MAX_STANDARD_BODY_BYTES) {
+    return res.status(413).json({ error: "request_too_large" });
+  }
+  return next();
+});
 
 // ── Garmin storage/config helpers ─────────────────────────────────────────────
 
@@ -119,6 +192,8 @@ const stateStore = loadServerState({
   garminJsonPath: garminStorePath,
   appSessionJsonPath: appSessionStorePath,
 });
+stateStore.pruneRateLimits();
+setInterval(() => stateStore.pruneRateLimits(), 24 * 60 * 60 * 1000).unref();
 
 const analyticsStore = loadAnalyticsStore({
   dbPath: analyticsDBPath,
@@ -133,6 +208,12 @@ const foodSearchStore = createFoodSearchStore({
   dbPath: process.env.FOODS_DB_PATH,
   learnedStore: foodKnowledgeStore,
 });
+const appStoreEntitlementVerifier = createAppStoreEntitlementVerifier({
+  bundleId: APP_STORE_BUNDLE_ID,
+  appAppleId: APP_STORE_APPLE_ID,
+  productId: APP_STORE_PRODUCT_ID,
+  enableOnlineChecks: process.env.APP_STORE_ONLINE_CHECKS !== "0",
+});
 analyticsStore.prune();
 setInterval(() => analyticsStore.prune(), 24 * 60 * 60 * 1000).unref();
 foodKnowledgeStore.prune();
@@ -140,6 +221,11 @@ setInterval(() => foodKnowledgeStore.prune(), 24 * 60 * 60 * 1000).unref();
 
 if (!foodSearchStore.isAvailable) {
   console.warn(`food db warning: server-side food resolution unavailable (${foodSearchStore.error || "unknown error"})`);
+}
+if (!appStoreEntitlementVerifier.configured) {
+  console.warn(
+    `app store verification warning: ${appStoreEntitlementVerifier.configurationError?.message || "not configured"}`
+  );
 }
 
 let garminStore = stateStore.garminStore;
@@ -221,7 +307,7 @@ function cleanupExpiredAppSessions() {
   }
 }
 
-function issueAppSession(nomvaUserId, deviceToken) {
+function issueAppSession(nomvaUserId, deviceToken, options = {}) {
   cleanupExpiredAppSessions();
 
   const identityKey = appSessionIdentityKey(nomvaUserId, deviceToken);
@@ -233,15 +319,20 @@ function issueAppSession(nomvaUserId, deviceToken) {
   const token = crypto.randomBytes(32).toString("base64url");
   const tokenHash = hashDeviceToken(token);
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000));
+  const trustMode = options.trust?.mode || "unknown";
+  const expiresAt = new Date(now.getTime() + sessionTTLForTrust(trustMode));
 
   appSessionStore.sessions[tokenHash] = {
     nomvaUserId: normalizeIdentifier(nomvaUserId),
+    identityKey,
     deviceTokenHash: hashDeviceToken(deviceToken),
     createdAt: now.toISOString(),
     lastSeenAt: now.toISOString(),
     lastSeenPersistedAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
+    trustMode,
+    trustEnvironment: options.trust?.environment || null,
+    entitlement: options.entitlement || null,
   };
   appSessionStore.identityIndex[identityKey] = tokenHash;
   persistAppSessionStore();
@@ -249,6 +340,7 @@ function issueAppSession(nomvaUserId, deviceToken) {
   return {
     token,
     expiresAt: expiresAt.toISOString(),
+    entitlement: options.entitlement || null,
   };
 }
 
@@ -280,6 +372,7 @@ function appSessionForRequest(req) {
   return {
     nomvaUserId,
     deviceToken,
+    tokenHash,
     session,
   };
 }
@@ -1000,8 +1093,23 @@ app.use(
     max: 120,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => timingSafeEqualSecret(
+      req.headers["x-nomva-automation-token"],
+      NOMVA_AUTOMATION_TOKEN
+    ),
   })
 );
+
+const appAuthLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => timingSafeEqualSecret(
+    req.headers["x-nomva-automation-token"],
+    NOMVA_AUTOMATION_TOKEN
+  ),
+});
 
 const vowntilBreachLimiter = rateLimit({
   windowMs: 60_000,
@@ -1046,7 +1154,7 @@ app.post("/vowntil/v1/breach", vowntilBreachLimiter, async (req, res) => {
   }
 });
 
-app.post("/v1/auth/challenge", (req, res) => {
+app.post("/v1/auth/challenge", appAuthLimiter, (req, res) => {
   const nomvaUserId = normalizeIdentifier(req.headers["x-nomva-user-id"] || req.body?.nomvaUserId);
   const deviceToken = typeof req.headers["x-nomva-device-token"] === "string"
     ? req.headers["x-nomva-device-token"]
@@ -1061,7 +1169,7 @@ app.post("/v1/auth/challenge", (req, res) => {
   return res.json(createAppAttestChallenge(nomvaUserId, deviceToken));
 });
 
-app.post("/v1/auth/verify", (req, res) => {
+app.post("/v1/auth/verify", appAuthLimiter, (req, res) => {
   const identity = appAttestIdentityFromRequest(req);
   if (identity.error) {
     return res.status(400).json({ error: identity.error });
@@ -1093,6 +1201,7 @@ app.post("/v1/auth/verify", (req, res) => {
       keyId,
       publicKey: result.publicKey,
       signCount: 0,
+      environment: result.environment,
       createdAt: appAttestStore.identities[identity.identityKey]?.createdAt || new Date().toISOString(),
       lastAssertedAt: null,
     });
@@ -1113,15 +1222,21 @@ app.use("/v1", (req, res, next) => {
     return res.status(400).json({ error: identity.error });
   }
 
-  if (ALLOW_SIMULATOR_AUTH) {
+  const nonAttestedTrust = resolveNonAttestedTrust({
+    headers: req.headers,
+    remoteAddress: req.socket?.remoteAddress,
+    nodeEnv: process.env.NODE_ENV,
+    allowSimulatorAuth: ALLOW_SIMULATOR_AUTH,
+    automationToken: NOMVA_AUTOMATION_TOKEN,
+  });
+  if (nonAttestedTrust.error) {
+    return res.status(401).json({ error: nonAttestedTrust.error });
+  }
+  if (nonAttestedTrust.trust) {
     req.nomvaUserId = identity.nomvaUserId;
     req.nomvaDeviceToken = identity.deviceToken;
-    req.nomvaAppTrust = { mode: "simulator" };
+    req.nomvaAppTrust = nonAttestedTrust.trust;
     return next();
-  }
-
-  if (req.headers["x-nomva-app-attest-mode"] === "simulator") {
-    return res.status(401).json({ error: "simulator_auth_disabled" });
   }
 
   const attestationHeader = parseAppAttestHeader(req.headers["x-nomva-app-attest"]);
@@ -1135,6 +1250,9 @@ app.use("/v1", (req, res, next) => {
 
   const stored = appAttestStore.identities[identity.identityKey];
   if (!stored || stored.keyId !== attestationHeader.keyId) {
+    return res.status(401).json({ error: "invalid_app_attest" });
+  }
+  if (process.env.NODE_ENV === "production" && stored.environment !== "production") {
     return res.status(401).json({ error: "invalid_app_attest" });
   }
 
@@ -1160,14 +1278,18 @@ app.use("/v1", (req, res, next) => {
 
     req.nomvaUserId = identity.nomvaUserId;
     req.nomvaDeviceToken = identity.deviceToken;
-    req.nomvaAppTrust = { mode: "app_attest", keyId: stored.keyId };
+    req.nomvaAppTrust = {
+      mode: "app_attest",
+      environment: stored.environment || "unknown",
+      keyId: stored.keyId,
+    };
     return next();
   } catch (_error) {
     return res.status(401).json({ error: "invalid_app_attest" });
   }
 });
 
-app.post("/v1/auth/register", (req, res) => {
+app.post("/v1/auth/register", appAuthLimiter, async (req, res) => {
   const nomvaUserId = req.nomvaUserId || normalizeIdentifier(req.headers["x-nomva-user-id"] || req.body?.nomvaUserId);
   const deviceToken = req.nomvaDeviceToken || (
     typeof req.headers["x-nomva-device-token"] === "string"
@@ -1181,10 +1303,36 @@ app.post("/v1/auth/register", (req, res) => {
     return res.status(400).json({ error: "missing_identity" });
   }
 
-  const session = issueAppSession(nomvaUserId, deviceToken);
+  const evidence = req.body?.entitlementEvidence || {};
+  let entitlement;
+  try {
+    entitlement = await appStoreEntitlementVerifier.evaluate({
+      trustMode: req.nomvaAppTrust?.mode,
+      appAttestEnvironment: req.nomvaAppTrust?.environment,
+      nomvaUserId,
+      appTransactionJWS: evidence.appTransactionJWS,
+      subscriptionTransactionJWS: evidence.subscriptionTransactionJWS,
+    });
+  } catch (error) {
+    console.error("App Store entitlement verification failed:", error);
+    return res.status(503).json({ error: "entitlement_verification_unavailable" });
+  }
+
+  if (ENTITLEMENT_MODE === "enforce" && !entitlementIsActive(entitlement)) {
+    return res.status(403).json({
+      error: "entitlement_required",
+      entitlementStatus: entitlement.status,
+    });
+  }
+
+  const session = issueAppSession(nomvaUserId, deviceToken, {
+    trust: req.nomvaAppTrust,
+    entitlement,
+  });
   return res.json({
     token: session.token,
     expiresAt: session.expiresAt,
+    entitlement: session.entitlement,
   });
 });
 
@@ -1201,6 +1349,77 @@ app.use("/v1", (req, res, next) => {
 
   req.nomvaUserId = session.nomvaUserId;
   req.nomvaSession = session.session;
+  req.nomvaSessionTokenHash = session.tokenHash;
+  if (ENTITLEMENT_MODE === "enforce" && !entitlementIsActive(session.session.entitlement)) {
+    return res.status(401).json({ error: "entitlement_refresh_required" });
+  }
+  return next();
+});
+
+const AI_ROUTE_PATHS = new Set([
+  "/classify-intent",
+  "/split-foods",
+  "/plan-food-log",
+  "/resolve-food-candidate",
+  "/search-food-catalog",
+  "/build-food-search-query",
+  "/choose-food-candidate",
+  "/validate-food-candidate",
+  "/confirm-match",
+  "/extract-servings",
+  "/extract-meal",
+  "/extract-water-mutation",
+  "/extract-weight-mutation",
+  "/extract-food-move",
+  "/pick-delete-targets",
+  "/pick-edit-target",
+  "/resolve-edit-request",
+  "/estimate-grams",
+  "/find-food-step",
+  "/extract-goal",
+  "/parse-data-query",
+  "/general-reply",
+  "/suggest-recent-foods",
+  "/analyze-photo",
+]);
+
+function consumePersistentRequestBudget(req, res, { scope, max, windowMs }) {
+  const userHash = hashDeviceToken(req.nomvaUserId).slice(0, 32);
+  const result = stateStore.consumeRateLimit({
+    scopeKey: `${scope}:${userHash}`,
+    windowMs,
+    max,
+  });
+  res.setHeader(`X-Nomva-${scope}-Limit`, String(max));
+  res.setHeader(`X-Nomva-${scope}-Remaining`, String(result.remaining));
+  res.setHeader(`X-Nomva-${scope}-Reset`, String(Math.ceil(result.resetAt / 1_000)));
+  if (!result.allowed) {
+    res.setHeader("Retry-After", String(Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1_000))));
+  }
+  return result.allowed;
+}
+
+app.use("/v1", (req, res, next) => {
+  if (!AI_ROUTE_PATHS.has(req.path)) {
+    return next();
+  }
+  if (["automation", "local_simulator"].includes(req.nomvaSession?.trustMode)) {
+    return next();
+  }
+
+  const dailyAllowed = consumePersistentRequestBudget(req, res, {
+    scope: "AI-Daily",
+    max: AI_REQUESTS_PER_DAY,
+    windowMs: 24 * 60 * 60 * 1_000,
+  });
+  const photoAllowed = req.path !== "/analyze-photo" || consumePersistentRequestBudget(req, res, {
+    scope: "Photo-Daily",
+    max: PHOTO_REQUESTS_PER_DAY,
+    windowMs: 24 * 60 * 60 * 1_000,
+  });
+  if (!dailyAllowed || !photoAllowed) {
+    return res.status(429).json({ error: "daily_ai_limit_reached" });
+  }
   return next();
 });
 
@@ -1300,11 +1519,20 @@ const webFoodOpenAI = new OpenAI({
   maxRetries: 0,
 });
 
-function webFoodResolverForRequest(req) {
+function webFoodResolverForRequest(req, foodMention = "") {
+  const configuredSearchContext = String(
+    process.env.NOMVA_WEB_FOOD_SEARCH_CONTEXT_SIZE || "low"
+  ).toLowerCase();
+  const requiresExactSizeResearch = requiresExactMenuResearch(foodMention);
+  const selectedModel = requiresExactSizeResearch ? WEB_FOOD_PUBLISHED_MODEL : WEB_FOOD_MODEL;
   return createWebFoodResolver({
     openai: webFoodOpenAI,
     knowledgeStore: foodKnowledgeStore,
-    model: WEB_FOOD_MODEL,
+    model: selectedModel,
+    searchContextSize: ["low", "medium", "high"].includes(configuredSearchContext)
+      ? configuredSearchContext
+      : "low",
+    reasoningEffort: process.env.NOMVA_WEB_FOOD_REASONING_EFFORT || "none",
     onEvent: (event) => {
       const success = event.type === "resolved" || event.type === "no_match";
       analyticsStore.record({
@@ -1313,7 +1541,7 @@ function webFoodResolverForRequest(req) {
         userHash: analyticsUserHash(req.nomvaUserId),
         sessionHash: analyticsSessionHash(req),
         route: req.path,
-        model: event.model || WEB_FOOD_MODEL,
+        model: event.model || selectedModel,
         llmTask: "resolve_web_food",
         durationMs: event.durationMs,
         totalTokens: event.usage?.total_tokens || null,
@@ -1321,11 +1549,43 @@ function webFoodResolverForRequest(req) {
         errorCode: event.type === "error" ? `openai_${event.error?.status || "error"}` : null,
         properties: {
           resultType: event.type,
+          reason: event.reason || null,
           quality: event.quality || null,
         },
       });
     },
   });
+}
+
+const backgroundFoodRefreshes = new Map();
+
+function scheduleWebFoodRefresh(req, userMessage, foodMention) {
+  const key = String(foodMention || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!key || backgroundFoodRefreshes.has(key)) return;
+
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), Number(
+    process.env.NOMVA_BACKGROUND_FOOD_REFRESH_TIMEOUT_MS || 22_000
+  ));
+  const task = webFoodResolverForRequest(req, foodMention).resolve({
+    userMessage,
+    foodMention,
+    signal: abort.signal,
+    allowCached: false,
+  }).catch((error) => {
+    if (error?.name !== "AbortError") {
+      console.warn("background food refresh warning:", error.message);
+    }
+  }).finally(() => {
+    clearTimeout(timeout);
+    backgroundFoodRefreshes.delete(key);
+  });
+  backgroundFoodRefreshes.set(key, task);
 }
 
 class EmptyCompletionError extends Error {
@@ -1342,6 +1602,22 @@ async function ask(systemPrompt, userMessage, opts = {}) {
   const completionBudget = /^gpt-5/i.test(requestModel)
     ? Math.max(maxTokens * 4, 512)
     : maxTokens;
+  const structuredOutput = structuredOutputForTask(opts.task);
+  if (structuredOutput) {
+    return askStructured(
+      systemPrompt,
+      userMessage,
+      structuredOutput.name,
+      structuredOutput.schema,
+      {
+        ...opts,
+        model: requestModel,
+        maxOutputTokens: opts.maxOutputTokens || completionBudget,
+        reasoningEffort: opts.reasoningEffort || structuredOutput.reasoningEffort,
+        maxRetries: opts.maxRetries ?? 0,
+      }
+    );
+  }
   const startedAt = Date.now();
   const llmTask = opts.task || "unknown";
   console.log(`  → OpenAI call (${requestModel}) | promptChars=${userMessage.length} | maxTokens=${completionBudget}`);
@@ -1367,7 +1643,8 @@ async function ask(systemPrompt, userMessage, opts = {}) {
     // larger budget) recovers most of those instead of failing the request.
     let response = null;
     let text = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = Math.max(1, Math.min(2, Number(opts.maxAttempts || 2)));
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt === 1 && /^gpt-5/i.test(requestModel)) {
         request.max_completion_tokens = completionBudget * 2;
       }
@@ -1435,11 +1712,96 @@ async function ask(systemPrompt, userMessage, opts = {}) {
   }
 }
 
+async function askStructured(systemPrompt, userMessage, schemaName, schema, opts = {}) {
+  const requestModel = opts.model || MODEL;
+  const maxOutputTokens = Math.max(64, Number(opts.maxOutputTokens) || 1_000);
+  const promptChars = Number.isFinite(opts.promptChars)
+    ? Math.max(0, opts.promptChars)
+    : typeof userMessage === "string"
+      ? userMessage.length
+      : 0;
+  const startedAt = Date.now();
+  const llmTask = opts.task || "unknown";
+  console.log(
+    `  → OpenAI Responses call (${requestModel}) | promptChars=${promptChars} | schema=${schemaName}`
+  );
+
+  try {
+    const result = await requestStructuredJSON({
+      openai,
+      model: requestModel,
+      instructions: systemPrompt,
+      input: userMessage,
+      schemaName,
+      schema,
+      maxOutputTokens,
+      reasoningEffort: opts.reasoningEffort,
+      signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
+      maxRetries: opts.maxRetries,
+      safetyIdentifier: opts.userHash,
+      cacheKey: opts.cacheKey || `nomva_${llmTask}_v1`,
+    });
+    const usage = result.response?.usage;
+    console.log(
+      `  ← OpenAI Responses output | chars=${result.text.length} | tokens=${usage?.total_tokens || "?"}`
+    );
+    analyticsStore.record({
+      source: "server",
+      eventType: "llm_call",
+      userHash: opts.userHash || null,
+      sessionHash: opts.sessionHash || null,
+      route: opts.route || null,
+      model: requestModel,
+      llmTask,
+      durationMs: Date.now() - startedAt,
+      promptChars,
+      responseChars: result.text.length,
+      totalTokens: usage?.total_tokens || null,
+      success: true,
+      properties: {
+        api: "responses",
+        schemaName,
+        maxOutputTokens,
+        promptSystemChars: systemPrompt.length,
+      },
+    });
+    return result.value;
+  } catch (error) {
+    analyticsStore.record({
+      source: "server",
+      eventType: "llm_call",
+      userHash: opts.userHash || null,
+      sessionHash: opts.sessionHash || null,
+      route: opts.route || null,
+      model: requestModel,
+      llmTask,
+      durationMs: Date.now() - startedAt,
+      promptChars,
+      success: false,
+      errorCode: error instanceof EmptyStructuredResponseError
+        ? "llm_empty_structured_response"
+        : error instanceof SyntaxError || error instanceof TypeError
+          ? "llm_json_parse_error"
+          : error?.status
+            ? `openai_${error.status}`
+            : "openai_error",
+      properties: {
+        api: "responses",
+        schemaName,
+        maxOutputTokens,
+      },
+    });
+    throw error;
+  }
+}
+
 // Distinguishes "the model is unavailable / returned nothing" (503, client
 // may auto-retry) from a genuine server fault (500). Never leaks err.message.
 function respondLLMFailure(res, err, code) {
   console.error(`${code}:`, err.message);
   const upstreamUnavailable = err instanceof EmptyCompletionError
+    || err instanceof EmptyStructuredResponseError
     || err?.status === 429
     || (typeof err?.status === "number" && err.status >= 500)
     || err?.name === "APIConnectionTimeoutError"
@@ -1460,63 +1822,6 @@ function llmAnalyticsOptions(req, task, extra = {}) {
   };
 }
 
-async function verifyResolvedFoodPick(req, {
-  userMessage,
-  foodMention,
-  selectedFood,
-  servings,
-  portionDescription,
-  servingUnit,
-  confident,
-  hasExplicitPortion,
-}, signal = undefined) {
-  const brand = selectedFood.brand ? `\nSelected brand: ${selectedFood.brand}` : "";
-  const serving = selectedFood.servingDescription ? `\nSelected serving: ${selectedFood.servingDescription}` : "";
-  const grams = typeof selectedFood.servingGrams === "number" ? `\nSelected serving grams: ${Math.round(selectedFood.servingGrams)}` : "";
-  const source = selectedFood.source ? `\nSelected source: ${selectedFood.source}` : "";
-  const userPrompt = [
-    `User said: "${userMessage}"`,
-    `Food mention: "${foodMention}"`,
-    `Selected row: "${selectedFood.name}"${brand}${serving}${grams}${source}`,
-    `Selected basis: ${selectedFood.portionBasis || "grams"}`,
-    `Selected calories per serving: ${typeof selectedFood.caloriesPerServing === "number" ? Math.round(selectedFood.caloriesPerServing) : "unknown"}`,
-    `Proposed servings: ${servings}`,
-    `Proposed portion: "${portionDescription}"`,
-    `Proposed serving unit: "${servingUnit}"`,
-    `Proposed confident: ${confident === true}`,
-    `Proposed hasExplicitPortion: ${hasExplicitPortion === true}`,
-  ].join("\n");
-
-  const result = await ask(
-    prompts.VERIFY_RESOLVED_FOOD_PICK,
-    userPrompt,
-    llmAnalyticsOptions(req, "verify_resolved_food_pick", {
-      maxTokens: 220,
-      model: FOOD_RESOLUTION_MODEL,
-      signal,
-    })
-  );
-
-  return {
-    accept: result.accept === true,
-    servings: boundedServings(result.servings, boundedServings(servings, 1)),
-    portionDescription: typeof result.portionDescription === "string" && result.portionDescription.trim()
-      ? result.portionDescription.trim()
-      : portionDescription,
-    servingUnit: typeof result.servingUnit === "string" && result.servingUnit.trim()
-      ? result.servingUnit.trim()
-      : servingUnit,
-    confident: typeof result.confident === "boolean" ? result.confident : confident,
-    hasExplicitPortion: typeof result.hasExplicitPortion === "boolean" ? result.hasExplicitPortion : hasExplicitPortion,
-    retryQuery: typeof result.retryQuery === "string" && result.retryQuery.trim()
-      ? result.retryQuery.trim()
-      : null,
-    feedback: typeof result.feedback === "string" && result.feedback.trim()
-      ? result.feedback.trim()
-      : null,
-  };
-}
-
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 // Health check (no auth required)
@@ -1528,6 +1833,12 @@ app.get("/health", (_req, res) => res.json({
     error: foodSearchStore.error || null,
   },
   foodKnowledge: foodKnowledgeStore.stats(),
+  security: {
+    appAttestDevelopmentAllowed: APP_ATTEST_ALLOW_DEVELOPMENT,
+    automationConfigured: Boolean(NOMVA_AUTOMATION_TOKEN),
+    entitlementMode: ENTITLEMENT_MODE,
+    appStoreVerificationConfigured: appStoreEntitlementVerifier.configured,
+  },
 }));
 
 app.get("/food-estimates", (_req, res) => {
@@ -1981,15 +2292,18 @@ app.post("/v1/plan-food-log", async (req, res) => {
       return res.status(422).json({ error: "structured_plan_not_needed" });
     }
 
-    const rawPlan = await ask(
+    const rawPlan = await askStructured(
       FOOD_LOG_PLANNER_PROMPT,
       `User message: "${userMessage}"`,
+      "food_log_plan",
+      FOOD_LOG_PLAN_SCHEMA,
       llmAnalyticsOptions(req, "plan_food_log", {
-        maxTokens: 900,
+        maxOutputTokens: 2_400,
         model: FOOD_LOG_PLANNING_MODEL,
         reasoningEffort: "low",
-        timeoutMs: 18_000,
+        timeoutMs: Number(process.env.NOMVA_FOOD_PLANNING_TIMEOUT_MS || 8_000),
         maxRetries: 0,
+        maxAttempts: 1,
       })
     );
     const plan = sanitizeFoodLogPlan(rawPlan);
@@ -2018,6 +2332,7 @@ app.post("/v1/plan-food-log", async (req, res) => {
           sourceUrl: AI_ESTIMATE_SOURCE_URL,
           sourceTitle: "Nomva AI nutrition estimate",
           evidence: estimate.assumptions,
+          components: estimate.components,
         }, [item.mention, item.searchQuery]);
       } catch (error) {
         console.warn("composite estimate cache warning:", error.message);
@@ -2033,8 +2348,14 @@ app.post("/v1/plan-food-log", async (req, res) => {
 // static nutrition DB when no current menu lookup is needed or available.
 app.post("/v1/resolve-food-candidate", async (req, res) => {
   try {
-    const { userMessage = "", foodMention = "", resolutionHint = "" } = req.body || {};
+    const {
+      userMessage = "",
+      foodMention = "",
+      searchQuery = "",
+      resolutionHint = "",
+    } = req.body || {};
     const trimmedMention = String(foodMention).trim();
+    const trimmedQuery = String(searchQuery).trim().slice(0, 220) || trimmedMention;
     const normalizedHint = ["single", "composite", "menu"].includes(resolutionHint)
       ? resolutionHint
       : "";
@@ -2049,8 +2370,9 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       if (!res.writableEnded) abort.abort();
     });
 
-    const webResolver = webFoodResolverForRequest(req);
+    const webResolver = webFoodResolverForRequest(req, trimmedMention);
     let attemptedWebResolution = false;
+    const explicitlyRequiresCurrentMenuSource = normalizedHint === "menu" || isMenuFoodMention(trimmedMention);
 
     const tryWebResolution = async () => {
       attemptedWebResolution = true;
@@ -2068,32 +2390,122 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       }
     };
 
-    // A learned exact match is already validated and should never wait behind
-    // a broad 798k-row static search. Besides making repeat logs effectively
-    // instant, this prevents a stale packaged-food row from displacing the
-    // user's previously learned menu item.
+    const tryWorldResolution = async (signal = abort.signal) => {
+      try {
+        return await resolveWorldFoodEstimate({
+          userMessage,
+          foodMention: trimmedMention,
+          knowledgeStore: foodKnowledgeStore,
+          sourceUrl: AI_ESTIMATE_SOURCE_URL,
+          askAgent: (input) => askStructured(
+            WORLD_FOOD_ESTIMATE_PROMPT,
+            input,
+            "world_food_estimate",
+            WORLD_FOOD_ESTIMATE_SCHEMA,
+            llmAnalyticsOptions(req, "estimate_world_food", {
+              maxOutputTokens: 1_000,
+              model: WORLD_FOOD_MODEL,
+              reasoningEffort: process.env.NOMVA_WORLD_FOOD_REASONING_EFFORT || "none",
+              signal,
+              timeoutMs: Number(process.env.NOMVA_WORLD_FOOD_TIMEOUT_MS || 7_000),
+              maxRetries: 0,
+              maxAttempts: 1,
+            })
+          ),
+        });
+      } catch (error) {
+        if (error?.name !== "AbortError") {
+          console.warn("world food estimation warning:", error.message);
+        }
+        return null;
+      }
+    };
+
+    // A current menu request cannot be satisfied by the static USDA/package
+    // catalog. Check the small learned catalog first so repeat orders are fast,
+    // and skip the 800k-row local search on cold menu lookups entirely.
+    if (explicitlyRequiresCurrentMenuSource) {
+      const cachedMenuFood = foodKnowledgeStore.search(
+        trimmedMention,
+        { limit: 1, minimumScore: 700 }
+      )[0];
+      if (cachedMenuFood && identityMatchesMention(trimmedMention, cachedMenuFood)) {
+        const cachedResult = await webResolver.resolve({
+          userMessage,
+          foodMention: trimmedMention,
+          signal: abort.signal,
+        });
+        if (cachedResult) return res.json(cachedResult);
+      }
+    }
+
+    const catalogCandidates = foodSearchStore.isAvailable && !explicitlyRequiresCurrentMenuSource
+      ? foodSearchStore.search(trimmedQuery, { limit: 30, offset: 0 })
+      : [];
+    const requiresCurrentMenuSource = explicitlyRequiresCurrentMenuSource
+      || hasUnresolvedLeadingIdentity(trimmedMention, catalogCandidates);
+    const initialCandidates = requiresCurrentMenuSource ? [] : catalogCandidates;
+    const hasStrongAuthoritativeMatch = initialCandidates
+      .slice(0, 20)
+      .some((candidate) => isAuthoritativeReferenceSource(candidate.source)
+        && !candidate.brand
+        && candidateCompatibleWithMention(trimmedMention, candidate));
+
+    // Learned menu items make repeat logs instant, but learned generic rows
+    // must not shadow a stronger reference-database row. This keeps the cache
+    // useful without allowing one stale enrichment to poison future searches.
     const cachedLearned = foodKnowledgeStore.search(
       trimmedMention,
       { limit: 1, minimumScore: 700 }
     )[0];
-    if (cachedLearned && identityMatchesMention(trimmedMention, cachedLearned)) {
-      const cachedResult = await tryWebResolution();
+    if (cachedLearned
+        && identityMatchesMention(trimmedMention, cachedLearned)
+        && (["menu", "composite"].includes(normalizedHint) || !hasStrongAuthoritativeMatch)) {
+      const cachedResult = await webResolver.resolve({
+        userMessage,
+        foodMention: trimmedMention,
+        signal: abort.signal,
+      });
       if (cachedResult) return res.json(cachedResult);
     }
 
-    const initialCandidates = foodSearchStore.isAvailable
-      ? foodSearchStore.search(trimmedMention, { limit: 10, offset: 0 })
-      : [];
-
-    // Restaurant names, menu sizes, and searches with no viable database row
-    // are retrieval problems. Search the current web before asking a model to
-    // choose among stale packaged-food rows.
-    if (["composite", "menu"].includes(normalizedHint)
-        || shouldTryWebFirst(trimmedMention, initialCandidates)) {
-      const webResult = await tryWebResolution();
-      if (webResult) {
-        return res.json(webResult);
+    const hasStrongCatalogMatch = initialCandidates
+      .slice(0, 20)
+      .some((candidate) => candidateCompatibleWithMention(trimmedMention, candidate)
+        && (isAuthoritativeReferenceSource(candidate.source)
+          || candidate.source === "web_published"
+          || candidate.source === "web_estimate"));
+    const defensibleCatalogCandidates = hasStrongCatalogMatch ? initialCandidates : [];
+    const webPreferred = ["composite", "menu"].includes(normalizedHint)
+      || shouldTryWebFirst(trimmedMention, defensibleCatalogCandidates);
+    // Search the web synchronously only when retrieval has no defensible local
+    // candidate. Strong catalog matches are selected immediately and refreshed
+    // from current public sources in the background for future requests.
+    if (!hasStrongCatalogMatch && webPreferred) {
+      if (requiresCurrentMenuSource) {
+        const webResult = await tryWebResolution();
+        if (webResult) return res.json(webResult);
+      } else {
+        const enrichmentAbort = new AbortController();
+        const cancelEnrichment = () => enrichmentAbort.abort();
+        abort.signal.addEventListener("abort", cancelEnrichment, { once: true });
+        const resolved = await firstNonNull([
+          tryWorldResolution(enrichmentAbort.signal),
+          tryWebResolution(enrichmentAbort.signal),
+        ], Number(process.env.NOMVA_UNKNOWN_FOOD_BUDGET_MS || 15_000));
+        cancelEnrichment();
+        abort.signal.removeEventListener("abort", cancelEnrichment);
+        if (resolved) {
+          if (resolved.source === "web_estimate" && resolved.sourceUrl === AI_ESTIMATE_SOURCE_URL) {
+            scheduleWebFoodRefresh(req, userMessage, trimmedMention);
+          }
+          return res.json(resolved);
+        }
       }
+    }
+
+    if (shouldBlockStaticFallback({ requiresCurrentMenuSource, attemptedWebResolution })) {
+      return res.status(422).json({ error: "food_candidate_not_found" });
     }
 
     if (!foodSearchStore.isAvailable) {
@@ -2107,21 +2519,29 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
     const outcome = await runFoodResolver({
       userMessage,
       foodMention: trimmedMention,
+      searchQuery: trimmedQuery,
       foodSearchStore,
-      deadlineMs: attemptedWebResolution
-        ? Number(process.env.NOMVA_FOOD_RESOLUTION_AFTER_WEB_DEADLINE_MS || 8_000)
-        : Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 12_000),
-      askAgent: (userPrompt) => ask(
-        prompts.RESOLVE_FOOD_CANDIDATE_AGENT,
+      deadlineMs: Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 7_000),
+      askAgent: (userPrompt) => askStructured(
+        prompts.SELECT_FOOD_CANDIDATE,
         userPrompt,
+        "food_candidate_selection",
+        FOOD_SELECTION_SCHEMA,
         llmAnalyticsOptions(req, "resolve_food_candidate", {
-          maxTokens: 360,
+          maxOutputTokens: 700,
           model: FOOD_RESOLUTION_MODEL,
+          reasoningEffort: "none",
           signal: abort.signal,
+          timeoutMs: Number(process.env.NOMVA_FOOD_SELECTION_TIMEOUT_MS || 7_000),
+          maxRetries: 0,
+          maxAttempts: 1,
         })
       ),
-      verifyPick: (payload) => verifyResolvedFoodPick(req, payload, abort.signal),
     });
+
+    if (outcome.status === 200 && webPreferred && !attemptedWebResolution) {
+      scheduleWebFoodRefresh(req, userMessage, trimmedMention);
+    }
 
     if (outcome.status === 422 && !attemptedWebResolution) {
       const webResult = await tryWebResolution();
@@ -2163,7 +2583,7 @@ app.post("/v1/search-food-catalog", foodWebLookupLimiter, async (req, res) => {
   ]));
 
   try {
-    const resolved = await webFoodResolverForRequest(req).resolve({
+    const resolved = await webFoodResolverForRequest(req, query).resolve({
       userMessage: query,
       foodMention: query,
       signal: abort.signal,
@@ -2701,7 +3121,6 @@ app.post("/v1/suggest-recent-foods", async (req, res) => {
 
 // 10. Analyze food photo (vision)
 app.post("/v1/analyze-photo", async (req, res) => {
-  const startedAt = Date.now();
   const nutritionLabelRequest = req.body?.scanType === "nutrition_label";
   const llmOptions = llmAnalyticsOptions(
     req,
@@ -2729,60 +3148,33 @@ app.post("/v1/analyze-photo", async (req, res) => {
 
     const userContent = [
       {
-        type: "image_url",
-        image_url: { url: `data:${mediaType};base64,${rawBase64}`, detail: "high" },
+        type: "input_image",
+        image_url: `data:${mediaType};base64,${rawBase64}`,
+        detail: "high",
       },
     ];
     if (userMessage.trim()) {
-      userContent.push({ type: "text", text: userMessage.trim() });
+      userContent.push({ type: "input_text", text: userMessage.trim() });
     }
     promptChars = userMessage.length;
 
-    console.log(`  → OpenAI vision call (${MODEL}) | imageBytes≈${Math.round(rawBase64.length * 0.75)}`);
-
-    const visionCompletionBudget = /^gpt-5/i.test(MODEL) ? 4_096 : 1_024;
-    const visionRequest = {
-      model: MODEL,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    };
-    if (/^gpt-5/i.test(MODEL)) {
-      visionRequest.max_completion_tokens = visionCompletionBudget;
-      visionRequest.reasoning_effort = "low";
-    } else {
-      visionRequest.temperature = 0.1;
-      visionRequest.max_tokens = visionCompletionBudget;
-    }
-
-    const response = await openai.chat.completions.create(visionRequest);
-
-    const text = response.choices[0]?.message?.content?.trim();
-    const usage = response.usage;
-    console.log(`  ← OpenAI vision response | chars=${text?.length || 0} | tokens=${usage?.total_tokens || "?"}`);
-    const result = JSON.parse(text);
-    analyticsStore.record({
-      source: "server",
-      eventType: "llm_call",
-      userHash: llmOptions.userHash,
-      sessionHash: llmOptions.sessionHash,
-      route: llmOptions.route,
-      model: MODEL,
-      llmTask: llmOptions.task,
-      durationMs: Date.now() - startedAt,
-      promptChars,
-      responseChars: text?.length || 0,
-      totalTokens: usage?.total_tokens || null,
-      success: true,
-      properties: {
-        maxTokens: visionCompletionBudget,
-        promptSystemChars: systemPrompt.length,
-        imageBytesApprox: Math.round(rawBase64.length * 0.75),
-        scanType: isNutritionLabel ? "nutrition_label" : "meal",
-      },
-    });
+    console.log(`  → OpenAI vision input (${VISION_MODEL}) | imageBytes≈${Math.round(rawBase64.length * 0.75)}`);
+    const result = await askStructured(
+      systemPrompt,
+      [{ role: "user", content: userContent }],
+      isNutritionLabel ? "nutrition_label_analysis" : "food_photo_analysis",
+      isNutritionLabel ? ANALYZE_NUTRITION_LABEL_SCHEMA : ANALYZE_PHOTO_SCHEMA,
+      {
+        ...llmOptions,
+        model: VISION_MODEL,
+        maxOutputTokens: 2_400,
+        reasoningEffort: "low",
+        timeoutMs: Number(process.env.NOMVA_VISION_TIMEOUT_MS || 25_000),
+        maxRetries: 0,
+        promptChars,
+        cacheKey: isNutritionLabel ? "nomva_nutrition_label_v1" : "nomva_food_photo_v1",
+      }
+    );
 
     // The vision model's JSON is untrusted input; validate and clamp every
     // numeric field before it reaches the client.
@@ -2792,26 +3184,6 @@ app.post("/v1/analyze-photo", async (req, res) => {
         : sanitizePhotoAnalysis(result)
     );
   } catch (err) {
-    analyticsStore.record({
-      source: "server",
-      eventType: "llm_call",
-      userHash: llmOptions.userHash,
-      sessionHash: llmOptions.sessionHash,
-      route: llmOptions.route,
-      model: MODEL,
-      llmTask: llmOptions.task,
-      durationMs: Date.now() - startedAt,
-      promptChars,
-      success: false,
-      errorCode: err instanceof SyntaxError
-        ? "llm_json_parse_error"
-        : err?.status
-          ? `openai_${err.status}`
-          : "openai_error",
-      properties: {
-        maxTokens: 1024,
-      },
-    });
     // No err.message in the response body: internal detail stays in logs.
     return respondLLMFailure(res, err, "photo_analysis_failed");
   }
@@ -2820,8 +3192,14 @@ app.post("/v1/analyze-photo", async (req, res) => {
 // ── Global Error Handling ──────────────────────────────────────────────────
 
 app.use((err, req, res, next) => {
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ error: "request_too_large" });
+  }
+  if (err instanceof SyntaxError && err?.status === 400) {
+    return res.status(400).json({ error: "invalid_json" });
+  }
   console.error("Unhandled API error:", err);
-  res.status(500).json({ error: "internal_server_error" });
+  return res.status(500).json({ error: "internal_server_error" });
 });
 
 process.on("uncaughtException", (err) => {

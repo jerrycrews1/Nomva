@@ -7,8 +7,13 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
 const ROOT = path.join(__dirname, "..");
+const serverEnvPath = path.join(ROOT, "server", ".env");
+if (fs.existsSync(serverEnvPath)) {
+  require(path.join(ROOT, "server", "node_modules", "dotenv")).config({ path: serverEnvPath });
+}
 const DEFAULT_BASE_URL = "https://nomva.nerdquad.com";
 const BASE_URL = process.env.NOMVA_POWER_TEST_BASE_URL || DEFAULT_BASE_URL;
+const AUTOMATION_TOKEN = process.env.NOMVA_AUTOMATION_TOKEN || "";
 const REPORT_DIR = process.env.NOMVA_POWER_TEST_REPORT_DIR
   || path.join(ROOT, "reports", "power-test");
 const MAX_LATENCY_MS = Number(process.env.NOMVA_POWER_TEST_MAX_LATENCY_MS || 20_000);
@@ -74,8 +79,12 @@ class NomvaAPI {
       "Content-Type": "application/json",
       "X-Nomva-User-ID": this.userId,
       "X-Nomva-Device-Token": this.deviceToken,
-      "X-Nomva-App-Attest-Mode": "simulator",
     };
+    if (AUTOMATION_TOKEN) {
+      headers["X-Nomva-Automation-Token"] = AUTOMATION_TOKEN;
+    } else {
+      headers["X-Nomva-App-Attest-Mode"] = "simulator";
+    }
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     return headers;
   }
@@ -131,6 +140,9 @@ class NomvaAPI {
   }
 
   async register() {
+    if (!AUTOMATION_TOKEN && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(this.baseURL)) {
+      throw new Error("NOMVA_AUTOMATION_TOKEN is required for remote power-test runs.");
+    }
     const response = await this.request("/v1/auth/register", {
       nomvaUserId: this.userId,
       deviceToken: this.deviceToken,

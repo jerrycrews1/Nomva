@@ -5,7 +5,7 @@ Nomva Food Database Builder
 Run this on your Mac to build the full foods.sqlite from scratch.
 
 Downloads:
-  - USDA FoodData Central (SR Legacy + Branded Foods)
+  - USDA FoodData Central (Foundation + FNDDS + SR Legacy + Branded Foods)
   - Open Food Facts (filtered to US products with barcodes)
 
 Then merges them into a single SQLite database where USDA is the source of
@@ -35,6 +35,12 @@ import time
 import urllib.request
 import zipfile
 
+from usda_reference_data import (
+    discover_single_json,
+    insert_reference_foods,
+    rebuild_search_index,
+)
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -50,7 +56,15 @@ USDA_SR_LEGACY_URLS = [
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2024-10-31.zip",
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_current.zip",
 ]
+USDA_FOUNDATION_URLS = [
+    "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2026-04-30.zip",
+    "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2025-12-18.zip",
+]
+USDA_FNDDS_URLS = [
+    "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip",
+]
 USDA_BRANDED_URLS = [
+    "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2026-04-30.zip",
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2025-12-18.zip",
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2024-10-31.zip",
     "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_current.zip",
@@ -557,10 +571,14 @@ def create_schema(conn):
             name            TEXT NOT NULL,
             brand           TEXT,
             source          TEXT NOT NULL,
+            search_terms    TEXT,
             serving_g       REAL,
             serving_desc    TEXT,
             portion_basis   TEXT NOT NULL DEFAULT 'grams',
             serving_source  TEXT,
+            default_serving_g REAL,
+            default_serving_desc TEXT,
+            default_serving_source TEXT,
             calories        REAL,
             protein_g       REAL,
             carbs_g         REAL,
@@ -588,7 +606,7 @@ def create_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_barcode ON foods(barcode)")
     conn.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS foods_fts USING fts5(
-            name, brand, content='foods', content_rowid='id'
+            name, brand, search_terms, content='foods', content_rowid='id'
         )
     """)
     conn.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)")
@@ -1211,6 +1229,8 @@ def main():
     print("STEP 0: Downloading data sources\n")
 
     sr_zip = os.path.join(DATA_DIR, "sr_legacy.zip")
+    foundation_zip = os.path.join(DATA_DIR, "foundation-2026-04-30.zip")
+    fndds_zip = os.path.join(DATA_DIR, "fndds-2021-2023.zip")
     branded_zip = os.path.join(DATA_DIR, "branded.zip")
     off_gz = os.path.join(DATA_DIR, "openfoodfacts-products.jsonl.gz")
     off_jsonl = os.path.join(DATA_DIR, "openfoodfacts-products.jsonl")
@@ -1239,6 +1259,9 @@ def main():
         print(f"  USDA SR Legacy: found local data at {old_sr}")
     else:
         download_with_fallback(USDA_SR_LEGACY_URLS, sr_zip, "USDA SR Legacy")
+
+    download_with_fallback(USDA_FOUNDATION_URLS, foundation_zip, "USDA Foundation")
+    download_with_fallback(USDA_FNDDS_URLS, fndds_zip, "USDA FNDDS 2021-2023")
 
     if has_local_branded:
         print(f"  USDA Branded: found local data at {old_branded}")
@@ -1287,6 +1310,16 @@ def main():
         print(f"  !! Save to: {branded_zip}")
         sys.exit(1)
 
+    foundation_dir = os.path.join(DATA_DIR, "foundation")
+    fndds_dir = os.path.join(DATA_DIR, "fndds")
+    extract_zip(foundation_zip, foundation_dir, "Foundation")
+    extract_zip(fndds_zip, fndds_dir, "FNDDS")
+    foundation_json = discover_single_json(foundation_dir)
+    fndds_json = discover_single_json(fndds_dir)
+    if not foundation_json or not fndds_json:
+        print("  !! ERROR: Foundation or FNDDS JSON was not extracted correctly.")
+        sys.exit(1)
+
     # Open Food Facts — check .gz first, then uncompressed .jsonl, then old candidates
     if not os.path.exists(off_gz):
         # Check for uncompressed .jsonl in _build_data
@@ -1320,7 +1353,20 @@ def main():
 
     # ── Step 2: Insert USDA data ───────────────────────────────────────────
     print("STEP 2: Loading USDA data\n")
-    sr_count = insert_sr_legacy(conn, sr_dir)
+    sr_json = discover_single_json(sr_dir)
+    if not sr_json:
+        raise RuntimeError("SR Legacy JSON is missing")
+    sr_count = insert_reference_foods(
+        conn, sr_json, "SRLegacyFoods", "sr_legacy"
+    )["inserted"]
+    foundation_stats = insert_reference_foods(
+        conn, foundation_json, "FoundationFoods", "foundation"
+    )
+    print(f"  Foundation: {foundation_stats['inserted']:,} foods")
+    fndds_stats = insert_reference_foods(
+        conn, fndds_json, "SurveyFoods", "survey_fndds"
+    )
+    print(f"  FNDDS: {fndds_stats['inserted']:,} foods")
     branded_count = insert_branded(conn, branded_dir)
 
     # ── Step 3: Merge OFF ──────────────────────────────────────────────────
@@ -1329,7 +1375,7 @@ def main():
 
     # ── Step 4: Build FTS index ────────────────────────────────────────────
     print("\nSTEP 4: Building search index...")
-    conn.execute("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')")
+    rebuild_search_index(conn)
     conn.commit()
     print("  FTS5 index built")
 
@@ -1340,6 +1386,9 @@ def main():
         "total_foods": str(total),
         "build_date": build_date,
         "sr_legacy_count": str(sr_count),
+        "foundation_count": str(foundation_stats["inserted"]),
+        "survey_fndds_count": str(fndds_stats["inserted"]),
+        "reference_data_version": "foundation-2026-04-30;fndds-2021-2023",
         "branded_count": str(branded_count),
         "off_inserted": str(off_stats["inserted"]),
         "off_merged": str(off_stats["merged"]),
