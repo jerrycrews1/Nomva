@@ -14,6 +14,9 @@ struct WeightLogEntryView: View {
     @State private var logDate: Date
     @State private var note: String
     @State private var didApplyDefault = false
+    @State private var isSaving = false
+    @State private var savedNewEntry: WeightEntry?
+    @State private var saveMessage: String?
     @FocusState private var isWeightFocused: Bool
 
     init(existingEntry: WeightEntry? = nil) {
@@ -123,11 +126,24 @@ struct WeightLogEntryView: View {
                         .foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
                         .fontWeight(.semibold)
                         .foregroundStyle(parsedLbs != nil ? NomvaTheme.accent : Color.secondary)
-                        .disabled(parsedLbs == nil)
+                        .disabled(parsedLbs == nil || isSaving)
                 }
+            }
+            .alert("Weight Saved", isPresented: Binding(
+                get: { saveMessage != nil },
+                set: { if !$0 { saveMessage = nil } }
+            )) {
+                Button("Done") { dismiss() }
+                Button("Try Apple Health Again") {
+                    saveMessage = nil
+                }
+            } message: {
+                Text(saveMessage ?? "")
             }
             .onAppear {
                 // For new entries, pre-fill with the most recent weight
@@ -171,18 +187,46 @@ struct WeightLogEntryView: View {
         weightText  = String(format: "%.1f", converted)
     }
 
-    private func save() {
+    @MainActor
+    private func save() async {
         guard let lbs = parsedLbs else { return }
-        if let entry = existingEntry {
+        isSaving = true
+        defer { isSaving = false }
+
+        let entry: WeightEntry
+        if let existingEntry {
+            entry = existingEntry
             entry.weightLbs = lbs
             entry.date      = logDate
             entry.note      = note.isEmpty ? nil : note
+        } else if let savedNewEntry {
+            entry = savedNewEntry
+            entry.weightLbs = lbs
+            entry.date = logDate
+            entry.note = note.isEmpty ? nil : note
         } else {
-            modelContext.insert(WeightEntry(
+            let newEntry = WeightEntry(
                 date:      logDate,
                 weightLbs: lbs,
                 note:      note.isEmpty ? nil : note
-            ))
+            )
+            modelContext.insert(newEntry)
+            savedNewEntry = newEntry
+            entry = newEntry
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            saveMessage = "Nomva couldn't save this weigh-in: \(error.localizedDescription)"
+            return
+        }
+
+        do {
+            try await WeightSyncCoordinator.exportToAppleHealth(entry, in: modelContext)
+        } catch {
+            saveMessage = "The weigh-in is safely stored in Nomva, but Apple Health could not be updated. \(error.localizedDescription)"
+            return
         }
         dismiss()
     }

@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var dbMetadata: (totalFoods: Int, buildDate: String) = (0, "Unknown")
     @State private var showPaywallPreview = false
     @State private var showGoals = false
+    @AppStorage(WeightSyncPreferences.appleHealthImportKey) private var appleHealthWeightImportEnabled = false
+    @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var appleHealthWeightExportEnabled = false
+    @AppStorage(WeightSyncPreferences.garminImportKey) private var garminWeightImportEnabled = false
     #if targetEnvironment(simulator)
     @State private var showSeedScreenshotDataConfirm = false
     @State private var simulatorSeedMessage: String?
@@ -73,6 +76,18 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("settings.garmin")
+
+                                NavigationLink {
+                                    WeightSyncSettingsView()
+                                } label: {
+                                    SettingsLinkRow(
+                                        icon: "scalemass.fill",
+                                        title: "Weight History Sync",
+                                        subtitle: weightSyncSubtitle
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("settings.weightSync")
                             }
                         }
 
@@ -402,6 +417,19 @@ struct SettingsView: View {
             return "Checking connection…"
         }
         return "Connect Garmin to personalize goals"
+    }
+
+    private var weightSyncSubtitle: String {
+        var sources: [String] = []
+        if appleHealthWeightImportEnabled || appleHealthWeightExportEnabled {
+            sources.append("Apple Health")
+        }
+        if garminWeightImportEnabled {
+            sources.append("Garmin")
+        }
+        return sources.isEmpty
+            ? "Import history and choose where weigh-ins are saved"
+            : "On for \(sources.joined(separator: " and "))"
     }
 
     #if targetEnvironment(simulator)

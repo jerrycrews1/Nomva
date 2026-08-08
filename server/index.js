@@ -38,7 +38,11 @@ const { deterministicDeleteTargets, parseLogEntries, normalizeText } = require("
 const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
-const { computeGarminAverages } = require("./garminMetrics");
+const {
+  buildGarminUploadWindows,
+  computeGarminAverages,
+  normalizedGarminWeight,
+} = require("./garminMetrics");
 const {
   entitlementIsActive,
   normalizeEntitlementMode,
@@ -138,6 +142,7 @@ const GARMIN_WEBHOOK_SHARED_SECRET = process.env.GARMIN_WEBHOOK_SHARED_SECRET ||
 const GARMIN_USER_ID_URL = process.env.GARMIN_USER_ID_URL || "https://healthapi.garmin.com/wellness-api/rest/user/id";
 const GARMIN_USER_PERMISSIONS_URL = process.env.GARMIN_USER_PERMISSIONS_URL || "https://healthapi.garmin.com/wellness-api/rest/user/permissions";
 const GARMIN_USER_REGISTRATION_URL = process.env.GARMIN_USER_REGISTRATION_URL || "https://healthapi.garmin.com/wellness-api/rest/user/registration";
+const GARMIN_BODY_COMPS_URL = process.env.GARMIN_BODY_COMPS_URL || "https://healthapi.garmin.com/wellness-api/rest/bodyComps";
 
 if (process.env.GARMIN_OAUTH_AUTHORIZE_URL || process.env.GARMIN_OAUTH_TOKEN_URL || process.env.GARMIN_OAUTH_SCOPE) {
   console.warn(
@@ -2218,6 +2223,82 @@ app.post("/v1/garmin/sync", async (req, res) => {
     console.error("garmin sync error:", err.message);
     return res.status(500).json({ error: "garmin_sync_failed", detail: err.message });
   }
+});
+
+app.post("/v1/garmin/weights/import", async (req, res) => {
+  const identity = garminUserForRequest(req);
+  if (identity.error === "missing_identity") {
+    return res.status(400).json({ error: "missing_identity" });
+  }
+  if (identity.error === "invalid_identity") {
+    return res.status(401).json({ error: "invalid_identity" });
+  }
+  if (!identity.user?.accessToken) {
+    return res.status(400).json({ error: "garmin_not_connected" });
+  }
+
+  const uploadLookbackDays = Math.max(
+    1,
+    Math.min(365, Number.parseInt(req.body?.uploadLookbackDays, 10) || 7)
+  );
+  const windows = buildGarminUploadWindows({ lookbackDays: uploadLookbackDays });
+  const weightsById = new Map();
+  let nextWindow = 0;
+  let failedWindows = 0;
+  let permissionDenied = false;
+
+  async function worker() {
+    while (nextWindow < windows.length) {
+      const window = windows[nextWindow];
+      nextWindow += 1;
+      const url = new URL(GARMIN_BODY_COMPS_URL);
+      url.searchParams.set("uploadStartTimeInSeconds", String(window.start));
+      url.searchParams.set("uploadEndTimeInSeconds", String(window.end));
+
+      try {
+        const garminResponse = await garminOAuth1Request("GET", url.toString(), [
+          ["oauth_token", identity.user.accessToken],
+        ], identity.user.tokenSecret || "");
+
+        if (!garminResponse.ok) {
+          failedWindows += 1;
+          permissionDenied ||= garminResponse.status === 401 || garminResponse.status === 403;
+          continue;
+        }
+
+        const payload = JSON.parse(await garminResponse.text() || "[]");
+        const records = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.bodyComps)
+            ? payload.bodyComps
+            : [];
+        for (const record of records) {
+          const weight = normalizedGarminWeight(record);
+          if (weight) {
+            weightsById.set(weight.id, weight);
+          }
+        }
+      } catch (error) {
+        failedWindows += 1;
+        console.error("garmin weight import window failed:", error.message);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(6, windows.length) }, () => worker()));
+  if (permissionDenied && failedWindows === windows.length) {
+    return res.status(403).json({ error: "garmin_weight_permission_required" });
+  }
+
+  const weights = Array.from(weightsById.values())
+    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
+  return res.json({
+    weights,
+    uploadLookbackDays,
+    fetchedWindows: windows.length - failedWindows,
+    failedWindows,
+    garminWeightWriteSupported: false,
+  });
 });
 
 app.delete("/v1/garmin/connection", (req, res) => {

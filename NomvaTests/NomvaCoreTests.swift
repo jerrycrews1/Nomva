@@ -117,6 +117,13 @@ struct NomvaCoreTests {
         sourceContext.insert(entry)
         sourceContext.insert(WaterEntry(amountOz: 20))
         sourceContext.insert(DailyGoal(calories: 2_000, protein: 150, carbs: 220, fat: 67))
+        sourceContext.insert(WeightEntry(
+            date: Date(timeIntervalSince1970: 1_750_000_000),
+            weightLbs: 172.4,
+            source: .garmin,
+            sourceName: "Garmin Connect",
+            externalIdentifier: "garmin:weight-1"
+        ))
         try sourceContext.save()
 
         let archive = try SyncMigrationService.captureArchive(from: source, storeKind: .local)
@@ -124,11 +131,81 @@ struct NomvaCoreTests {
         let counts = try SyncMigrationService.merge(archive: archive, into: destination)
         let destinationContext = ModelContext(destination)
 
-        #expect(archive.totalRecordCount == 3)
-        #expect(counts.inserted == 3)
+        #expect(archive.totalRecordCount == 4)
+        #expect(counts.inserted == 4)
         #expect(try destinationContext.fetch(FetchDescriptor<FoodEntry>()).first?.name == "Greek yogurt")
         #expect(try destinationContext.fetch(FetchDescriptor<WaterEntry>()).first?.amountOz == 20)
         #expect(try destinationContext.fetch(FetchDescriptor<DailyGoal>()).first?.calories == 2_000)
+        let restoredWeight = try destinationContext.fetch(FetchDescriptor<WeightEntry>()).first
+        #expect(restoredWeight?.weightLbs == 172.4)
+        #expect(restoredWeight?.dataSource == .garmin)
+        #expect(restoredWeight?.externalIdentifier == "garmin:weight-1")
+    }
+
+    @Test("Weight imports are idempotent across providers")
+    @MainActor
+    func weightImportDeduplication() throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        let measuredAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let apple = WeightImportCandidate(
+            source: .appleHealth,
+            externalIdentifier: "apple:sample-1",
+            date: measuredAt,
+            weightLbs: 172.4,
+            sourceName: "Smart Scale",
+            nomvaEntryID: nil
+        )
+
+        let first = try WeightSyncCoordinator.apply([apple], to: context)
+        let second = try WeightSyncCoordinator.apply([apple], to: context)
+        let sameMeasurementFromGarmin = WeightImportCandidate(
+            source: .garmin,
+            externalIdentifier: "garmin:sample-1",
+            date: measuredAt.addingTimeInterval(90),
+            weightLbs: 172.45,
+            sourceName: "Garmin Connect",
+            nomvaEntryID: nil
+        )
+        let crossProvider = try WeightSyncCoordinator.apply([sameMeasurementFromGarmin], to: context)
+
+        #expect(first.inserted == 1)
+        #expect(second.inserted == 0)
+        #expect(second.skipped == 1)
+        #expect(crossProvider.inserted == 0)
+        #expect(crossProvider.skipped == 1)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 1)
+    }
+
+    @Test("Distinct weigh-ins remain distinct")
+    @MainActor
+    func distinctWeightImports() throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        let measuredAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let candidates = [
+            WeightImportCandidate(
+                source: .appleHealth,
+                externalIdentifier: "apple:morning",
+                date: measuredAt,
+                weightLbs: 172.4,
+                sourceName: "Apple Health",
+                nomvaEntryID: nil
+            ),
+            WeightImportCandidate(
+                source: .appleHealth,
+                externalIdentifier: "apple:evening",
+                date: measuredAt.addingTimeInterval(3_600),
+                weightLbs: 171.8,
+                sourceName: "Apple Health",
+                nomvaEntryID: nil
+            )
+        ]
+
+        let result = try WeightSyncCoordinator.apply(candidates, to: context)
+
+        #expect(result.inserted == 2)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 2)
     }
 
     @Test("Attested cloud requests never overlap")

@@ -891,6 +891,13 @@ struct ChatView: View {
             guard commitMutation({ modelContext.insert(entry) }) else {
                 return "I couldn't save that weigh-in. Nothing was added."
             }
+            Task { @MainActor in
+                do {
+                    try await WeightSyncCoordinator.exportToAppleHealth(entry, in: modelContext)
+                } catch {
+                    WeightSyncPreferences.record(error: error)
+                }
+            }
             return "✓ Logged \(formatGoalNumber(entry.weightLbs)) lb for \(targetDateLabel)."
             
         case .updateWeight(let idStr, let weightLbs):
@@ -906,6 +913,13 @@ struct ChatView: View {
                 abs(existing.weightLbs - weightLbs) < 0.001
             }) else {
                 return "I couldn't save that weight correction. The original value is still there."
+            }
+            Task { @MainActor in
+                do {
+                    try await WeightSyncCoordinator.exportToAppleHealth(existing, in: modelContext)
+                } catch {
+                    WeightSyncPreferences.record(error: error)
+                }
             }
             presentUndo("Weight updated")
             return "Updated weight from \(formatGoalNumber(oldWeight)) lb to \(formatGoalNumber(weightLbs)) lb."

@@ -172,21 +172,70 @@ class DailyGoal {
 }
 
 // MARK: - Weight Entry
+enum WeightDataSource: String, Codable, CaseIterable, Sendable {
+    case nomva
+    case appleHealth
+    case garmin
+
+    var displayName: String {
+        switch self {
+        case .nomva: return "Nomva"
+        case .appleHealth: return "Apple Health"
+        case .garmin: return "Garmin Connect"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .nomva: return "leaf.fill"
+        case .appleHealth: return "heart.fill"
+        case .garmin: return "dot.radiowaves.left.and.right"
+        }
+    }
+}
+
 @Model
 class WeightEntry {
     var id: UUID = UUID()
     var date: Date = Date.now
     var weightLbs: Double = 160
     var note: String?
+    // Optional fields keep existing local and CloudKit stores migration-safe.
+    var sourceRaw: String?
+    var sourceName: String?
+    var externalIdentifier: String?
+    var healthSyncVersion: Int?
 
-    init(date: Date = .now, weightLbs: Double, note: String? = nil) {
+    init(
+        date: Date = .now,
+        weightLbs: Double,
+        note: String? = nil,
+        source: WeightDataSource = .nomva,
+        sourceName: String? = nil,
+        externalIdentifier: String? = nil,
+        healthSyncVersion: Int? = nil
+    ) {
         self.id = UUID()
         self.date = date
         self.weightLbs = weightLbs
         self.note = note
+        self.sourceRaw = source.rawValue
+        self.sourceName = sourceName
+        self.externalIdentifier = externalIdentifier
+        self.healthSyncVersion = healthSyncVersion
     }
 
     var weightKg: Double { weightLbs * 0.453592 }
+
+    var dataSource: WeightDataSource {
+        WeightDataSource(rawValue: sourceRaw ?? "") ?? .nomva
+    }
+
+    var resolvedSourceName: String {
+        guard let sourceName else { return dataSource.displayName }
+        let trimmed = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? dataSource.displayName : trimmed
+    }
 }
 
 // MARK: - Chat Message

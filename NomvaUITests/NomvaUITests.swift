@@ -79,6 +79,27 @@ final class NomvaUITests: XCTestCase {
     }
 
     @MainActor
+    func testWeightHistorySyncIsDiscoverableFromWeightAndSettings() throws {
+        let weightApp = launch(startingAt: "-NomvaStartWeight", appearance: "Light")
+
+        XCTAssertTrue(weightApp.navigationBars["Weight"].waitForExistence(timeout: 8))
+        let syncCard = weightApp.descendants(matching: .any)["weight.sync"].firstMatch
+        XCTAssertTrue(syncCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(syncCard.isHittable)
+        syncCard.tap()
+        XCTAssertTrue(weightApp.navigationBars["Weight Sync"].waitForExistence(timeout: 5))
+        XCTAssertTrue(weightApp.staticTexts["Import Weight History"].exists)
+        weightApp.terminate()
+
+        let settingsApp = launch(startingAt: "-NomvaStartSettings", appearance: "Dark")
+        XCTAssertTrue(settingsApp.navigationBars["Settings"].waitForExistence(timeout: 8))
+        let settingsRow = settingsApp.descendants(matching: .any)["settings.weightSync"].firstMatch
+        XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
+        settingsRow.tap()
+        XCTAssertTrue(settingsApp.navigationBars["Weight Sync"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     private func launch(
         startingAt startArgument: String,
         appearance: String,

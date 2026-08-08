@@ -42,9 +42,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Nomva uses the camera to scan barcodes, meals, and Nutrition Facts labels for food logging.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Nomva reads your Apple Health activity data to suggest a more personalized calorie goal.</string>
+	<string>Nomva reads active calories and weight history from Apple Health to personalize goals and show your existing weigh-ins.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Nomva can write your logged weight and nutrition data to Apple Health so everything stays in sync.</string>
+	<string>Nomva writes weights you log to Apple Health when you enable weight sync.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Nomva can analyze meal photos and Nutrition Facts labels that you choose for food logging.</string>
 	<key>NSUbiquitousContainers</key>

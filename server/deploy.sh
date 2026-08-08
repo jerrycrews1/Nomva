@@ -42,6 +42,7 @@ FILES=(
   portionGuard.js
   numericGuards.js
   recentFoodSuggestionGuard.js
+  garminMetrics.js
   authPolicy.js
   appStoreEntitlement.js
   package.json
@@ -52,6 +53,12 @@ CERT_FILES=(
   certs/AppleIncRootCertificate.pem
   certs/AppleRootCA-G2.pem
   certs/AppleRootCA-G3.pem
+)
+
+PUBLIC_FILES=(
+  public/index.html
+  public/privacy.html
+  public/support.html
 )
 
 # ── Local sanity: never ship with a red unit suite or a stale local DB ──────
@@ -145,9 +152,10 @@ verify_remote_db() {
 }
 
 echo "→ Staging ${#FILES[@]} source files and production dependencies"
-ssh -i "$KEY" "$HOST" "rm -rf ~/$REMOTE_STAGE && mkdir -p ~/$REMOTE_STAGE/certs"
+ssh -i "$KEY" "$HOST" "rm -rf ~/$REMOTE_STAGE && mkdir -p ~/$REMOTE_STAGE/certs ~/$REMOTE_STAGE/public"
 scp -i "$KEY" "${FILES[@]}" "$HOST:~/$REMOTE_STAGE/"
 scp -i "$KEY" "${CERT_FILES[@]}" "$HOST:~/$REMOTE_STAGE/certs/"
+scp -i "$KEY" "${PUBLIC_FILES[@]}" "$HOST:~/$REMOTE_STAGE/public/"
 ssh -i "$KEY" "$HOST" "set -e
   export PATH='$REMOTE_NODE_BIN':\$PATH
   cp ~/$REMOTE_DIR/.env ~/$REMOTE_STAGE/.env
@@ -157,7 +165,7 @@ ssh -i "$KEY" "$HOST" "set -e
 "
 
 echo "→ Backing up the active release"
-SOURCE_LIST="${FILES[*]} ${CERT_FILES[*]}"
+SOURCE_LIST="${FILES[*]} ${CERT_FILES[*]} ${PUBLIC_FILES[*]}"
 ssh -i "$KEY" "$HOST" "set -e
   mkdir -p ~/$REMOTE_BACKUP
   cd ~/$REMOTE_DIR

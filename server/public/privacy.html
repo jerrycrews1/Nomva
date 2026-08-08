@@ -208,10 +208,10 @@
       <p>Nomva stores your food log entries, daily goals, weight entries, and custom foods on your device using local storage and optional iCloud sync. When you use AI-powered features such as meal parsing or chat, the text you type, along with limited recent AI context needed to answer correctly, is sent through Nomva's server to our AI provider for processing.</p>
 
       <h2>Health & Fitness Data</h2>
-      <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) on your device solely to adjust your daily calorie goals. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
+      <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) and, when you enable weight history import, body-weight samples on your device. If you enable weight export, Nomva writes weights you log in the app to Apple Health. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
 
       <h2>Garmin Connect</h2>
-      <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. This data is used only to personalize your calorie targets within the app. We store the Garmin credentials needed to maintain your connection in encrypted form on our server; no Garmin data is sold, shared, or used for advertising.</p>
+      <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. If you separately enable Garmin weight history import, body-composition records are relayed through Nomva Cloud to your app and stored in your selected on-device or private iCloud data store; Nomva Cloud does not retain those weight records. We store the Garmin credentials needed to maintain your connection in encrypted form on our server. No Garmin data is sold, shared, or used for advertising.</p>
 
       <h2>Third-Party Services</h2>
       <p>Nomva uses OpenAI's API to power AI features. AI chat and meal-parsing text is relayed through Nomva's server and then sent to OpenAI for processing. We do not intentionally store the content of those AI conversations on our server after processing, and we avoid logging raw prompt and response text in production. Text sent for processing is also subject to OpenAI's data usage policies. Barcode lookups use the built-in Nomva food database bundled with the app.</p>

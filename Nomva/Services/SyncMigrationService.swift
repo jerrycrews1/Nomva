@@ -787,16 +787,32 @@ struct WeightEntryRecord: Codable {
     var date: Date
     var weightLbs: Double
     var note: String?
+    var sourceRaw: String?
+    var sourceName: String?
+    var externalIdentifier: String?
+    var healthSyncVersion: Int?
 
     init(_ model: WeightEntry) {
         id = model.id
         date = model.date
         weightLbs = model.weightLbs
         note = model.note
+        sourceRaw = model.sourceRaw
+        sourceName = model.sourceName
+        externalIdentifier = model.externalIdentifier
+        healthSyncVersion = model.healthSyncVersion
     }
 
     func restore() -> WeightEntry {
-        let model = WeightEntry(date: date, weightLbs: weightLbs, note: note)
+        let model = WeightEntry(
+            date: date,
+            weightLbs: weightLbs,
+            note: note,
+            source: WeightDataSource(rawValue: sourceRaw ?? "") ?? .nomva,
+            sourceName: sourceName,
+            externalIdentifier: externalIdentifier,
+            healthSyncVersion: healthSyncVersion
+        )
         apply(to: model)
         return model
     }
@@ -806,6 +822,10 @@ struct WeightEntryRecord: Codable {
         model.date = date
         model.weightLbs = weightLbs
         model.note = note
+        model.sourceRaw = sourceRaw
+        model.sourceName = sourceName
+        model.externalIdentifier = externalIdentifier
+        model.healthSyncVersion = healthSyncVersion
     }
 }
 

@@ -63,6 +63,7 @@ struct WeightLoggingView: View {
     @Environment(\.undoManager)  private var undoManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
+    @EnvironmentObject private var garminManager: GarminManager
     @ObservedObject private var subManager = SubscriptionManager.shared
 
     @State private var showLogSheet = false
@@ -71,10 +72,14 @@ struct WeightLoggingView: View {
     @State private var deleteEntry: WeightEntry? = nil
     @State private var showDeleteConfirm = false
     @State private var showUnitPicker = false
+    @State private var showWeightSync = false
     @State private var selectedChartWindow: ChartWindow = .days30
     @State private var undoNotice: String?
 
     @AppStorage("weight_unit") private var unitRaw = WeightUnit.lbs.rawValue
+    @AppStorage(WeightSyncPreferences.appleHealthImportKey) private var appleHealthImportEnabled = false
+    @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var appleHealthExportEnabled = false
+    @AppStorage(WeightSyncPreferences.garminImportKey) private var garminImportEnabled = false
     private var unit: WeightUnit { WeightUnit(rawValue: unitRaw) ?? .lbs }
     private let contentInset: CGFloat = NomvaTheme.contentInset
     private let analytics = WeightAnalytics()
@@ -204,6 +209,29 @@ struct WeightLoggingView: View {
                     }
                     .listSectionSeparator(.hidden)
 
+                    Section {
+                        Button {
+                            showWeightSync = true
+                        } label: {
+                            weightSyncCard
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("weight.sync")
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: contentInset,
+                                bottom: NomvaTheme.sectionGap,
+                                trailing: contentInset
+                            )
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    } header: {
+                        sectionHeader("History")
+                    }
+                    .listSectionSeparator(.hidden)
+
                     if !entries.isEmpty {
                         Section {
                             ForEach(entries.prefix(50)) { entry in
@@ -264,7 +292,14 @@ struct WeightLoggingView: View {
             .navigationTitle("Weight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showWeightSync = true
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .accessibilityLabel("Weight history sync")
+
                     unitButton
                 }
             }
@@ -276,6 +311,9 @@ struct WeightLoggingView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 NavigationStack { PaywallView() }
+            }
+            .sheet(isPresented: $showWeightSync) {
+                NavigationStack { WeightSyncSettingsView() }
             }
             .alert("Delete this entry?", isPresented: $showDeleteConfirm) {
                 Button("Delete", role: .destructive) {
@@ -339,6 +377,9 @@ struct WeightLoggingView: View {
                 }
             }
             .onAppear { modelContext.undoManager = undoManager }
+            .task {
+                await refreshEnabledWeightSources()
+            }
             .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
                 switch route {
                 case .weight:
@@ -359,6 +400,30 @@ struct WeightLoggingView: View {
             try? await Task.sleep(for: .seconds(6))
             if undoNotice == message {
                 undoNotice = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshEnabledWeightSources() async {
+        if appleHealthImportEnabled {
+            do {
+                _ = try await WeightSyncCoordinator.importAppleHealth(into: modelContext)
+            } catch {
+                WeightSyncPreferences.record(error: error)
+            }
+        }
+
+        if garminImportEnabled {
+            await garminManager.refreshIfNeeded()
+            guard garminManager.isConnected else { return }
+            do {
+                _ = try await WeightSyncCoordinator.importGarmin(
+                    into: modelContext,
+                    uploadLookbackDays: 14
+                )
+            } catch {
+                WeightSyncPreferences.record(error: error)
             }
         }
     }
@@ -748,6 +813,44 @@ struct WeightLoggingView: View {
         .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
     }
 
+    private var weightSyncCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(NomvaTheme.accent)
+                .frame(width: 42, height: 42)
+                .background(NomvaTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Weight History Sync")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(weightSyncSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
+    }
+
+    private var weightSyncSummary: String {
+        var sources: [String] = []
+        if appleHealthImportEnabled || appleHealthExportEnabled {
+            sources.append("Apple Health")
+        }
+        if garminImportEnabled {
+            sources.append("Garmin")
+        }
+        return sources.isEmpty ? "Import existing weigh-ins or save new ones to Apple Health." : "On for \(sources.joined(separator: " and "))."
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         NomvaSectionHeaderText(title: title)
             .nomvaSectionHeaderPadding()
@@ -812,6 +915,10 @@ struct WeightEntryRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
+
+                Label(entry.resolvedSourceName, systemImage: entry.dataSource.systemImage)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -843,9 +950,306 @@ struct WeightEntryRow: View {
     }
 }
 
+struct WeightSyncSettingsView: View {
+    @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var garminManager: GarminManager
+
+    @AppStorage(WeightSyncPreferences.appleHealthImportKey) private var appleHealthImportEnabled = false
+    @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var appleHealthExportEnabled = false
+    @AppStorage(WeightSyncPreferences.garminImportKey) private var garminImportEnabled = false
+    @AppStorage(WeightSyncPreferences.lastErrorKey) private var persistedErrorMessage = ""
+
+    @State private var isWorking = false
+    @State private var statusMessage: String?
+    @State private var errorMessage: String?
+
+    private var importedAppleCount: Int {
+        entries.filter { $0.dataSource == .appleHealth }.count
+    }
+
+    private var importedGarminCount: Int {
+        entries.filter { $0.dataSource == .garmin }.count
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Weight History")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                    Text("Bring existing weigh-ins into Nomva and choose where new Nomva weigh-ins are saved.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                SettingsSectionCard("Apple Health", detail: "Runs privately on this device.") {
+                    VStack(spacing: 14) {
+                        syncToggle(
+                            title: "Import Weight History",
+                            subtitle: importedAppleCount == 0
+                                ? "Show Apple Health weigh-ins in Nomva"
+                                : "\(importedAppleCount) Apple Health weigh-ins in Nomva",
+                            systemImage: "arrow.down.circle.fill",
+                            isOn: $appleHealthImportEnabled
+                        )
+                        .onChange(of: appleHealthImportEnabled) { _, enabled in
+                            guard enabled else { return }
+                            Task { await enableAppleHealthImport() }
+                        }
+
+                        Divider()
+
+                        syncToggle(
+                            title: "Save Nomva Weigh-ins",
+                            subtitle: "Write new and edited Nomva weights to Apple Health",
+                            systemImage: "arrow.up.circle.fill",
+                            isOn: $appleHealthExportEnabled
+                        )
+                        .onChange(of: appleHealthExportEnabled) { _, enabled in
+                            guard enabled else { return }
+                            Task { await enableAppleHealthExport() }
+                        }
+                    }
+                }
+
+                SettingsSectionCard("Garmin Connect", detail: "Garmin makes body-composition history available to connected apps.") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if garminManager.isConnected {
+                            syncToggle(
+                                title: "Import Garmin History",
+                                subtitle: importedGarminCount == 0
+                                    ? "Import up to one year of Garmin weigh-ins"
+                                    : "\(importedGarminCount) Garmin weigh-ins in Nomva",
+                                systemImage: "arrow.down.circle.fill",
+                                isOn: $garminImportEnabled
+                            )
+                            .onChange(of: garminImportEnabled) { _, enabled in
+                                guard enabled else { return }
+                                Task { await enableGarminImport() }
+                            }
+                        } else {
+                            Button {
+                                Task { await connectGarmin() }
+                            } label: {
+                                Label(
+                                    garminManager.isConnecting ? "Connecting…" : "Connect Garmin",
+                                    systemImage: "link"
+                                )
+                            }
+                            .buttonStyle(NomvaPrimaryButtonStyle())
+                            .disabled(garminManager.isConnecting)
+                        }
+
+                        Label(
+                            "Garmin currently allows Nomva to read body-composition history, but its public API does not allow third-party apps to write weights back to Garmin.",
+                            systemImage: "info.circle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                        Text("Garmin imports pass through Nomva Cloud, then are stored in your selected on-device or private iCloud data store. Nomva Cloud does not retain your weight history.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button {
+                    Task { await syncNow() }
+                } label: {
+                    HStack(spacing: 10) {
+                        if isWorking {
+                            ProgressView()
+                                .tint(NomvaTheme.onAccent)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text(isWorking ? "Syncing Weight History…" : "Sync Now")
+                    }
+                }
+                .buttonStyle(NomvaPrimaryButtonStyle())
+                .disabled(isWorking || !hasEnabledSource)
+
+                if let statusMessage {
+                    Label(statusMessage, systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NomvaTheme.success)
+                }
+
+                if let errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NomvaTheme.danger)
+                } else if !persistedErrorMessage.isEmpty {
+                    Label(persistedErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NomvaTheme.danger)
+                }
+            }
+            .padding(.horizontal, NomvaTheme.contentInset)
+            .padding(.top, 20)
+            .padding(.bottom, 40)
+        }
+        .background(NomvaScreenBackground())
+        .navigationTitle("Weight Sync")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+        .task {
+            await garminManager.refreshIfNeeded()
+        }
+    }
+
+    private var hasEnabledSource: Bool {
+        appleHealthImportEnabled || appleHealthExportEnabled || garminImportEnabled
+    }
+
+    private func syncToggle(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(NomvaTheme.accent)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .tint(NomvaTheme.accent)
+        .disabled(isWorking)
+    }
+
+    @MainActor
+    private func enableAppleHealthImport() async {
+        await performSync {
+            try await AppleHealthService.requestWeightReadAuthorization()
+            let result = try await WeightSyncCoordinator.importAppleHealth(into: modelContext)
+            return result.imported == 0
+                ? "Apple Health is connected. No new weigh-ins were found."
+                : "Imported \(result.imported) weigh-in\(result.imported == 1 ? "" : "s") from Apple Health."
+        } onFailure: {
+            appleHealthImportEnabled = false
+        }
+    }
+
+    @MainActor
+    private func enableAppleHealthExport() async {
+        await performSync {
+            try await AppleHealthService.requestWeightWriteAuthorization()
+            guard AppleHealthService.weightWriteAuthorizationStatus() == .sharingAuthorized else {
+                throw AppleHealthServiceError.weightPermissionDenied
+            }
+            let count = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(
+                from: entries,
+                in: modelContext
+            )
+            return count == 0
+                ? "New Nomva weigh-ins will be saved to Apple Health."
+                : "Saved \(count) existing Nomva weigh-in\(count == 1 ? "" : "s") to Apple Health."
+        } onFailure: {
+            appleHealthExportEnabled = false
+        }
+    }
+
+    @MainActor
+    private func enableGarminImport() async {
+        guard garminManager.isConnected else {
+            garminImportEnabled = false
+            errorMessage = "Connect Garmin before importing weight history."
+            return
+        }
+        await performSync {
+            let result = try await WeightSyncCoordinator.importGarmin(
+                into: modelContext,
+                uploadLookbackDays: 365
+            )
+            return result.imported == 0
+                ? "Garmin is connected. No new weigh-ins were found in the last year."
+                : "Imported \(result.imported) weigh-in\(result.imported == 1 ? "" : "s") from Garmin."
+        } onFailure: {
+            garminImportEnabled = false
+        }
+    }
+
+    @MainActor
+    private func connectGarmin() async {
+        await garminManager.connect()
+        if let message = garminManager.lastErrorMessage {
+            errorMessage = message
+        } else if garminManager.isConnected {
+            statusMessage = "Garmin connected. Turn on history import when you are ready."
+            errorMessage = nil
+        }
+    }
+
+    @MainActor
+    private func syncNow() async {
+        await performSync {
+            var messages: [String] = []
+            if appleHealthImportEnabled {
+                let result = try await WeightSyncCoordinator.importAppleHealth(into: modelContext)
+                messages.append("Apple Health: \(result.imported) new")
+            }
+            if appleHealthExportEnabled {
+                let count = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(
+                    from: entries,
+                    in: modelContext
+                )
+                messages.append("Apple Health: \(count) saved")
+            }
+            if garminImportEnabled {
+                guard garminManager.isConnected else {
+                    throw GarminCloudError.serverError(400, "Reconnect Garmin to import weights.")
+                }
+                let result = try await WeightSyncCoordinator.importGarmin(
+                    into: modelContext,
+                    uploadLookbackDays: 14
+                )
+                messages.append("Garmin: \(result.imported) new")
+            }
+            return messages.isEmpty ? "Choose a weight source first." : messages.joined(separator: " • ")
+        }
+    }
+
+    @MainActor
+    private func performSync(
+        operation: () async throws -> String,
+        onFailure: () -> Void = {}
+    ) async {
+        guard !isWorking else { return }
+        isWorking = true
+        statusMessage = nil
+        errorMessage = nil
+        defer { isWorking = false }
+
+        do {
+            statusMessage = try await operation()
+            persistedErrorMessage = ""
+        } catch {
+            onFailure()
+            errorMessage = error.localizedDescription
+            persistedErrorMessage = error.localizedDescription
+        }
+    }
+}
+
 #Preview {
     WeightLoggingView()
         .environmentObject(NomvaRouteCenter.shared)
+        .environmentObject(GarminManager.shared)
 }
 
 private extension WeightUnit {

@@ -1933,6 +1933,26 @@ struct GarminDailyActivitySummary: Codable, Equatable, Identifiable, Sendable {
     var id: String { date }
 }
 
+struct GarminWeightSample: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let measuredAt: String
+    let weightKg: Double
+
+    var measuredDate: Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: measuredAt) ?? ISO8601DateFormatter().date(from: measuredAt)
+    }
+}
+
+private struct GarminWeightImportPayload: Codable, Sendable {
+    let weights: [GarminWeightSample]
+    let uploadLookbackDays: Int
+    let fetchedWindows: Int
+    let failedWindows: Int
+    let garminWeightWriteSupported: Bool
+}
+
 struct GarminConnectionStatusPayload: Codable, Equatable, Sendable {
     let configured: Bool
     let connected: Bool
@@ -2106,6 +2126,29 @@ struct GarminCloudService {
         return try await fetchStatus()
     }
 
+    func fetchWeights(uploadLookbackDays: Int = 365) async throws -> [GarminWeightSample] {
+        guard let url = URL(string: baseURL + "/v1/garmin/weights/import") else {
+            throw GarminCloudError.badURL
+        }
+
+        let safeLookback = max(1, min(365, uploadLookbackDays))
+        let (data, response) = try await sendNomvaCloudRequest(
+            baseURL: baseURL,
+            identity: identity
+        ) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "uploadLookbackDays": safeLookback
+            ])
+            request.timeoutInterval = safeLookback > 90 ? 60 : 30
+            return request
+        }
+        try validateResponse(response, data: data)
+        return try JSONDecoder().decode(GarminWeightImportPayload.self, from: data).weights
+    }
+
     func disconnect() async throws {
         guard let url = URL(string: baseURL + "/v1/garmin/connection") else {
             throw GarminCloudError.badURL
@@ -2152,7 +2195,11 @@ struct GarminCloudService {
                 message = "Garmin is not configured on Nomva Cloud yet."
             } else if let data, let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = payload["error"] as? String {
-                message = error.replacingOccurrences(of: "_", with: " ").capitalized
+                if error == "garmin_weight_permission_required" {
+                    message = "Garmin weight access is not enabled for this connection. Reconnect Garmin, then try again."
+                } else {
+                    message = error.replacingOccurrences(of: "_", with: " ").capitalized
+                }
             } else {
                 message = nil
             }
