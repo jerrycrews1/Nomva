@@ -1020,6 +1020,19 @@ function storeGarminSummary(nomvaUserId, summary) {
   return true;
 }
 
+function storeGarminWeight(nomvaUserId, weight) {
+  const user = garminStore.users[nomvaUserId];
+  if (!user) {
+    return false;
+  }
+
+  user.weights = user.weights || {};
+  user.weights[weight.id] = weight;
+  user.lastWebhookAt = new Date().toISOString();
+  user.updatedAt = new Date().toISOString();
+  return true;
+}
+
 function applyGarminPermissionsChange(change) {
   const garminUserId = extractGarminUserId(change);
   const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
@@ -2044,6 +2057,7 @@ function handleGarminWebhook(req, res) {
     ? req.body.deregistrations
     : [];
   const candidates = collectDailySummaryCandidates(req.body);
+  const bodyCompCandidates = Array.isArray(req.body?.bodyComps) ? req.body.bodyComps : [];
   let stored = 0;
   let ignored = 0;
   let permissionUpdates = 0;
@@ -2085,6 +2099,32 @@ function handleGarminWebhook(req, res) {
     const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
 
     if (!nomvaUserId || !storeGarminSummary(nomvaUserId, summary)) {
+      ignored += 1;
+      if (garminUserId) {
+        unmappedGarminUsers.add(String(garminUserId));
+      }
+      continue;
+    }
+
+    const user = garminStore.users[nomvaUserId];
+    if (garminUserId && user && !user.garminUserId) {
+      user.garminUserId = String(garminUserId);
+      garminStore.garminUserIndex[String(garminUserId)] = nomvaUserId;
+    }
+    stored += 1;
+  }
+
+  for (const candidate of bodyCompCandidates) {
+    const weight = normalizedGarminWeight(candidate);
+    if (!weight) {
+      ignored += 1;
+      continue;
+    }
+
+    const garminUserId = extractGarminUserId(candidate) || extractGarminUserId(req.body);
+    const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
+
+    if (!nomvaUserId || !storeGarminWeight(nomvaUserId, weight)) {
       ignored += 1;
       if (garminUserId) {
         unmappedGarminUsers.add(String(garminUserId));
@@ -2241,11 +2281,15 @@ app.post("/v1/garmin/weights/import", async (req, res) => {
     1,
     Math.min(365, Number.parseInt(req.body?.uploadLookbackDays, 10) || 7)
   );
-  const windows = buildGarminUploadWindows({ lookbackDays: uploadLookbackDays });
+  // Cap the synchronous fetch windows to 14 days to prevent rate limiting.
+  // Historical data beyond this is pushed asynchronously via the Garmin webhook backfill.
+  const syncFetchDays = Math.min(14, uploadLookbackDays);
+  const windows = buildGarminUploadWindows({ lookbackDays: syncFetchDays });
   const weightsById = new Map();
   let nextWindow = 0;
   let failedWindows = 0;
   let permissionDenied = false;
+  let newlyPulledWeights = 0;
 
   async function worker() {
     while (nextWindow < windows.length) {
@@ -2276,6 +2320,9 @@ app.post("/v1/garmin/weights/import", async (req, res) => {
           const weight = normalizedGarminWeight(record);
           if (weight) {
             weightsById.set(weight.id, weight);
+            if (storeGarminWeight(identity.nomvaUserId, weight)) {
+              newlyPulledWeights++;
+            }
           }
         }
       } catch (error) {
@@ -2288,6 +2335,19 @@ app.post("/v1/garmin/weights/import", async (req, res) => {
   await Promise.all(Array.from({ length: Math.min(6, windows.length) }, () => worker()));
   if (permissionDenied && failedWindows === windows.length) {
     return res.status(403).json({ error: "garmin_weight_permission_required" });
+  }
+
+  if (newlyPulledWeights > 0) {
+    persistGarminStore();
+  }
+
+  const user = identity.user;
+  if (user && user.weights) {
+    for (const storedWeight of Object.values(user.weights)) {
+      if (!weightsById.has(storedWeight.id)) {
+        weightsById.set(storedWeight.id, storedWeight);
+      }
+    }
   }
 
   const weights = Array.from(weightsById.values())
