@@ -213,11 +213,46 @@ private let menuSizeWords: Set<String> = ["small", "medium", "large"]
 final class FoodLoggingService {
     static let shared = FoodLoggingService()
     private let db = DatabaseManager.shared
+    private let providerOverride: (any LLMProvider)?
+    private let canUseAIOverride: Bool?
+
+    init(
+        provider: (any LLMProvider)? = nil,
+        canUseAI: Bool? = nil
+    ) {
+        self.providerOverride = provider
+        self.canUseAIOverride = canUseAI
+    }
 
     static func entriesForNewLog(_ entries: [FoodEntry]) -> [FoodEntry] {
         // Each element represents an independently planned mention. Candidate
         // identity is deliberately irrelevant at this boundary.
         entries
+    }
+
+    static func validatedDeleteTargetNames(
+        _ requestedNames: [String],
+        availableEntries: [FoodEntry]
+    ) -> [String] {
+        func key(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+
+        var available: [String: String] = [:]
+        for entry in availableEntries.prefix(250) {
+            let normalized = key(entry.name)
+            if !normalized.isEmpty, available[normalized] == nil {
+                available[normalized] = entry.name
+            }
+        }
+
+        var seen = Set<String>()
+        return requestedNames.prefix(250).compactMap { requested in
+            let normalized = key(requested)
+            guard !normalized.isEmpty,
+                  seen.insert(normalized).inserted else { return nil }
+            return available[normalized]
+        }
     }
 
     /// Returns the likely restaurant or brand phrase mentioned in a query
@@ -295,7 +330,7 @@ final class FoodLoggingService {
 
     @MainActor
     private func activeProvider() -> any LLMProvider {
-        LLMProviderFactory.active()
+        providerOverride ?? LLMProviderFactory.active()
     }
 
     // MARK: - Focused Pipeline
@@ -319,7 +354,7 @@ final class FoodLoggingService {
     ) async -> LoggingResult {
 
         // PRODUCTION GUARD
-        guard SubscriptionManager.shared.canUseAI else {
+        guard canUseAIOverride ?? SubscriptionManager.shared.canUseAI else {
             return .reply("You've reached your limit. Upgrade to Nomva Pro in Settings to keep chatting!")
         }
 
@@ -717,9 +752,9 @@ final class FoodLoggingService {
     ) async -> LoggingResult {
 
         let structuredPlan: FoodLogPlan?
-        if let remoteProvider = provider as? RemoteAPIProvider,
+        if let batchProvider = provider as? any BatchFoodResolvingProvider,
            shouldRequestStructuredFoodPlan(userMessage) {
-            structuredPlan = try? await remoteProvider.planFoodLog(userMessage: userMessage)
+            structuredPlan = try? await batchProvider.planFoodLog(userMessage: userMessage)
         } else {
             structuredPlan = nil
         }
@@ -775,7 +810,7 @@ final class FoodLoggingService {
         for index in foodMentions.indices {
             if ["composite", "menu"].contains(foodMentions[index].resolutionHint) {
                 resolutions[index] = nil
-            } else if provider is RemoteAPIProvider {
+            } else if provider is any BatchFoodResolvingProvider {
                 resolutions[index] = highConfidencePersonalResolution(
                     mention: foodMentions[index].text,
                     recentEntries: recentEntries,
@@ -799,8 +834,8 @@ final class FoodLoggingService {
                     current: initialServings[$0]
                 )
         }
-        if let remoteProvider = provider as? RemoteAPIProvider, !localPortionIndices.isEmpty {
-            let portions = await remoteProvider.extractServingsBatch(
+        if let batchProvider = provider as? any BatchFoodResolvingProvider, !localPortionIndices.isEmpty {
+            let portions = await batchProvider.extractServingsBatch(
                 userMessage: userMessage,
                 foodMentions: localPortionIndices.map { foodMentions[$0].text }
             )
@@ -830,9 +865,9 @@ final class FoodLoggingService {
         }
 
         let unresolvedCandidateIndices = foodMentions.indices.filter { resolutions[$0] == nil }
-        if let remoteProvider = provider as? RemoteAPIProvider, !unresolvedCandidateIndices.isEmpty {
+        if let batchProvider = provider as? any BatchFoodResolvingProvider, !unresolvedCandidateIndices.isEmpty {
             remotelyAttemptedIndices.formUnion(unresolvedCandidateIndices)
-            let remoteCandidates = await remoteProvider.resolveFoodCandidates(
+            let remoteCandidates = await batchProvider.resolveFoodCandidates(
                 userMessage: userMessage,
                 foodMentions: unresolvedCandidateIndices.map { foodMentions[$0].text },
                 searchQueries: unresolvedCandidateIndices.map { foodMentions[$0].searchQuery },
@@ -2585,10 +2620,17 @@ final class FoodLoggingService {
                 logSummary: logSummary,
                 recentMessages: recentMessages
             )
-            if targets.isEmpty {
+            let validatedTargets = Self.validatedDeleteTargetNames(
+                targets,
+                availableEntries: dayEntries
+            )
+            if validatedTargets.isEmpty {
                 return .reply("I couldn't figure out what to delete. Could you be more specific?")
             }
-            return .init(action: .deleteEntry(foodNames: targets), reply: "✓ Removed: \(targets.joined(separator: ", "))")
+            return .init(
+                action: .deleteEntry(foodNames: validatedTargets),
+                reply: "✓ Removed: \(validatedTargets.joined(separator: ", "))"
+            )
         } catch {
             return .reply("I had trouble processing that delete request. Try again?")
         }

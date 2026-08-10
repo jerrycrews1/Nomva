@@ -317,6 +317,26 @@ protocol LLMProvider: Sendable {
     ) async throws -> FindFoodStep
 }
 
+/// Capability boundary for providers that can plan and resolve an entire
+/// multi-food request while preserving one indexed result per planned slot.
+/// Keeping this separate from a concrete provider makes the production path
+/// testable without network calls.
+protocol BatchFoodResolvingProvider: LLMProvider {
+    func planFoodLog(userMessage: String) async throws -> FoodLogPlan
+
+    func resolveFoodCandidates(
+        userMessage: String,
+        foodMentions: [String],
+        searchQueries: [String],
+        resolutionHints: [String?]
+    ) async -> [ResolvedFoodCandidate?]
+
+    func extractServingsBatch(
+        userMessage: String,
+        foodMentions: [String]
+    ) async -> [ServingsInfo]
+}
+
 extension LLMProvider {
     /// Default: not supported. Providers that can resolve against the server
     /// DB override this; callers should fall back to the local resolver.

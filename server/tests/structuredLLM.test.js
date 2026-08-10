@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   EmptyStructuredResponseError,
   requestStructuredJSON,
+  supportsReasoningEffort,
 } = require("../structuredLLM");
 
 const schema = {
@@ -97,4 +98,32 @@ test("rejects malformed output even though the provider contract should prevent 
     }),
     SyntaxError
   );
+});
+
+test("omits unsupported reasoning parameters for non-reasoning models", async () => {
+  let capturedRequest;
+  const openai = {
+    responses: {
+      create: async (request) => {
+        capturedRequest = request;
+        return { output_text: '{"ok":true}' };
+      },
+    },
+  };
+
+  const result = await requestStructuredJSON({
+    openai,
+    model: "gpt-4o-mini",
+    instructions: "Return the contract.",
+    input: "test",
+    schemaName: "unit_test",
+    schema,
+    reasoningEffort: "none",
+  });
+
+  assert.deepEqual(result.value, { ok: true });
+  assert.equal(capturedRequest.reasoning, undefined);
+  assert.equal(supportsReasoningEffort("gpt-4o-mini"), false);
+  assert.equal(supportsReasoningEffort("gpt-5.4-nano"), true);
+  assert.equal(supportsReasoningEffort("o3-mini"), true);
 });

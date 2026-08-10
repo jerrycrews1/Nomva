@@ -6,8 +6,9 @@ const fs = require("fs");
 const path = require("path");
 const OpenAI = require("openai");
 const prompts = require("../prompts");
+const { secureSystemPrompt } = require("../llmPromptSecurity");
 
-const MODEL = process.env.CONVERSATION_MODEL || process.env.BASELINE_MODEL || process.env.NOMVA_LLM_BASELINE_MODEL || "gpt-4o-mini";
+const MODEL = process.env.CONVERSATION_MODEL || process.env.NOMVA_LLM_MODEL || process.env.BASELINE_MODEL || process.env.NOMVA_LLM_BASELINE_MODEL || "gpt-4o-mini";
 const CASES_PATH = process.env.CONVERSATION_CASES_PATH || path.join(__dirname, "..", "baseline", "llm_conversation_cases.json");
 const REPORT_DIR = process.env.CONVERSATION_REPORT_DIR || path.join(__dirname, "..", "baseline", "reports");
 const MIN_SCORE = process.env.CONVERSATION_MIN_SCORE ? Number(process.env.CONVERSATION_MIN_SCORE) : null;
@@ -95,7 +96,7 @@ async function ask(task, systemPrompt, userMessage, maxTokens = 256) {
     model: MODEL,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: secureSystemPrompt(systemPrompt) },
       { role: "user", content: userMessage },
     ],
   };

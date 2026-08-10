@@ -22,6 +22,11 @@ const {
   resolveFoodResolutionBatch,
   sanitizeFoodResolutionBatch,
 } = require("./foodResolutionBatch");
+const { secureSystemPrompt } = require("./llmPromptSecurity");
+const {
+  validatedDeleteTargets,
+  validatedEditSelection,
+} = require("./llmOutputGuards");
 const {
   createWebFoodResolver,
   hasUnresolvedLeadingIdentity,
@@ -1620,6 +1625,7 @@ class EmptyCompletionError extends Error {
 }
 
 async function ask(systemPrompt, userMessage, opts = {}) {
+  const securedSystemPrompt = secureSystemPrompt(systemPrompt);
   const maxTokens = opts.maxTokens || 256;
   const requestModel = opts.model || MODEL;
   const completionBudget = /^gpt-5/i.test(requestModel)
@@ -1628,7 +1634,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
   const structuredOutput = structuredOutputForTask(opts.task);
   if (structuredOutput) {
     return askStructured(
-      systemPrompt,
+      securedSystemPrompt,
       userMessage,
       structuredOutput.name,
       structuredOutput.schema,
@@ -1649,7 +1655,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       model: requestModel,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: securedSystemPrompt },
         { role: "user", content: userMessage },
       ],
     };
@@ -1704,7 +1710,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
       success: true,
       properties: {
         maxTokens: completionBudget,
-        promptSystemChars: systemPrompt.length,
+        promptSystemChars: securedSystemPrompt.length,
       },
     });
     return parsed;
@@ -1736,6 +1742,7 @@ async function ask(systemPrompt, userMessage, opts = {}) {
 }
 
 async function askStructured(systemPrompt, userMessage, schemaName, schema, opts = {}) {
+  const securedSystemPrompt = secureSystemPrompt(systemPrompt);
   const requestModel = opts.model || MODEL;
   const maxOutputTokens = Math.max(64, Number(opts.maxOutputTokens) || 1_000);
   const promptChars = Number.isFinite(opts.promptChars)
@@ -1753,7 +1760,7 @@ async function askStructured(systemPrompt, userMessage, schemaName, schema, opts
     const result = await requestStructuredJSON({
       openai,
       model: requestModel,
-      instructions: systemPrompt,
+      instructions: securedSystemPrompt,
       input: userMessage,
       schemaName,
       schema,
@@ -2995,7 +3002,7 @@ app.post("/v1/pick-delete-targets", async (req, res) => {
       userPrompt,
       llmAnalyticsOptions(req, "pick_delete_targets", { model: CONTEXT_MODEL })
     );
-    res.json({ foodNames: result.foodNames || [] });
+    res.json({ foodNames: validatedDeleteTargets(result.foodNames, logSummary) });
   } catch (err) {
     console.error("pick-delete-targets error:", err.message);
     res.status(500).json({ error: "delete_failed" });
@@ -3021,10 +3028,7 @@ app.post("/v1/pick-edit-target", async (req, res) => {
       `User said: ${userMessage}`
     ].filter(Boolean).join("\n\n");
     const result = await ask(prompts.PICK_EDIT_TARGET, userPrompt, llmAnalyticsOptions(req, "pick_edit_target"));
-    res.json({
-      foodName: result.foodName || null,
-      clarificationQuestion: result.clarificationQuestion || null,
-    });
+    res.json(validatedEditSelection(result, logSummary));
   } catch (err) {
     console.error("pick-edit-target error:", err.message);
     res.status(500).json({ error: "edit_target_failed" });

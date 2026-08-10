@@ -28,6 +28,8 @@ FILES=(
   foodSearchStore.js
   foodResolver.js
   foodResolutionBatch.js
+  llmPromptSecurity.js
+  llmOutputGuards.js
   foodKnowledgeStore.js
   foodLogPlanner.js
   webFoodResolver.js

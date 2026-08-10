@@ -7,7 +7,7 @@ const path = require("path");
 const OpenAI = require("openai");
 const prompts = require("../prompts");
 
-const MODEL = process.env.BASELINE_MODEL || process.env.NOMVA_LLM_BASELINE_MODEL || "gpt-4o-mini";
+const MODEL = process.env.NOMVA_LLM_MODEL || process.env.BASELINE_MODEL || process.env.NOMVA_LLM_BASELINE_MODEL || "gpt-4o-mini";
 const CASES_PATH = process.env.BASELINE_CASES_PATH || path.join(__dirname, "..", "baseline", "llm_baseline_cases.json");
 const REPORT_DIR = process.env.BASELINE_REPORT_DIR || path.join(__dirname, "..", "baseline", "reports");
 const MIN_SCORE = process.env.BASELINE_MIN_SCORE ? Number(process.env.BASELINE_MIN_SCORE) : null;

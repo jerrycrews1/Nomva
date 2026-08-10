@@ -16,6 +16,10 @@ function boundedIdentifier(value, fallback) {
   return normalized || fallback;
 }
 
+function supportsReasoningEffort(model) {
+  return /^(gpt-5|o[1-9])/i.test(String(model || ""));
+}
+
 async function requestStructuredJSON({
   openai,
   model,
@@ -51,7 +55,9 @@ async function requestStructuredJSON({
       },
     },
   };
-  if (reasoningEffort) request.reasoning = { effort: reasoningEffort };
+  if (reasoningEffort && supportsReasoningEffort(model)) {
+    request.reasoning = { effort: reasoningEffort };
+  }
   if (safetyIdentifier) request.safety_identifier = String(safetyIdentifier).slice(0, 64);
   if (cacheKey) request.prompt_cache_key = String(cacheKey).slice(0, 64);
 
@@ -73,4 +79,5 @@ async function requestStructuredJSON({
 module.exports = {
   EmptyStructuredResponseError,
   requestStructuredJSON,
+  supportsReasoningEffort,
 };

@@ -7,10 +7,12 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "test": "node --test tests/*.test.js",
+    "test:security": "node --test tests/llmSecurity.test.js tests/authIntegration.test.js tests/foodResolutionBatch.test.js tests/structuredLLM.test.js",
     "smoke:food-resolution": "node scripts/run_food_resolution_smoke.js",
     "smoke:food-log-planner": "node scripts/run_food_log_planner_smoke.js",
     "baseline:llm": "node scripts/run_llm_baseline.js",
-    "eval:chat-crud": "node scripts/run_chat_crud_eval.js"
+    "eval:chat-crud": "node scripts/run_chat_crud_eval.js",
+    "eval:security-smoke": "node scripts/run_chat_crud_eval.js --split=validation --count=16 --min-score=95 --concurrency=4"
   },
   "dependencies": {
     "@apple/app-store-server-library": "3.1.0",

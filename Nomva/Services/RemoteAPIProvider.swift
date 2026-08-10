@@ -11,7 +11,7 @@ import UIKit
 /// Calls the Nomva API server (Node.js on Lightsail) which proxies to the configured OpenAI model.
 /// Each method mirrors the focused LLMProvider protocol — one tiny call per step.
 /// Used as a fallback when Apple Foundation Models aren't available or misbehave.
-struct RemoteAPIProvider: LLMProvider {
+struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
 
     /// Clamp a model-provided servings value to a sane, finite range. Calories
     /// are computed by multiplying this number, and `Int(Double)` traps on
@@ -105,6 +105,11 @@ struct RemoteAPIProvider: LLMProvider {
                     throw ResolveFoodCandidateError.invalidResponse
                 }
                 resolved[requestIndex] = candidate
+            } else {
+                guard result["candidate"] is NSNull,
+                      nonemptyString(result["error"]) != nil else {
+                    throw ResolveFoodCandidateError.invalidResponse
+                }
             }
         }
         guard seenIndices.count == expectedCount else {

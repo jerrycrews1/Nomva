@@ -113,4 +113,23 @@ test("production accepts scoped automation auth and rejects simulator spoofing",
     },
   });
   assert.equal(status.status, 200);
+
+  const unauthorizedBatch = await fetch(`http://127.0.0.1:${port}/v1/resolve-food-candidates`, {
+    method: "POST",
+    headers: baseHeaders,
+    body: JSON.stringify({ items: [{ foodMention: "apple" }] }),
+  });
+  assert.equal(unauthorizedBatch.status, 401);
+
+  const malformedBatch = await fetch(`http://127.0.0.1:${port}/v1/resolve-food-candidates`, {
+    method: "POST",
+    headers: {
+      ...baseHeaders,
+      "X-Nomva-Automation-Token": automationToken,
+      Authorization: `Bearer ${session.token}`,
+    },
+    body: JSON.stringify({ items: [] }),
+  });
+  assert.equal(malformedBatch.status, 400);
+  assert.equal((await malformedBatch.json()).error, "invalid_food_resolution_batch");
 });
