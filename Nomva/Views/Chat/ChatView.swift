@@ -815,26 +815,27 @@ struct ChatView: View {
         switch result.action {
 
         case .logFood(let entries):
-            let uniqueEntries = uniqueMutationEntries(entries)
-            guard !uniqueEntries.isEmpty else {
+            // FoodLoggingService has already validated and deduplicated the
+            // planned mentions. Catalog identity is not a safe dedup key here:
+            // independent request slots may legitimately resolve to one row.
+            let insertionEntries = FoodLoggingService.entriesForNewLog(entries)
+            guard !insertionEntries.isEmpty else {
                 return "Nothing was added because I couldn't verify a food match."
             }
             let saved = commitMutation {
-                for (index, entry) in uniqueEntries.enumerated() {
+                for (index, entry) in insertionEntries.enumerated() {
                     entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
                     modelContext.insert(entry)
                 }
             } verify: {
-                uniqueEntries.allSatisfy { $0.date >= targetDayStart }
+                insertionEntries.allSatisfy { $0.date >= targetDayStart }
             }
             guard saved else {
                 return "I found the food, but couldn't save it. Nothing was added."
             }
 
-            if uniqueEntries.count == entries.count {
-                persistEvidence(result.evidenceDrafts, for: uniqueEntries, dayStart: targetDayStart)
-            }
-            return uniqueEntries
+            persistEvidence(result.evidenceDrafts, for: insertionEntries, dayStart: targetDayStart)
+            return insertionEntries
                 .map { "✓ \($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal" }
                 .joined(separator: "\n")
 

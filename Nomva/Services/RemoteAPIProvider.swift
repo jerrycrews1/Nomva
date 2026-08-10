@@ -44,7 +44,7 @@ struct RemoteAPIProvider: LLMProvider {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func resolvedFoodCandidate(from json: [String: Any]) -> ResolvedFoodCandidate? {
+    func resolvedFoodCandidate(from json: [String: Any]) -> ResolvedFoodCandidate? {
         guard let candidateId = nonemptyString(json["candidateId"]),
               let name = nonemptyString(json["name"]) else {
             return nil
@@ -77,6 +77,40 @@ struct RemoteAPIProvider: LLMProvider {
             sourceTitle: nonemptyString(json["sourceTitle"]),
             evidence: nonemptyString(json["evidence"])
         )
+    }
+
+    func decodeFoodResolutionBatch(
+        from data: Data,
+        expectedCount: Int
+    ) throws -> [ResolvedFoodCandidate?] {
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard expectedCount >= 0,
+              let rawResults = json["results"] as? [[String: Any]],
+              rawResults.count == expectedCount else {
+            throw ResolveFoodCandidateError.invalidResponse
+        }
+
+        var resolved = Array<ResolvedFoodCandidate?>(repeating: nil, count: expectedCount)
+        var seenIndices = Set<Int>()
+        for result in rawResults {
+            guard let requestIndexValue = finiteNumber(result["requestIndex"]),
+                  requestIndexValue.rounded() == requestIndexValue,
+                  let requestIndex = Int(exactly: requestIndexValue),
+                  resolved.indices.contains(requestIndex),
+                  seenIndices.insert(requestIndex).inserted else {
+                throw ResolveFoodCandidateError.invalidResponse
+            }
+            if let candidateJSON = result["candidate"] as? [String: Any] {
+                guard let candidate = resolvedFoodCandidate(from: candidateJSON) else {
+                    throw ResolveFoodCandidateError.invalidResponse
+                }
+                resolved[requestIndex] = candidate
+            }
+        }
+        guard seenIndices.count == expectedCount else {
+            throw ResolveFoodCandidateError.invalidResponse
+        }
+        return resolved
     }
 
     // MARK: - Configuration
@@ -244,6 +278,47 @@ struct RemoteAPIProvider: LLMProvider {
         foodMentions: [String],
         searchQueries: [String] = [],
         resolutionHints: [String?] = []
+    ) async -> [ResolvedFoodCandidate?] {
+        guard !foodMentions.isEmpty else { return [] }
+
+        let items: [[String: Any]] = foodMentions.enumerated().map { index, mention in
+            var item: [String: Any] = ["foodMention": mention]
+            if searchQueries.indices.contains(index), !searchQueries[index].isEmpty {
+                item["searchQuery"] = searchQueries[index]
+            }
+            if resolutionHints.indices.contains(index), let hint = resolutionHints[index], !hint.isEmpty {
+                item["resolutionHint"] = hint
+            }
+            return item
+        }
+
+        do {
+            let data = try await postRaw(
+                "/v1/resolve-food-candidates",
+                body: ["userMessage": userMessage, "items": items],
+                timeout: 35
+            )
+            return try decodeFoodResolutionBatch(from: data, expectedCount: foodMentions.count)
+        } catch {
+            guard !Task.isCancelled else {
+                return Array(repeating: nil, count: foodMentions.count)
+            }
+            // A rolling server deploy may briefly precede this client build.
+            // Keep the single-item route as a compatibility fallback.
+            return await resolveFoodCandidatesIndividually(
+                userMessage: userMessage,
+                foodMentions: foodMentions,
+                searchQueries: searchQueries,
+                resolutionHints: resolutionHints
+            )
+        }
+    }
+
+    private func resolveFoodCandidatesIndividually(
+        userMessage: String,
+        foodMentions: [String],
+        searchQueries: [String],
+        resolutionHints: [String?]
     ) async -> [ResolvedFoodCandidate?] {
         await withTaskGroup(of: (Int, ResolvedFoodCandidate?).self) { group in
             for (index, mention) in foodMentions.enumerated() {

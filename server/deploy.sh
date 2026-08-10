@@ -27,6 +27,7 @@ FILES=(
   stateStore.js
   foodSearchStore.js
   foodResolver.js
+  foodResolutionBatch.js
   foodKnowledgeStore.js
   foodLogPlanner.js
   webFoodResolver.js

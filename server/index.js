@@ -19,6 +19,10 @@ const {
   resolveFoodCandidate: runFoodResolver,
 } = require("./foodResolver");
 const {
+  resolveFoodResolutionBatch,
+  sanitizeFoodResolutionBatch,
+} = require("./foodResolutionBatch");
+const {
   createWebFoodResolver,
   hasUnresolvedLeadingIdentity,
   identityMatchesMention,
@@ -1379,6 +1383,7 @@ const AI_ROUTE_PATHS = new Set([
   "/split-foods",
   "/plan-food-log",
   "/resolve-food-candidate",
+  "/resolve-food-candidates",
   "/search-food-catalog",
   "/build-food-search-query",
   "/choose-food-candidate",
@@ -2485,43 +2490,35 @@ app.post("/v1/plan-food-log", async (req, res) => {
   }
 });
 
-// 2b. Resolve one food mention through the learned/current catalog, then the
-// static nutrition DB when no current menu lookup is needed or available.
-app.post("/v1/resolve-food-candidate", async (req, res) => {
-  try {
+// Resolve one request slot without writing to the response. Both the legacy
+// single route and the batch route use this exact pipeline.
+async function resolveFoodCandidateRequest(req, payload, signal) {
     const {
       userMessage = "",
       foodMention = "",
       searchQuery = "",
       resolutionHint = "",
-    } = req.body || {};
+    } = payload || {};
     const trimmedMention = String(foodMention).trim();
     const trimmedQuery = String(searchQuery).trim().slice(0, 220) || trimmedMention;
     const normalizedHint = ["single", "composite", "menu"].includes(resolutionHint)
       ? resolutionHint
       : "";
     if (!trimmedMention) {
-      return res.status(400).json({ error: "missing_food_mention" });
+      return { status: 400, body: { error: "missing_food_mention" } };
     }
-
-    // Stop paying for model calls the moment the phone hangs up, and finish
-    // within a bounded budget so the client's timeout never fires first.
-    const abort = new AbortController();
-    res.on("close", () => {
-      if (!res.writableEnded) abort.abort();
-    });
 
     const webResolver = webFoodResolverForRequest(req, trimmedMention);
     let attemptedWebResolution = false;
     const explicitlyRequiresCurrentMenuSource = normalizedHint === "menu" || isMenuFoodMention(trimmedMention);
 
-    const tryWebResolution = async () => {
+    const tryWebResolution = async (resolutionSignal = signal) => {
       attemptedWebResolution = true;
       try {
         return await webResolver.resolve({
           userMessage,
           foodMention: trimmedMention,
-          signal: abort.signal,
+          signal: resolutionSignal,
         });
       } catch (error) {
         if (error?.name !== "AbortError") {
@@ -2531,7 +2528,7 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       }
     };
 
-    const tryWorldResolution = async (signal = abort.signal) => {
+    const tryWorldResolution = async (resolutionSignal = signal) => {
       try {
         return await resolveWorldFoodEstimate({
           userMessage,
@@ -2547,7 +2544,7 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
               maxOutputTokens: 1_000,
               model: WORLD_FOOD_MODEL,
               reasoningEffort: process.env.NOMVA_WORLD_FOOD_REASONING_EFFORT || "none",
-              signal,
+              signal: resolutionSignal,
               timeoutMs: Number(process.env.NOMVA_WORLD_FOOD_TIMEOUT_MS || 7_000),
               maxRetries: 0,
               maxAttempts: 1,
@@ -2574,9 +2571,9 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
         const cachedResult = await webResolver.resolve({
           userMessage,
           foodMention: trimmedMention,
-          signal: abort.signal,
+          signal,
         });
-        if (cachedResult) return res.json(cachedResult);
+        if (cachedResult) return { status: 200, body: cachedResult };
       }
     }
 
@@ -2605,9 +2602,9 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
       const cachedResult = await webResolver.resolve({
         userMessage,
         foodMention: trimmedMention,
-        signal: abort.signal,
+        signal,
       });
-      if (cachedResult) return res.json(cachedResult);
+      if (cachedResult) return { status: 200, body: cachedResult };
     }
 
     const hasStrongCatalogMatch = initialCandidates
@@ -2625,36 +2622,36 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
     if (!hasStrongCatalogMatch && webPreferred) {
       if (requiresCurrentMenuSource) {
         const webResult = await tryWebResolution();
-        if (webResult) return res.json(webResult);
+        if (webResult) return { status: 200, body: webResult };
       } else {
         const enrichmentAbort = new AbortController();
         const cancelEnrichment = () => enrichmentAbort.abort();
-        abort.signal.addEventListener("abort", cancelEnrichment, { once: true });
+        signal?.addEventListener("abort", cancelEnrichment, { once: true });
         const resolved = await firstNonNull([
           tryWorldResolution(enrichmentAbort.signal),
           tryWebResolution(enrichmentAbort.signal),
         ], Number(process.env.NOMVA_UNKNOWN_FOOD_BUDGET_MS || 15_000));
         cancelEnrichment();
-        abort.signal.removeEventListener("abort", cancelEnrichment);
+        signal?.removeEventListener("abort", cancelEnrichment);
         if (resolved) {
           if (resolved.source === "web_estimate" && resolved.sourceUrl === AI_ESTIMATE_SOURCE_URL) {
             scheduleWebFoodRefresh(req, userMessage, trimmedMention);
           }
-          return res.json(resolved);
+          return { status: 200, body: resolved };
         }
       }
     }
 
     if (shouldBlockStaticFallback({ requiresCurrentMenuSource, attemptedWebResolution })) {
-      return res.status(422).json({ error: "food_candidate_not_found" });
+      return { status: 422, body: { error: "food_candidate_not_found" } };
     }
 
     if (!foodSearchStore.isAvailable) {
       if (!attemptedWebResolution) {
         const webResult = await tryWebResolution();
-        if (webResult) return res.json(webResult);
+        if (webResult) return { status: 200, body: webResult };
       }
-      return res.status(422).json({ error: "food_candidate_not_found" });
+      return { status: 422, body: { error: "food_candidate_not_found" } };
     }
 
     const outcome = await runFoodResolver({
@@ -2672,7 +2669,7 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
           maxOutputTokens: 700,
           model: FOOD_RESOLUTION_MODEL,
           reasoningEffort: "none",
-          signal: abort.signal,
+          signal,
           timeoutMs: Number(process.env.NOMVA_FOOD_SELECTION_TIMEOUT_MS || 7_000),
           maxRetries: 0,
           maxAttempts: 1,
@@ -2687,12 +2684,51 @@ app.post("/v1/resolve-food-candidate", async (req, res) => {
     if (outcome.status === 422 && !attemptedWebResolution) {
       const webResult = await tryWebResolution();
       if (webResult) {
-        return res.json(webResult);
+        return { status: 200, body: webResult };
       }
     }
+    return outcome;
+}
+
+function requestAbortSignal(res) {
+  const abort = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) abort.abort();
+  });
+  return abort.signal;
+}
+
+// 2b. Resolve one food mention through the learned/current catalog, then the
+// static nutrition DB when no current menu lookup is needed or available.
+app.post("/v1/resolve-food-candidate", async (req, res) => {
+  try {
+    const outcome = await resolveFoodCandidateRequest(req, req.body, requestAbortSignal(res));
     return res.status(outcome.status).json(outcome.body);
   } catch (err) {
     return respondLLMFailure(res, err, "food_resolution_failed");
+  }
+});
+
+// Resolve every independently planned food under one authenticated request.
+// Results retain their request index even when one lookup fails or finishes
+// out of order, so the client can never merge or shift neighboring foods.
+app.post("/v1/resolve-food-candidates", async (req, res) => {
+  const items = sanitizeFoodResolutionBatch(req.body?.items);
+  if (!items) {
+    return res.status(400).json({ error: "invalid_food_resolution_batch" });
+  }
+
+  try {
+    const signal = requestAbortSignal(res);
+    const userMessage = String(req.body?.userMessage || "").slice(0, 1_000);
+    const results = await resolveFoodResolutionBatch(
+      items,
+      (item) => resolveFoodCandidateRequest(req, { ...item, userMessage }, signal),
+      { concurrency: Number(process.env.NOMVA_FOOD_BATCH_CONCURRENCY || 3) }
+    );
+    return res.json({ results });
+  } catch (err) {
+    return respondLLMFailure(res, err, "food_resolution_batch_failed");
   }
 });
 

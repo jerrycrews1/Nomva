@@ -231,6 +231,46 @@ struct NomvaCoreTests {
         #expect(completed == 20)
     }
 
+    @Test("Multi-food batch decoding preserves every indexed slot")
+    func multiFoodBatchDecoding() throws {
+        let candidate: [String: Any] = [
+            "candidateId": "db_42",
+            "name": "Apple",
+            "servings": 1,
+        ]
+        let payload: [String: Any] = [
+            "results": [
+                ["requestIndex": 2, "candidate": candidate, "error": NSNull()],
+                ["requestIndex": 0, "candidate": candidate, "error": NSNull()],
+                ["requestIndex": 1, "candidate": NSNull(), "error": "food_candidate_not_found"],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try RemoteAPIProvider(baseURL: "https://example.invalid")
+            .decodeFoodResolutionBatch(from: data, expectedCount: 3)
+
+        #expect(decoded.count == 3)
+        #expect(decoded[0]?.candidateId == "db_42")
+        #expect(decoded[1] == nil)
+        #expect(decoded[2]?.candidateId == "db_42")
+    }
+
+    @Test("New food logs preserve independent entries sharing one catalog row")
+    @MainActor
+    func independentFoodLogSlots() {
+        let first = food(name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3)
+        let second = food(name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3)
+        first.foodDatabaseId = 42
+        second.foodDatabaseId = 42
+
+        let entries = FoodLoggingService.entriesForNewLog([first, second])
+
+        #expect(entries.count == 2)
+        #expect(entries[0] === first)
+        #expect(entries[1] === second)
+    }
+
     @MainActor
     private func food(
         name: String,

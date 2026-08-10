@@ -214,6 +214,12 @@ final class FoodLoggingService {
     static let shared = FoodLoggingService()
     private let db = DatabaseManager.shared
 
+    static func entriesForNewLog(_ entries: [FoodEntry]) -> [FoodEntry] {
+        // Each element represents an independently planned mention. Candidate
+        // identity is deliberately irrelevant at this boundary.
+        entries
+    }
+
     /// Returns the likely restaurant or brand phrase mentioned in a query
     /// by taking all identity tokens except the last one (the food item).
     /// For example, "Acme protein bar" becomes the possible brand phrase "acme protein".
@@ -882,10 +888,9 @@ final class FoodLoggingService {
                 continue
             }
 
-            if entries.contains(where: { foodIdentityKey(for: $0) == foodIdentityKey(for: builtEntry) }) {
-                continue
-            }
-
+            // The planner already deduplicates mention slots. Preserve one
+            // successful entry per slot even when two phrases resolve to the
+            // same reusable catalog row.
             entries.append(builtEntry)
             let candidate = resolution.candidate
             let sourceType = candidate.source == .database
@@ -1097,26 +1102,6 @@ final class FoodLoggingService {
             let key = normalizedForComparison(mention.text)
             return !key.isEmpty && seen.insert(key).inserted
         }
-    }
-
-    private func foodIdentityKey(for entry: FoodEntry) -> String {
-        if let barcode = entry.barcode, !barcode.isEmpty {
-            return "barcode:\(barcode)"
-        }
-        if let fdcId = entry.fdcId {
-            return "fdc:\(fdcId)"
-        }
-        if let foodDatabaseId = entry.foodDatabaseId {
-            return "database:\(foodDatabaseId)"
-        }
-        return [
-            entry.source ?? "",
-            entry.brand ?? "",
-            entry.name,
-            entry.meal,
-        ]
-        .map(normalizedForComparison)
-        .joined(separator: ":")
     }
 
     // MARK: - Edit Food
