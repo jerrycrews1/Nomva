@@ -37,7 +37,7 @@ function sanitizeFoodMentions(userMessage, rawFoods) {
   for (const value of source.slice(0, 16)) {
     const food = String(value || "").trim().slice(0, 240);
     const key = normalize(food);
-    if (!key || seen.has(key)) {
+    if (!key || /^(breakfast|lunch|dinner|snack)$/.test(key) || seen.has(key)) {
       continue;
     }
     seen.add(key);

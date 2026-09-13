@@ -65,6 +65,7 @@ final class SubscriptionManager: ObservableObject {
     private var transactionListenerTask: Task<Void, Never>?
     private let legacyDevOverrideKey = "is_premium_dev_override"
     private let debugPowerTestAccess: Bool
+    private var hasResolvedDistribution = false
 
     private init() {
         #if DEBUG
@@ -85,8 +86,8 @@ final class SubscriptionManager: ObservableObject {
         Task {
             await refreshDistributionAccess()
             if !hasTestFlightAccess {
-                await fetchProduct()
                 await checkEntitlements()
+                await fetchProduct()
             }
         }
     }
@@ -208,9 +209,8 @@ final class SubscriptionManager: ObservableObject {
 
     /// Walk through all current entitlements and update premium status.
     func checkEntitlements() async {
-        if !hasResolvedAccess {
-            await refreshDistributionAccess()
-        }
+        if !hasResolvedDistribution { await refreshDistributionAccess() }
+        defer { hasResolvedAccess = true }
         guard !hasTestFlightAccess else { return }
 
         let previouslyActive = hasVerifiedSubscription
@@ -260,8 +260,11 @@ final class SubscriptionManager: ObservableObject {
     }
 
     private func refreshDistributionAccess() async {
-        guard !hasResolvedAccess else { return }
-        defer { hasResolvedAccess = true }
+        guard !hasResolvedDistribution else { return }
+        defer {
+            hasResolvedDistribution = true
+            if hasTestFlightAccess { hasResolvedAccess = true }
+        }
 
         guard !debugPowerTestAccess else {
             hasTestFlightAccess = true

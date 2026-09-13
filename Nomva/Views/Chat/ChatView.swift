@@ -33,6 +33,8 @@ struct ChatView: View {
     @State private var scannedFood: FoodItem? = nil
     @State private var scannerError: String? = nil
     @State private var pendingBarcode = ""
+    @State private var barcodeLookupTask: Task<Void, Never>?
+    @State private var isLookingUpBarcode = false
     @State private var showCustomFoodCreate = false
     @State private var processingStage = "Understanding your request"
     @State private var activeRequestTask: Task<Void, Never>? = nil
@@ -367,7 +369,11 @@ struct ChatView: View {
             modelContext.undoManager = undoManager
             showDebugScannerErrorIfRequested()
         }
-        // Deliberately no cancellation onDisappear: switching to the Log tab
+        .onDisappear { barcodeLookupTask?.cancel(); isLookingUpBarcode = false }
+        .overlay(alignment: .top) {
+            if isLookingUpBarcode { ProgressView("Looking up barcode…").padding().background(.regularMaterial, in: Capsule()).padding() }
+        }
+        // Deliberately no chat cancellation onDisappear: switching to the Log tab
         // to watch a food appear must not kill the in-flight request. The
         // explicit Stop button remains the way to cancel.
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
@@ -648,6 +654,7 @@ struct ChatView: View {
                     .font(.body)
                     .lineLimit(isInputFocused ? 1...4 : 1...2)
                     .focused($isInputFocused)
+                    .accessibilityIdentifier("chat.input")
                     .padding(.vertical, isInputFocused ? 11 : 10)
 
                     Button { sendMessage() } label: {
@@ -689,9 +696,16 @@ struct ChatView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        let targetDate = selectedDate
-        let targetDayStart = dayStart
-        let targetEntries = selectedDayEntries
+        let conversationDayStart = dayStart
+        let sessionSnapshot = activeLoggingSession?.decodedState
+        let referenceIDs = messages.last(where: { $0.affectedFoodEntryIDs?.isEmpty == false })?.affectedFoodEntryIDs ?? []
+        let referencedDates = Set(allEntries.filter { referenceIDs.contains($0.id) }.map { cal.startOfDay(for: $0.date) })
+        let referenceDate = ChatTurnContext.isFoodReference(text) && referencedDates.count == 1 ? referencedDates.first : nil
+        let continuationDate = ChatTurnContext.isContinuation(text) ? sessionSnapshot?.targetDate : nil
+        let targetDate = ChatTurnSplitter.clauses(text).count > 1 ? selectedDate : ChatDateResolver.resolve(text, selectedDate: continuationDate ?? referenceDate ?? selectedDate)
+        let targetDayStart = cal.startOfDay(for: targetDate)
+        let targetDayEnd = cal.date(byAdding: .day, value: 1, to: targetDayStart)!
+        let targetEntries = allEntries.filter { $0.date >= targetDayStart && $0.date < targetDayEnd }
         let targetDateLabel = displayLabel(for: targetDate)
 
         isInputFocused = false
@@ -702,37 +716,39 @@ struct ChatView: View {
 
         // Snapshot only prior turns. The current message is sent separately
         // and must not appear twice in the model context.
-        let recentMsgs = messages
-            .filter { $0.role == "user" || $0.role == "assistant" }
-            .suffix(6)
-            .map { (role: $0.role, content: $0.content) }
+        let recentMsgs = ChatHistoryPrivacy.cloudMessages(messages)
 
         // Save user message immediately so it appears in the UI
         let userMsg = ChatMessage(
             role: "user",
             content: text,
-            timestamp: timestamp(for: targetDayStart),
-            dayDate: targetDayStart
+            timestamp: timestamp(for: conversationDayStart),
+            dayDate: conversationDayStart
         )
         modelContext.insert(userMsg)
-        try? modelContext.save()
+        do { try modelContext.save() } catch {
+            modelContext.rollback()
+            inputText = text
+            isProcessing = false
+            failedQuery = text
+            return
+        }
 
-        // Pass the last 30 days of food + all weight entries so the LLM can
+        // Pass local records to deterministic handlers; cloud context excludes weight data so the app can
         // answer "this week", "yesterday", "what's my trend" etc.
         let thirtyDaysAgo  = Calendar.current.date(byAdding: .day, value: -30, to: .now)!
         let recentSnapshot = allEntries.filter { $0.date >= thirtyDaysAgo }
         let weightSnapshot = allWeightEntries
         let waterSnapshot  = allWaterEntries
         let goalSnapshot   = displayGoal
-        let sessionSnapshot = activeLoggingSession?.decodedState
 
         activeRequestTask = Task { @MainActor in
             let stageTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled, isProcessing else { return }
-                processingStage = "Searching foods and checking your log"
+                processingStage = "Working on your request"
             }
-            let result = await FoodLoggingService.shared.process(
+            var result = await FoodLoggingService.shared.process(
                 userMessage: text,
                 recentMessages: recentMsgs,
                 goals: goalSnapshot,
@@ -744,13 +760,18 @@ struct ChatView: View {
                 waterEntries: waterSnapshot,
                 mealTemplates: mealTemplates,
                 defaultMeal: currentMeal(at: timestamp(for: targetDayStart)),
-                sessionState: sessionSnapshot
+                sessionState: sessionSnapshot,
+                referenceEntryIDs: referenceIDs
             )
             stageTask.cancel()
             guard !Task.isCancelled else { return }
 
-            processingStage = "Saving changes"
-            syncLoggingSession(with: result, dayStart: targetDayStart)
+            switch result.action {
+            case .reply, .askClarification: processingStage = "Preparing your answer"
+            default: processingStage = "Saving changes"
+            }
+            if result.sessionState?.targetDate == nil { result.sessionState?.targetDate = targetDate }
+            syncLoggingSession(with: result, dayStart: conversationDayStart)
             let assistantReply = applyAction(
                 result,
                 targetDayStart: targetDayStart,
@@ -760,14 +781,17 @@ struct ChatView: View {
             persistTrace(from: result, finalReply: assistantReply, dayStart: targetDayStart)
             
             // Record usage for free trial tracking
-            SubscriptionManager.shared.recordAIMessage()
+            if !result.isRecoverableFailure && !WeightInputParser.concernsBodyWeight(text) {
+                SubscriptionManager.shared.recordAIMessage()
+            }
 
             let assistantMsg = ChatMessage(
                 role: "assistant",
                 content: assistantReply,
-                timestamp: timestamp(for: targetDayStart, offsetBy: 1),
-                dayDate: targetDayStart
+                timestamp: timestamp(for: conversationDayStart, offsetBy: 1),
+                dayDate: conversationDayStart
             )
+            assistantMsg.affectedFoodEntryIDs = FoodMutationPolicy.affectedFoodIDs(result)
             modelContext.insert(assistantMsg)
             try? modelContext.save()
 
@@ -778,6 +802,7 @@ struct ChatView: View {
     }
 
     private func cancelActiveRequest() {
+        if inputText.isEmpty, let last = messages.last(where: { $0.role == "user" }) { inputText = last.content }
         activeRequestTask?.cancel()
         activeRequestTask = nil
         isProcessing = false
@@ -796,7 +821,7 @@ struct ChatView: View {
 
         guard let state = result.sessionState else { return }
 
-        if let existing = daySessions.first {
+        if !result.clearSession, let existing = daySessions.first {
             existing.apply(state: state)
         } else {
             modelContext.insert(LoggingSession(dayDate: dayStart, state: state))
@@ -814,30 +839,30 @@ struct ChatView: View {
     ) -> String {
         switch result.action {
 
+        case .compound(let results):
+            return results.map { child in
+                let date = child.targetDate ?? targetDayStart
+                let start = cal.startOfDay(for: date)
+                let entries = allEntries.filter { cal.isDate($0.date, inSameDayAs: date) }
+                return applyAction(child, targetDayStart: start, targetEntries: entries, targetDateLabel: displayLabel(for: date))
+            }.joined(separator: "\n")
+
         case .logFood(let entries):
-            // FoodLoggingService has already validated and deduplicated the
+            // FoodLoggingService has already validated the
             // planned mentions. Catalog identity is not a safe dedup key here:
             // independent request slots may legitimately resolve to one row.
             let insertionEntries = FoodLoggingService.entriesForNewLog(entries)
             guard !insertionEntries.isEmpty else {
                 return "Nothing was added because I couldn't verify a food match."
             }
-            let saved = commitMutation {
-                for (index, entry) in insertionEntries.enumerated() {
-                    entry.date = timestamp(for: targetDayStart, offsetBy: TimeInterval(index))
-                    modelContext.insert(entry)
-                }
-            } verify: {
-                insertionEntries.allSatisfy { $0.date >= targetDayStart }
-            }
-            guard saved else {
+            do {
+                _ = try FoodMutationPolicy.commitNewLog(result, in: modelContext, timestamp: timestamp(for: targetDayStart))
+            } catch {
                 return "I found the food, but couldn't save it. Nothing was added."
             }
 
             persistEvidence(result.evidenceDrafts, for: insertionEntries, dayStart: targetDayStart)
-            return insertionEntries
-                .map { "✓ \($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal" }
-                .joined(separator: "\n")
+            return FoodMutationPolicy.savedFoodReply(result, entries: insertionEntries)
 
         case .replaceEntry(let deleteName, let newEntries):
             guard let match = findEntry(named: deleteName, in: targetEntries) else {
@@ -903,9 +928,12 @@ struct ChatView: View {
             
         case .updateWeight(let idStr, let weightLbs):
             guard let existing = allWeightEntries.first(where: {
-                $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().hasPrefix(idStr.lowercased())
+                $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased() == idStr.replacingOccurrences(of: "-", with: "").lowercased()
             }) else {
                 return "I couldn't find that weigh-in, so nothing was changed."
+            }
+            guard existing.dataSource == .nomva else {
+                return "Correct this weigh-in in \(existing.resolvedSourceName), or add a new Nomva weigh-in. Nothing was changed."
             }
             let oldWeight = existing.weightLbs
             guard commitMutation({
@@ -926,12 +954,12 @@ struct ChatView: View {
             return "Updated weight from \(formatGoalNumber(oldWeight)) lb to \(formatGoalNumber(weightLbs)) lb."
 
         case .deleteWeight(let idStr):
-            let toDelete = allWeightEntries.filter { $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().hasPrefix(idStr.lowercased()) }
+            let toDelete = allWeightEntries.filter { $0.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased() == idStr.replacingOccurrences(of: "-", with: "").lowercased() }
             guard !toDelete.isEmpty else {
                 return "I couldn't find that weigh-in, so nothing was removed."
             }
             guard commitMutation({
-                for entry in toDelete { modelContext.delete(entry) }
+                for entry in toDelete { WeightSyncCoordinator.queueDeletion(entry, in: modelContext) }
             }) else {
                 return "I couldn't save that deletion. Your weight history was left unchanged."
             }
@@ -958,9 +986,9 @@ struct ChatView: View {
             presentUndo("\(toDelete.count) food item\(toDelete.count == 1 ? "" : "s") removed")
             return "Removed: \(displayNames(for: toDelete))."
 
-        case .editEntry(let name, let newGrams, let newDesc, let newServings, let newServingUnit):
-            guard let match = findEntry(named: name, in: targetEntries) else {
-                return "Couldn't find \"\(name)\" in your \(targetDateLabel.lowercased()) log. Nothing was changed."
+        case .editEntry(let id, let newGrams, let newDesc, let newServings, let newServingUnit):
+            guard let match = targetEntries.first(where: { $0.id == id }) else {
+                return "That entry is no longer in this log. Nothing was changed."
             }
             let saved = commitMutation {
                 let factor = newGrams / 100
@@ -1267,65 +1295,11 @@ struct ChatView: View {
 
     /// Finds an entry whose name most closely matches the given string.
     private func findEntry(named target: String, in entries: [FoodEntry]) -> FoodEntry? {
-        let t = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-
-        func fullName(_ entry: FoodEntry) -> String {
-            let brand = entry.brand ?? ""
-            return brand.isEmpty ? entry.name.lowercased() : "\(brand) \(entry.name)".lowercased()
-        }
-
-        // 1. Exact match (name or full name)
-        if let exact = entries.first(where: { $0.name.lowercased() == t || fullName($0) == t }) {
-            return exact
-        }
-
-        // 2. Exact match (brand) — if the user only said the brand and it's unique
-        let brandMatches = entries.filter { $0.brand?.lowercased() == t }
-        if brandMatches.count == 1 { return brandMatches.first }
-
-        // 3. Contains match
-        if let contains = entries.first(where: {
-            fullName($0).contains(t) || t.contains($0.name.lowercased())
-        }) {
-            return contains
-        }
-
-        // 4. Word overlap — find entry with most words in common
-        let targetWords = Set(t.components(separatedBy: .whitespaces).filter { $0.count > 2 })
-        if targetWords.isEmpty { return nil }
-
-        return entries
-            .map { entry -> (FoodEntry, Int) in
-                let combined = "\(entry.brand ?? "") \(entry.name)".lowercased()
-                let entryWords = Set(combined.components(separatedBy: .whitespaces))
-                return (entry, entryWords.intersection(targetWords).count)
-            }
-            .filter { $0.1 > 0 }
-            .max(by: { $0.1 < $1.1 })?
-            .0
+        FoodMutationPolicy.uniqueEntry(named: target, in: entries)
     }
 
     private func findEntries(named target: String, in entries: [FoodEntry]) -> [FoodEntry] {
-        let t = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return [] }
-
-        func fullName(_ entry: FoodEntry) -> String {
-            let brand = entry.brand ?? ""
-            return brand.isEmpty ? entry.name.lowercased() : "\(brand) \(entry.name)".lowercased()
-        }
-
-        let exactMatches = entries.filter { $0.name.lowercased() == t || fullName($0) == t }
-        if !exactMatches.isEmpty { return exactMatches }
-
-        let brandMatches = entries.filter { $0.brand?.lowercased() == t }
-        if !brandMatches.isEmpty { return brandMatches }
-
-        let containsMatches = entries.filter {
-            fullName($0).contains(t) || t.contains($0.name.lowercased())
-        }
-        if !containsMatches.isEmpty { return containsMatches }
-
-        return findEntry(named: target, in: entries).map { [$0] } ?? []
+        FoodMutationPolicy.uniqueEntry(named: target, in: entries).map { [$0] } ?? []
     }
 
     private func displayNames(for entries: [FoodEntry]) -> String {
@@ -1338,29 +1312,8 @@ struct ChatView: View {
     }
 
     private func uniqueMutationEntries(_ entries: [FoodEntry]) -> [FoodEntry] {
-        var seen = Set<String>()
-        return entries.filter { entry in
-            let key: String
-            if let barcode = entry.barcode, !barcode.isEmpty {
-                key = "barcode:\(barcode)"
-            } else if let fdcId = entry.fdcId {
-                key = "fdc:\(fdcId)"
-            } else if let foodDatabaseId = entry.foodDatabaseId {
-                key = "database:\(foodDatabaseId)"
-            } else {
-                key = [
-                    entry.source ?? "",
-                    entry.brand ?? "",
-                    entry.name,
-                    entry.meal,
-                ]
-                .joined(separator: " ")
-                .lowercased()
-                .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            return seen.insert(key).inserted
-        }
+        var seen = Set<UUID>()
+        return entries.filter { seen.insert($0.id).inserted }
     }
 
     private func boundedGoalValue(
@@ -1442,7 +1395,7 @@ struct ChatView: View {
 
         if commitMutation({
             for entry in entries {
-                modelContext.delete(entry)
+                WeightSyncCoordinator.queueDeletion(entry, in: modelContext)
             }
         }) {
             presentUndo("\(entries.count) weight entries removed")
@@ -1540,18 +1493,28 @@ struct ChatView: View {
     private func handleBarcode(_ barcode: String) {
         showBarcodeScanner = false
         pendingBarcode = barcode
+        barcodeLookupTask?.cancel()
+        isLookingUpBarcode = false
 
         if let custom = customFoods.first(where: {
-            $0.barcode?.filter(\.isNumber) == barcode.filter(\.isNumber)
+            BarcodeIdentity.matches($0.barcode, barcode)
         }) {
             scannedFood = foodItem(from: custom)
             return
         }
 
-        Task { @MainActor in
-            switch await BarcodeLookupService.shared.lookup(barcode: barcode) {
+        isLookingUpBarcode = true
+        barcodeLookupTask = Task { @MainActor in
+            let outcome = await BarcodeLookupService.shared.lookup(barcode: barcode)
+            guard !Task.isCancelled, pendingBarcode == barcode else { return }
+            isLookingUpBarcode = false
+            switch outcome {
             case let .found(food, _):
                 scannedFood = food
+            case .invalidBarcode:
+                scannerError = "That barcode could not be verified. Scan again or enter the printed digits."
+            case .incompleteNutrition:
+                scannerError = "The product was found, but its nutrition is incomplete. Photograph its label to add it accurately."
             case .notFound:
                 scannerError = "Couldn’t find barcode \(barcode). Create it once and Nomva will recognize it next time."
             case .unavailable:

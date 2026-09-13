@@ -190,6 +190,10 @@ struct WeightLogEntryView: View {
     @MainActor
     private func save() async {
         guard let lbs = parsedLbs else { return }
+        if let existingEntry, existingEntry.dataSource != .nomva {
+            saveMessage = "Correct this weigh-in in \(existingEntry.resolvedSourceName) so it syncs back to Nomva, or add a separate Nomva weigh-in."
+            return
+        }
         isSaving = true
         defer { isSaving = false }
 

@@ -83,6 +83,9 @@
 		F8A100000000000000000001 /* NomvaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B100000000000000000001 /* NomvaRuntime.swift */; };
 		F7A100000000000000000001 /* NomvaCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B100000000000000000001 /* NomvaCoreTests.swift */; };
 		F7A100000000000000000002 /* NomvaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B100000000000000000002 /* NomvaUITests.swift */; };
+		F9A100000000000000000001 /* ChatReliability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B100000000000000000001 /* ChatReliability.swift */; };
+		F9A100000000000000000002 /* BarcodeLookupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B100000000000000000002 /* BarcodeLookupService.swift */; };
+		F9A100000000000000000003 /* NomvaReliabilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B100000000000000000003 /* NomvaReliabilityUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -205,6 +208,9 @@
 		FA77777777777777777777AA /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		FA88888888888888888888AA /* ManualFoodSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualFoodSearchView.swift; sourceTree = "<group>"; };
 		FA99999999999999999999AA /* ManualFoodDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualFoodDetailView.swift; sourceTree = "<group>"; };
+		F9B100000000000000000001 /* ChatReliability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatReliability.swift; sourceTree = "<group>"; };
+		F9B100000000000000000002 /* BarcodeLookupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeLookupService.swift; sourceTree = "<group>"; };
+		F9B100000000000000000003 /* NomvaReliabilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NomvaReliabilityUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -322,7 +328,9 @@
 				AAC3333333333333333333AA /* SyncMigrationService.swift */,
 				AAA3333333333333333333AA /* NetworkMonitor.swift */,
 				3D65D9E758F86DAD24CEABD4 /* GoalService.swift */,
+				F9B100000000000000000002 /* BarcodeLookupService.swift */,
 				9BD1642B4F4044AD7A2C6E7A /* SyncManager.swift */,
+				F9B100000000000000000001 /* ChatReliability.swift */,
 				FA66666666666666666666AA /* SubscriptionManager.swift */,
 				F5D900000000000000000001 /* SubscriptionPolicy.swift */,
 				FA22222222222222222222AA /* FoundationModelsProvider.swift */,
@@ -483,6 +491,7 @@
 			isa = PBXGroup;
 			children = (
 				F7B100000000000000000002 /* NomvaUITests.swift */,
+				F9B100000000000000000003 /* NomvaReliabilityUITests.swift */,
 			);
 			path = NomvaUITests;
 			sourceTree = "<group>";
@@ -667,7 +676,9 @@
 				2188888888888888888888AA /* AppleHealthService.swift in Sources */,
 				5CB14C9A1443F2C63ACA1D02 /* FoodLoggingService.swift in Sources */,
 				114FCEC33E8606EFE21BEE00 /* GoalService.swift in Sources */,
+				F9A100000000000000000002 /* BarcodeLookupService.swift in Sources */,
 				E329AFBD95A4CA54B24904CA /* SyncManager.swift in Sources */,
+				F9A100000000000000000001 /* ChatReliability.swift in Sources */,
 				F0C470452F95BF4900AC8FDB /* HydrationSheetView.swift in Sources */,
 				F04A50612F9306CA004C3C56 /* SeedData.swift in Sources */,
 				667A293377F3484989A9855F /* OnboardingUI.swift in Sources */,
@@ -750,6 +761,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F7A100000000000000000002 /* NomvaUITests.swift in Sources */,
+				F9A100000000000000000003 /* NomvaReliabilityUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -844,7 +856,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 43;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -876,7 +888,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 43;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -961,7 +973,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 43;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -991,7 +1003,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 43;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;

@@ -32,6 +32,7 @@ edit_food — user wants to change a portion they already logged.
 move_food — user wants to reassign an existing food to another meal.
   "move the rice from dinner to lunch" → move_food
   "put that yogurt under breakfast"    → move_food
+  Refile, file under, reassign, or categorize an existing food under a meal also means move_food. It does not add another serving.
 
 query_data — user asks about their logs, weight, nutrition history, trends, averages, or goals.
   "how many calories today?"                     → query_data
@@ -161,7 +162,7 @@ Do NOT invent a replacement amount when the user is only objecting or saying the
 Return servingUnit in singular form when natural, such as "piece", "slice", "cup", "bowl", or "serving".
 When the user uses a vague amount, use a natural everyday portion only when it is well supported; otherwise keep one serving and mark confidence false.
 Fractions like "half a cup" mean servings 0.5, portionDescription "1/2 cup", servingUnit "cup".
-Natural portion phrases such as "small handful", "handful", "bite", "sip", "scoop", "bowl", "plate", "glass", "can", "bottle", or "packet" are explicit enough; set hasExplicitPortion true.
+Natural portion phrases such as "small handful", "handful", "bite", "sip", "scoop", "spoonful", "bowl", "plate", "glass", "can", "bottle", or "packet" are explicit enough; set hasExplicitPortion true.
 Any stated weight, volume, count, size, or fraction is explicit. Preserve it in portionDescription and set confident and hasExplicitPortion true.
 
 Examples:
@@ -179,7 +180,7 @@ Respond with ONLY a JSON object: {"servings": <number>, "portionDescription": "<
 
 const EXTRACT_MEAL = `Identify which meal the user mentioned or unambiguously indicated with a daypart. If the user didn't say or clearly imply one, answer "none".
 Meal words inside food names do not count as the meal.
-Direct daypart phrases map naturally: "this morning" or "in the morning" means breakfast; "at noon" or "at midday" means lunch; "this evening" or "tonight" means dinner. An explicit meal word always wins over a daypart.
+Direct daypart phrases map naturally: "this morning" or "in the morning" means breakfast; "at noon" or "at midday" means lunch; "this evening" or "tonight" means dinner. An explicit meal word always wins over a daypart. "My first meal" implies breakfast when no other meal or time is given.
 Examples:
 - "Log snack: scrambled eggs" → snack
 - "for breakfast" → breakfast
@@ -380,7 +381,8 @@ Windows:
 
 Return one query per requested metric. Resolve "week" to 7 days and "two weeks" to 14.
 Use remaining when the user asks how much is left. Use average only when they ask for an average.
-For weight-loss/trend questions use metric weight and aggregation trend.
+For weight-loss or direction-of-trend questions use metric weight and aggregation trend.
+For a requested numeric change or difference, including "how did my weight change", use aggregation change. Convert a stated number of weeks to days (weeks times 7); do not replace it with a default range.
 
 Examples:
 - "How many calories and grams of protein do I have left today?"
@@ -395,17 +397,19 @@ Examples:
 Respond with ONLY a JSON object:
 {"queries":[{"metric":"<metric>","aggregation":"<aggregation>","window":"<selected_day|last_n_days>","days":<integer or null>}]}`;
 
-const GENERAL_REPLY = `You are Nomva, a friendly and knowledgeable nutrition coach. You have full access to the user's food log, weight history, and goals — all provided in the context below.
+const GENERAL_REPLY = `You are Nomva, a friendly and knowledgeable nutrition coach. You can see only the scoped food and hydration context supplied with this turn. Weight history and personal health-derived goals are handled on the device. You cannot inspect, save, edit, or delete any records yourself.
 
 Most common totals, averages, trends, and remaining-goal questions are calculated by app code before this fallback is used.
 When answering an unsupported question:
 - Use only exact values in the supplied context.
-- For weight questions: look up exact values from the weight history, calculate change over time, weekly averages, etc.
-- For food questions: calculate average daily calories/protein/etc., identify most-eaten foods, compare days, find patterns.
+- Never invent weight history, goals, missing days, or successful actions. The app handles weight queries locally.
+- For food questions: identify concrete patterns in the supplied meals. Use supplied totals and averages; do not treat unlogged days as zero intake.
 - For hydration questions: check their water intake totals, compare to their goal, identify patterns.
 - Show your numbers (e.g. "You averaged 1,842 cal/day over the last 7 days").
 
-Keep answers concise but complete — 1-4 sentences for simple lookups, more for trend analysis.
+Answer the actual question first. For coaching, ground your advice in one or two specific foods or patterns, then offer one practical next step. Respect preferences and corrections from recent turns. Avoid generic praise, guilt, repetitive disclaimers, and asking questions whose answers are already present.
+If data is insufficient, distinguish missing data from a real zero and ask one focused question only when necessary. Never claim a mutation happened without an app receipt. When a save receipt is unavailable, suggest checking the existing log first. Do not suggest logging it again before checking, because that could create a duplicate.
+Keep answers concise but complete — 1-4 sentences for simple lookups, more only when the question needs it.
 Use only the data provided. If the requested data isn't in the context, say what you do have and suggest logging more.
 
 Respond with ONLY a JSON object: {"text": "<your reply>"}`;

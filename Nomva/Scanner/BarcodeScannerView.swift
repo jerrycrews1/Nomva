@@ -32,12 +32,23 @@ final class BarcodeScanViewController: UIViewController, @preconcurrency AVCaptu
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var hasScanned = false
+    private var metadataOutput: AVCaptureMetadataOutput?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        setupCamera()
         setupUI()
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: setupCamera()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] allowed in
+                Task { @MainActor in
+                    if allowed { self?.setupCamera() }
+                    else { self?.showFailure(message: "Allow camera access in Settings to scan. You can also search or type a barcode.") }
+                }
+            }
+        default: showFailure(message: "Allow camera access in Settings to scan. You can also search or type a barcode.")
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -51,9 +62,7 @@ final class BarcodeScanViewController: UIViewController, @preconcurrency AVCaptu
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if captureSession?.isRunning == true {
-            captureSession?.stopRunning()
-        }
+        if let captureSession { cameraQueue.async { captureSession.stopRunning() } }
     }
 
     private func setupCamera() {
@@ -70,22 +79,31 @@ final class BarcodeScanViewController: UIViewController, @preconcurrency AVCaptu
         session.addInput(videoInput)
 
         let metadataOutput = AVCaptureMetadataOutput()
+        self.metadataOutput = metadataOutput
         guard session.canAddOutput(metadataOutput) else { return }
         session.addOutput(metadataOutput)
 
         metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-        metadataOutput.metadataObjectTypes = [
-            .ean8, .ean13, .upce, .code128, .code39, .code93
-        ]
+        metadataOutput.metadataObjectTypes = [.ean8, .ean13, .upce, .code128].filter { metadataOutput.availableMetadataObjectTypes.contains($0) }
 
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.frame = view.layer.bounds
         previewLayer.videoGravity = .resizeAspectFill
-        view.layer.addSublayer(previewLayer)
+        view.layer.insertSublayer(previewLayer, at: 0)
         self.previewLayer = previewLayer
 
         cameraQueue.async {
             session.startRunning()
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+        if let connection = previewLayer?.connection,
+           let orientation = view.window?.windowScene?.interfaceOrientation {
+            let angle: CGFloat = orientation == .landscapeLeft ? 0 : orientation == .landscapeRight ? 180 : orientation == .portraitUpsideDown ? 270 : 90
+            if connection.isVideoRotationAngleSupported(angle) { connection.videoRotationAngle = angle }
         }
     }
 
@@ -153,12 +171,13 @@ final class BarcodeScanViewController: UIViewController, @preconcurrency AVCaptu
         onCancel?()
     }
 
-    private func showFailure() {
+    private func showFailure(message: String = "Camera not available. You can still search or type a barcode.") {
         let label = UILabel()
-        label.text = "Camera not available"
+        label.text = message
+        label.numberOfLines = 0
         label.textColor = .white
         label.textAlignment = .center
-        label.frame = view.bounds
+        label.frame = view.bounds.insetBy(dx: 30, dy: 140)
         view.addSubview(label)
     }
 
@@ -167,12 +186,16 @@ final class BarcodeScanViewController: UIViewController, @preconcurrency AVCaptu
     func metadataOutput(_ output: AVCaptureMetadataOutput,
                         didOutput metadataObjects: [AVMetadataObject],
                         from connection: AVCaptureConnection) {
-        guard !hasScanned,
-              let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              let barcode = object.stringValue else { return }
+        guard !hasScanned else { return }
+        let identity = metadataObjects.compactMap { object -> BarcodeIdentity? in
+            guard let code = object as? AVMetadataMachineReadableCodeObject,
+                  let value = code.stringValue else { return nil }
+            return BarcodeIdentity(value, isUPCE: code.type == .upce)
+        }.first
+        guard let barcode = identity?.digits else { return }
 
         hasScanned = true
-        captureSession?.stopRunning()
+        if let captureSession { cameraQueue.async { captureSession.stopRunning() } }
 
         AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
 

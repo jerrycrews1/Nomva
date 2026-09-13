@@ -70,6 +70,16 @@ struct ManualFoodDetailView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        if food.source?.hasPrefix("open_food_facts") == true,
+                           let code = food.barcode,
+                           let url = URL(string: "https://world.openfoodfacts.org/product/\(code)") {
+                            Link("Open Food Facts · ODbL", destination: url)
+                                .font(.caption)
+                        }
+                        if let missing = food.missingNutrients, !missing.isEmpty {
+                            Text("Label data missing: \(missing.joined(separator: ", ")). These nutrients are excluded from totals.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if food.source == "web_published" {
                             Label("Published nutrition", systemImage: "checkmark.seal.fill")
                                 .font(.caption.weight(.semibold))
@@ -276,7 +286,7 @@ struct ManualFoodDetailView: View {
             zincPer100g: per100.zinc,
             rawUserInput: "Manual entry",
             fdcId: food.fdcId,
-            foodDatabaseId: food.source?.hasPrefix("web_") == true ? nil : food.id,
+            foodDatabaseId: food.id < 0 || food.source?.hasPrefix("web_") == true ? nil : food.id,
             source: food.source,
             barcode: food.barcode
         )

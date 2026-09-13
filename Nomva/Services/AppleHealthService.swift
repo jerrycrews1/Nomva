@@ -2,6 +2,21 @@ import Foundation
 import HealthKit
 import SwiftData
 
+/// HealthKit's legacy acknowledgement block is not annotated Sendable. Give it
+/// one synchronized owner and acknowledge only after the anchored import finishes.
+private final class HealthObserverAcknowledgement: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callback: (() -> Void)?
+    init(_ callback: @escaping () -> Void) { self.callback = callback }
+    func complete() {
+        lock.lock()
+        let action = callback
+        callback = nil
+        lock.unlock()
+        action?()
+    }
+}
+
 enum AppleHealthAuthorizationState: Sendable {
     case unavailable
     case shouldRequest
@@ -23,6 +38,14 @@ struct AppleHealthWeightSample: Equatable, Sendable {
     let weightLbs: Double
     let sourceName: String
     let nomvaEntryID: UUID?
+    var syncVersion: Int? = nil
+}
+
+struct AppleHealthWeightChangePage: Sendable {
+    let samples: [AppleHealthWeightSample]
+    let deletedIdentifiers: [String]
+    let anchor: Data?
+    let changeCount: Int
 }
 
 struct AppleHealthWeightWrite: Equatable, Sendable {
@@ -39,6 +62,7 @@ struct WeightImportCandidate: Equatable, Sendable {
     let weightLbs: Double
     let sourceName: String
     let nomvaEntryID: UUID?
+    var syncVersion: Int? = nil
 }
 
 struct WeightImportResult: Equatable, Sendable {
@@ -69,6 +93,7 @@ enum AppleHealthServiceError: LocalizedError {
 enum AppleHealthService {
     private static let healthStore = HKHealthStore()
     private static let nomvaEntryMetadataKey = "com.nomva.weight.entry-id"
+    @MainActor private static var weightObserver: HKObserverQuery?
 
     private static var activeEnergyType: HKQuantityType? {
         HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)
@@ -201,6 +226,62 @@ enum AppleHealthService {
                 continuation.resume(returning: mapped)
             }
             healthStore.execute(query)
+        }
+    }
+
+    static func fetchWeightChanges(anchorData: Data?) async throws -> AppleHealthWeightChangePage {
+        guard isAvailable(), let bodyMassType else { throw AppleHealthServiceError.unavailable }
+        let anchor = try anchorData.flatMap { try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(type: bodyMassType, predicate: nil, anchor: anchor, limit: 500) { _, samples, deleted, nextAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                do {
+                    let mapped = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> AppleHealthWeightSample? in
+                        let pounds = sample.quantity.doubleValue(for: .pound())
+                        guard pounds.isFinite, (40...1_200).contains(pounds) else { return nil }
+                        let isOwn = sample.sourceRevision.source.bundleIdentifier == Bundle.main.bundleIdentifier
+                        let entryID = isOwn ? (sample.metadata?[nomvaEntryMetadataKey] as? String).flatMap(UUID.init(uuidString:)) : nil
+                        return AppleHealthWeightSample(externalIdentifier: "apple:\(sample.uuid.uuidString.lowercased())", date: sample.startDate,
+                            weightLbs: pounds, sourceName: sample.sourceRevision.source.name, nomvaEntryID: entryID,
+                            syncVersion: (sample.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue)
+                    }
+                    let archived = try nextAnchor.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
+                    continuation.resume(returning: AppleHealthWeightChangePage(
+                        samples: mapped, deletedIdentifiers: (deleted ?? []).map { "apple:\($0.uuid.uuidString.lowercased())" },
+                        anchor: archived, changeCount: (samples?.count ?? 0) + (deleted?.count ?? 0)))
+                } catch { continuation.resume(throwing: error) }
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    @MainActor
+    static func startWeightObservation(onChange: @escaping @Sendable () async -> Void) async {
+        guard weightObserver == nil, isAvailable(), let bodyMassType,
+              WeightSyncPreferences.appleHealthImportEnabled else { return }
+        let observer = HKObserverQuery(sampleType: bodyMassType, predicate: nil) { _, completion, error in
+            guard error == nil else { completion(); return }
+            let acknowledgement = HealthObserverAcknowledgement(completion)
+            Task { await onChange(); acknowledgement.complete() }
+        }
+        weightObserver = observer
+        healthStore.execute(observer)
+        do { try await healthStore.enableBackgroundDelivery(for: bodyMassType, frequency: .immediate) }
+        catch { WeightSyncPreferences.record(error: error) }
+    }
+
+    static func deleteNomvaWeight(entryID: UUID) async throws {
+        guard isAvailable(), let bodyMassType else { throw AppleHealthServiceError.unavailable }
+        guard weightWriteAuthorizationStatus() == .sharingAuthorized else { throw AppleHealthServiceError.weightPermissionDenied }
+        let ownSource = HKQuery.predicateForObjects(from: HKSource.default())
+        let identity = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier,
+                                                  allowedValues: ["com.nomva.weight.\(entryID.uuidString.lowercased())"])
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            healthStore.deleteObjects(of: bodyMassType, predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [ownSource, identity])) { success, _, error in
+                if let error { continuation.resume(throwing: error) }
+                else if !success { continuation.resume(throwing: AppleHealthServiceError.weightPermissionDenied) }
+                else { continuation.resume() }
+            }
         }
     }
 
@@ -361,168 +442,260 @@ enum WeightSyncPreferences {
     }
 }
 
-enum WeightImportPlanner {
-    static let duplicateTimeTolerance: TimeInterval = 5 * 60
-    static let duplicateWeightToleranceLbs = 0.15
-
-    static func duplicateIndex(
-        for candidate: WeightImportCandidate,
-        in snapshots: [(externalIdentifier: String?, date: Date, weightLbs: Double)]
-    ) -> Int? {
-        if let exact = snapshots.firstIndex(where: {
-            $0.externalIdentifier == candidate.externalIdentifier
-        }) {
-            return exact
-        }
-
-        return snapshots.firstIndex(where: {
-            abs($0.date.timeIntervalSince(candidate.date)) <= duplicateTimeTolerance &&
-            abs($0.weightLbs - candidate.weightLbs) <= duplicateWeightToleranceLbs
-        })
-    }
-}
-
 @MainActor
 enum WeightSyncCoordinator {
-    static func importAppleHealth(into modelContext: ModelContext) async throws -> WeightImportResult {
-        let samples = try await AppleHealthService.fetchWeightSamples()
-        let candidates = samples.map {
-            WeightImportCandidate(
-                source: .appleHealth,
-                externalIdentifier: $0.externalIdentifier,
-                date: $0.date,
-                weightLbs: $0.weightLbs,
-                sourceName: $0.sourceName,
-                nomvaEntryID: $0.nomvaEntryID
-            )
+    private static let gate = NomvaCloudAttestedRequestGate()
+    private static var deletionWake: Task<Void, Never>?
+
+    static func importAppleHealth(into modelContext: ModelContext, client: WeightHealthClient = .live) async throws -> WeightImportResult {
+        try await gate.withExclusiveAccess { @MainActor in
+            let state = try modelContext.fetch(FetchDescriptor<WeightSyncState>()).first ?? WeightSyncState()
+            if state.modelContext == nil { modelContext.insert(state) }
+            var total = WeightImportResult()
+            while true {
+                try Task.checkCancellation()
+                let page = try await client.fetchChanges(state.anchor)
+                // Keep edits made in the UI during the read if importing this page fails.
+                try modelContext.save()
+                do {
+                    let candidates = page.samples.map {
+                        WeightImportCandidate(source: .appleHealth, externalIdentifier: $0.externalIdentifier,
+                            date: $0.date, weightLbs: $0.weightLbs, sourceName: $0.sourceName, nomvaEntryID: $0.nomvaEntryID, syncVersion: $0.syncVersion)
+                    }
+                    let result = try apply(candidates, to: modelContext, save: false)
+                    try applyHealthDeletions(page.deletedIdentifiers, to: modelContext)
+                    state.anchor = page.anchor
+                    state.lastReadAt = .now
+                    if let latest = page.samples.max(by: { $0.date < $1.date }), latest.date >= (state.lastSampleAt ?? .distantPast) {
+                        state.lastSampleAt = latest.date
+                        state.lastSourceName = latest.sourceName
+                    }
+                    try modelContext.save()
+                    total.inserted += result.inserted
+                    total.updated += result.updated
+                    total.skipped += result.skipped
+                } catch {
+                    modelContext.rollback()
+                    throw error
+                }
+                if page.changeCount < 500 { break }
+            }
+            return total
         }
-        return try apply(candidates, to: modelContext)
     }
 
-    static func importGarmin(
-        into modelContext: ModelContext,
-        uploadLookbackDays: Int
-    ) async throws -> WeightImportResult {
-        let samples = try await GarminCloudService().fetchWeights(
-            uploadLookbackDays: uploadLookbackDays
-        )
-        let candidates: [WeightImportCandidate] = samples.compactMap { sample in
-            guard let measuredDate = sample.measuredDate else { return nil }
-            return WeightImportCandidate(
-                source: .garmin,
-                externalIdentifier: "garmin:\(sample.id)",
-                date: measuredDate,
-                weightLbs: sample.weightKg / 0.45359237,
-                sourceName: "Garmin Connect",
-                nomvaEntryID: nil
-            )
-        }
-        return try apply(candidates, to: modelContext)
+    static func exportToAppleHealth(_ entry: WeightEntry, in modelContext: ModelContext, client: WeightHealthClient = .live) async throws {
+        _ = try await exportAllNomvaWeightsToAppleHealth(from: [entry], in: modelContext, client: client)
     }
 
-    static func exportToAppleHealth(_ entry: WeightEntry, in modelContext: ModelContext) async throws {
-        guard entry.dataSource == .nomva,
-              WeightSyncPreferences.appleHealthExportEnabled else { return }
-
-        let version = max(1, (entry.healthSyncVersion ?? 0) + 1)
-        let externalIdentifier = try await AppleHealthService.saveWeight(
-            entryID: entry.id,
-            date: entry.date,
-            weightLbs: entry.weightLbs,
-            syncVersion: version
-        )
-        entry.healthSyncVersion = version
-        entry.externalIdentifier = externalIdentifier
-        try modelContext.save()
-        WeightSyncPreferences.record(error: nil)
-    }
-
+    @discardableResult
     static func exportAllNomvaWeightsToAppleHealth(
-        from entries: [WeightEntry],
-        in modelContext: ModelContext
+        from entries: [WeightEntry], in modelContext: ModelContext,
+        client: WeightHealthClient = .live, enabled: Bool = WeightSyncPreferences.appleHealthExportEnabled
     ) async throws -> Int {
-        guard WeightSyncPreferences.appleHealthExportEnabled else { return 0 }
-        let exportable = entries
-            .filter { $0.dataSource == .nomva }
-            .sorted(by: { $0.date < $1.date })
-        var exported = 0
-
-        for start in stride(from: 0, to: exportable.count, by: 200) {
-            let chunk = Array(exportable[start..<min(start + 200, exportable.count)])
-            let writes = chunk.map {
-                AppleHealthWeightWrite(
-                    entryID: $0.id,
-                    date: $0.date,
-                    weightLbs: $0.weightLbs,
-                    syncVersion: max(1, ($0.healthSyncVersion ?? 0) + 1)
-                )
+        guard enabled else { return 0 }
+        return try await gate.withExclusiveAccess { @MainActor in
+            var exported = 0
+            let exportable = entries.filter { $0.modelContext != nil && $0.dataSource == .nomva && $0.healthExportedFingerprint != $0.healthFingerprint }
+            for start in stride(from: 0, to: exportable.count, by: 100) {
+                try Task.checkCancellation()
+                let chunk = Array(exportable[start..<min(start + 100, exportable.count)])
+                let writes = chunk.map { entry -> AppleHealthWeightWrite in
+                    if entry.healthPendingFingerprint != entry.healthFingerprint {
+                        entry.healthSyncVersion = nextHealthSyncVersion(after: entry.healthSyncVersion ?? 0)
+                        entry.healthPendingFingerprint = entry.healthFingerprint
+                    }
+                    return AppleHealthWeightWrite(entryID: entry.id, date: entry.date, weightLbs: entry.weightLbs, syncVersion: entry.healthSyncVersion ?? 1)
+                }
+                let fingerprints = chunk.map(\.healthFingerprint)
+                // Persist the same version before writing: a retry after process death is idempotent.
+                try modelContext.save()
+                _ = try await client.save(writes)
+                for (index, entry) in chunk.enumerated() where entry.modelContext != nil {
+                    entry.healthExportedFingerprint = fingerprints[index]
+                    if entry.healthPendingFingerprint == fingerprints[index] { entry.healthPendingFingerprint = nil }
+                    // HealthKit may ignore a replayed version; its generated UUID is not proof of storage.
+                    // The anchored reader binds the actual UUID using our entry-id metadata.
+                    exported += 1
+                }
+                try modelContext.save()
             }
-            let identifiers = try await AppleHealthService.saveWeights(writes)
-            for (entry, write) in zip(chunk, writes) {
-                entry.healthSyncVersion = write.syncVersion
-                entry.externalIdentifier = identifiers[entry.id]
-                exported += 1
-            }
+            return exported
         }
-        try modelContext.save()
-        WeightSyncPreferences.record(error: nil)
-        return exported
     }
 
-    static func apply(
-        _ candidates: [WeightImportCandidate],
-        to modelContext: ModelContext
-    ) throws -> WeightImportResult {
+    static func queueDeletion(_ entry: WeightEntry, in modelContext: ModelContext) {
+        modelContext.insert(WeightSyncTombstone(entry: entry))
+        modelContext.delete(entry)
+        deletionWake?.cancel()
+        let container = modelContext.container
+        deletionWake = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(16)) } catch { return }
+            await syncEnabledSources(in: ModelContext(container))
+        }
+    }
+
+    static func nextHealthSyncVersion(after previous: Int, now: Date = .now) -> Int {
+        // Clock-based revisions avoid restarting at 1 on a second device. The
+        // persisted previous value also keeps retries monotonic after clock changes.
+        max(previous + 1, Int(now.timeIntervalSince1970 * 1_000_000))
+    }
+
+    static func flushDeletions(in modelContext: ModelContext, client: WeightHealthClient = .live,
+                               enabled: Bool = WeightSyncPreferences.appleHealthExportEnabled, now: Date = .now) async throws {
+        try await gate.withExclusiveAccess { @MainActor in
+            let entries = try modelContext.fetch(FetchDescriptor<WeightEntry>())
+            let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for tombstone in try modelContext.fetch(FetchDescriptor<WeightSyncTombstone>()) {
+                if let restored = byID[tombstone.entryID] {
+                    // Undo after an external deletion must re-export the restored entry.
+                    if !tombstone.pending && tombstone.deleteFromHealth { restored.healthExportedFingerprint = nil }
+                    modelContext.delete(tombstone)
+                } else if enabled && tombstone.pending && tombstone.deleteFromHealth && tombstone.notBefore <= now {
+                    try await client.delete(tombstone.entryID)
+                    tombstone.pending = false
+                }
+                try modelContext.save()
+            }
+        }
+    }
+
+    static func syncEnabledSources(in modelContext: ModelContext) async {
+        guard !NomvaRuntime.isAutomatedTest else { return }
+        var failures: [String] = []
+        if WeightSyncPreferences.appleHealthImportEnabled {
+            do { _ = try await importAppleHealth(into: modelContext) }
+            catch { failures.append(error.localizedDescription) }
+        }
+        do {
+            try await flushDeletions(in: modelContext)
+            _ = try await exportAllNomvaWeightsToAppleHealth(from: modelContext.fetch(FetchDescriptor<WeightEntry>()), in: modelContext)
+        } catch { failures.append(error.localizedDescription) }
+        UserDefaults.standard.set(failures.joined(separator: "\n"), forKey: WeightSyncPreferences.lastErrorKey)
+    }
+
+    private static func applyHealthDeletions(_ identifiers: [String], to context: ModelContext) throws {
+        guard !identifiers.isEmpty else { return }
+        let deleted = Set(identifiers)
+        for entry in try context.fetch(FetchDescriptor<WeightEntry>()) {
+            let isCleanNomvaCopy = entry.dataSource == .nomva && entry.healthExportedFingerprint == entry.healthFingerprint && entry.healthPendingFingerprint == nil
+            if (entry.dataSource == .appleHealth || isCleanNomvaCopy), let primary = entry.externalIdentifier, deleted.contains(primary) {
+                let tombstone = WeightSyncTombstone(entry: entry)
+                tombstone.deleteFromHealth = false
+                tombstone.pending = false
+                context.insert(tombstone)
+                context.delete(entry)
+            } else {
+                entry.externalAliases = Array(entry.allExternalIdentifiers.subtracting(deleted))
+                if let primary = entry.externalIdentifier, deleted.contains(primary) {
+                    entry.externalIdentifier = nil
+                    // A local edit made before seeing the deletion remains queued.
+                    if entry.dataSource == .nomva { entry.healthPendingFingerprint = nil }
+                }
+            }
+        }
+    }
+
+    static func apply(_ candidates: [WeightImportCandidate], to modelContext: ModelContext, save: Bool = true) throws -> WeightImportResult {
         var entries = try modelContext.fetch(FetchDescriptor<WeightEntry>())
+        let tombstones = try modelContext.fetch(FetchDescriptor<WeightSyncTombstone>())
+        let suppressed = Set(tombstones.flatMap(\.externalIdentifiers))
+        // Source deletions suppress only that sample UUID. A replacement can
+        // arrive on a later anchored page; only a user deletion suppresses its entry ID.
+        let deletedOwnIDs = Set(tombstones.filter(\.deleteFromHealth).map(\.entryID))
+        var byExternalID: [String: WeightEntry] = [:]
+        var byID: [UUID: WeightEntry] = [:]
+        for entry in entries {
+            byID[entry.id] = entry
+            for alias in entry.allExternalIdentifiers { byExternalID[alias] = entry }
+        }
         var result = WeightImportResult()
-
         for candidate in candidates.sorted(by: { $0.date < $1.date }) {
-            guard candidate.weightLbs.isFinite,
-                  candidate.weightLbs >= 40,
-                  candidate.weightLbs <= 1_200 else {
-                result.skipped += 1
-                continue
+            guard candidate.weightLbs.isFinite, (40...1_200).contains(candidate.weightLbs),
+                  !suppressed.contains(candidate.externalIdentifier),
+                  candidate.nomvaEntryID.map({ !deletedOwnIDs.contains($0) }) ?? true else {
+                result.skipped += 1; continue
             }
-
-            if let nomvaEntryID = candidate.nomvaEntryID,
-               let existing = entries.first(where: { $0.id == nomvaEntryID }) {
+            if let ownID = candidate.nomvaEntryID, let existing = byID[ownID] {
+                existing.externalAliases = Array(existing.allExternalIdentifiers.union([candidate.externalIdentifier]))
+                byExternalID[candidate.externalIdentifier] = existing
+                let version = candidate.syncVersion ?? 0
+                let previous = existing.healthSyncVersion ?? 0
+                guard version >= previous else { result.skipped += 1; continue }
                 existing.externalIdentifier = candidate.externalIdentifier
-                result.skipped += 1
-                continue
-            }
-
-            let snapshots = entries.map {
-                (externalIdentifier: $0.externalIdentifier, date: $0.date, weightLbs: $0.weightLbs)
-            }
-            if let duplicateIndex = WeightImportPlanner.duplicateIndex(for: candidate, in: snapshots) {
-                let existing = entries[duplicateIndex]
-                if existing.externalIdentifier == candidate.externalIdentifier,
-                   (abs(existing.weightLbs - candidate.weightLbs) > 0.001 || existing.date != candidate.date) {
+                existing.healthSyncVersion = max(previous, version)
+                let matchesLocal = abs(existing.weightLbs - candidate.weightLbs) < 0.000_001 && abs(existing.date.timeIntervalSince(candidate.date)) < 0.000_001
+                let legacyExport = existing.healthExportedFingerprint == nil && existing.healthPendingFingerprint == nil && previous > 0
+                let hasLocalEdit = !legacyExport && (existing.healthExportedFingerprint != existing.healthFingerprint || existing.healthPendingFingerprint != nil)
+                if matchesLocal || !hasLocalEdit {
+                    let changed = !matchesLocal
                     existing.weightLbs = candidate.weightLbs
                     existing.date = candidate.date
-                    existing.sourceName = candidate.sourceName
-                    result.updated += 1
+                    existing.healthExportedFingerprint = existing.healthFingerprint
+                    existing.healthPendingFingerprint = nil
+                    if changed { result.updated += 1 } else { result.skipped += 1 }
                 } else {
+                    // An unsent local edit survives a remote update. Issue a new
+                    // revision above the observed remote version on the next export.
+                    if version > previous { existing.healthPendingFingerprint = nil }
                     result.skipped += 1
                 }
                 continue
             }
-
-            let entry = WeightEntry(
-                date: candidate.date,
-                weightLbs: candidate.weightLbs,
-                source: candidate.source,
-                sourceName: candidate.sourceName,
-                externalIdentifier: candidate.externalIdentifier
-            )
+            // Only reconcile the known Garmin-to-Health bridge. Distinct Health samples stay distinct.
+            let bridge = entries.first {
+                let knownBridge = ($0.dataSource == .garmin && candidate.source == .appleHealth && candidate.sourceName.lowercased().contains("garmin")) ||
+                    ($0.dataSource == .appleHealth && $0.resolvedSourceName.lowercased().contains("garmin") && candidate.source == .garmin)
+                return knownBridge && abs($0.date.timeIntervalSince(candidate.date)) <= 1 && abs($0.weightLbs - candidate.weightLbs) <= 0.01
+            }
+            if let existing = byExternalID[candidate.externalIdentifier] ?? bridge {
+                existing.externalAliases = Array(existing.allExternalIdentifiers.union([candidate.externalIdentifier]))
+                byExternalID[candidate.externalIdentifier] = existing
+                if existing.dataSource == .nomva {
+                    result.skipped += 1
+                    continue
+                }
+                if candidate.source == .appleHealth || existing.dataSource == candidate.source {
+                    let changed = existing.weightLbs != candidate.weightLbs || existing.date != candidate.date || existing.dataSource != candidate.source
+                    existing.weightLbs = candidate.weightLbs
+                    existing.date = candidate.date
+                    existing.sourceRaw = candidate.source.rawValue
+                    existing.sourceName = candidate.sourceName
+                    existing.externalIdentifier = candidate.externalIdentifier
+                    if changed { result.updated += 1 } else { result.skipped += 1 }
+                } else { result.skipped += 1 }
+                continue
+            }
+            let entry = WeightEntry(date: candidate.date, weightLbs: candidate.weightLbs,
+                                    source: candidate.nomvaEntryID == nil ? candidate.source : .nomva,
+                                    sourceName: candidate.sourceName, externalIdentifier: candidate.externalIdentifier)
+            if let ownID = candidate.nomvaEntryID {
+                entry.id = ownID
+                entry.healthSyncVersion = candidate.syncVersion
+                entry.healthExportedFingerprint = entry.healthFingerprint
+                // Health replacement pages may separate delete from add. Preserve
+                // the note locally without putting that note in Health metadata.
+                entry.note = tombstones.last { $0.entryID == ownID && !$0.deleteFromHealth }?.localNote
+            }
             modelContext.insert(entry)
             entries.append(entry)
+            byID[entry.id] = entry
+            byExternalID[candidate.externalIdentifier] = entry
             result.inserted += 1
         }
-
-        if result.imported > 0 || candidates.contains(where: { $0.nomvaEntryID != nil }) {
-            try modelContext.save()
-        }
+        if save { try modelContext.save() }
         return result
     }
+}
+
+struct WeightHealthClient: Sendable {
+    var fetchChanges: @Sendable (Data?) async throws -> AppleHealthWeightChangePage
+    var save: @Sendable ([AppleHealthWeightWrite]) async throws -> [UUID: String]
+    var delete: @Sendable (UUID) async throws -> Void
+
+    static let live = WeightHealthClient(
+        fetchChanges: { try await AppleHealthService.fetchWeightChanges(anchorData: $0) },
+        save: { try await AppleHealthService.saveWeights($0) },
+        delete: { try await AppleHealthService.deleteNomvaWeight(entryID: $0) }
+    )
 }

@@ -267,10 +267,11 @@ final class FoodLoggingService {
     }
 
     enum ChatAction {
+        case compound([LoggingResult])
         case logFood([FoodEntry])
         case replaceEntry(deleteName: String, newEntries: [FoodEntry])
         case replaceEntryById(deleteId: UUID, newEntries: [FoodEntry])
-        case editEntry(foodName: String, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String)
+        case editEntry(id: UUID, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String)
         case moveEntry(id: UUID, destinationMeal: String)
         case moveMeal(from: String, to: String)
         case deleteEntry(foodNames: [String])
@@ -296,6 +297,8 @@ final class FoodLoggingService {
         var trace: AgentTraceDraft? = nil
         var evidenceDrafts: [ResolvedFoodEvidenceDraft] = []
         var isRecoverableFailure: Bool = false
+        var unresolvedFoods: [String] = []
+        var targetDate: Date? = nil
     }
 
     struct ResolvedFoodEvidenceDraft {
@@ -350,22 +353,83 @@ final class FoodLoggingService {
         waterEntries: [WaterEntry] = [],
         mealTemplates: [MealTemplate] = [],
         defaultMeal: String = "snack",
-        sessionState: AgentTaskState? = nil
+        sessionState: AgentTaskState? = nil,
+        referenceEntryIDs: [UUID] = []
     ) async -> LoggingResult {
 
+        let clauses = ChatTurnSplitter.clauses(userMessage)
+        if clauses.count > 1 && clauses.contains(where: WeightInputParser.concernsBodyWeight) {
+            guard clauses.count <= 6,
+                  userMessage.range(of: #"(?i)\b(delete|remove|clear|edit|correct|change|instead)\b"#, options: .regularExpression) == nil else {
+                return .reply("Send corrections or deletions as a separate message so I can confirm exactly which entries change. Nothing was changed.")
+            }
+            var results: [LoggingResult] = []
+            for clause in clauses {
+                let date = ChatDateResolver.resolve(clause, selectedDate: targetDate)
+                let relevant = recentEntries.filter { Calendar.current.isDate($0.date, inSameDayAs: date) }
+                var result = await process(userMessage: clause, recentMessages: recentMessages, goals: goals,
+                    targetDate: date, targetEntries: relevant, recentEntries: recentEntries, customFoods: customFoods,
+                    weightEntries: weightEntries, waterEntries: waterEntries, mealTemplates: mealTemplates, defaultMeal: defaultMeal)
+                result.targetDate = date
+                result.sessionState?.targetDate = date
+                results.append(result)
+            }
+            return .init(action: .compound(results), reply: "", sessionState: results.compactMap(\.sessionState).first,
+                         clearSession: results.allSatisfy(\.clearSession))
+        }
+        if let issue = ChatDateResolver.validationIssue(userMessage),
+           userMessage.range(of: #"(?i)\b(log|add|record|ate|had|drank|weigh|weighed|delete|remove|clear|update|change|edit)\b"#, options: .regularExpression) != nil {
+            return .reply(issue)
+        }
+        let generalAdvice = userMessage.range(of: #"(?i)^(what should|how should|what can|how can|how do|how to|why|is it normal|help me)\b"#, options: .regularExpression) != nil
+        if WeightInputParser.concernsBodyWeight(userMessage),
+           userMessage.range(of: #"(?i)\b(goal|target)\b"#, options: .regularExpression) != nil,
+           userMessage.range(of: #"(?i)^\s*(set|change|update|make)\b"#, options: .regularExpression) != nil {
+            guard let value = WeightInputParser.pounds(in: userMessage) else { return .reply("Include your target weight and unit, for example 75 kg or 165 lb.") }
+            return .init(action: .setGoal(changes: [GoalChange(metric: "target_weight_lbs", operation: "set", value: value)]), reply: "")
+        }
+        if WeightInputParser.concernsBodyWeight(userMessage), !generalAdvice,
+           userMessage.range(of: #"(?i)\b(goal|target)\b"#, options: .regularExpression) != nil {
+            let target = UserDefaults.standard.double(forKey: "target_weight_lbs")
+            return .reply(target > 0 ? "Your target weight is \(formatMeasurement(target)) lb." : "You have not set a target weight yet. Set one in Goals, or say ‘set my target weight to 165 lb’.")
+        }
+        if WeightInputParser.concernsBodyWeight(userMessage) && !generalAdvice {
+            if userMessage.range(of: #"(?i)\b(I ate|I had|I drank|log food|add food)\b"#, options: .regularExpression) != nil {
+                return .reply("Please separate the food and weigh-in with a semicolon so I can log both accurately. Nothing was added.")
+            }
+            return handleLocalWeightRequest(userMessage, entries: weightEntries, targetDate: targetDate)
+        }
+
+        if canUseAIOverride == nil, !SubscriptionManager.shared.hasResolvedAccess {
+            return .recoverableReply("I'm still checking your access. Please try again in a moment.")
+        }
         // PRODUCTION GUARD
         guard canUseAIOverride ?? SubscriptionManager.shared.canUseAI else {
             return .reply("You've reached your limit. Upgrade to Nomva Pro in Settings to keep chatting!")
         }
 
         let provider = activeProvider()
-        let dayEntries = targetEntries
+        let pronounReference = ChatTurnContext.isFoodReference(userMessage)
+        let referenced = targetEntries.filter { referenceEntryIDs.contains($0.id) }
+        if pronounReference, !referenceEntryIDs.isEmpty, referenced.isEmpty {
+            return .reply("Those entries are no longer available in this log. Name the food and date you want to change. Nothing was changed.")
+        }
+        let dayEntries = pronounReference && !referenced.isEmpty ? referenced : targetEntries
         let dayLabel = Self.dayContextLabel(for: targetDate)
+
+        if sessionState?.status == "awaiting_food_details",
+           let pending = sessionState?.pendingDescriptions, !pending.isEmpty,
+           ChatTurnContext.isContinuation(userMessage) {
+            return await handleLogFood(userMessage: userMessage, provider: provider, recentEntries: recentEntries,
+                customFoods: customFoods, defaultMeal: sessionState?.meal ?? defaultMeal,
+                recentMessages: recentMessages, pendingFoods: pending)
+        }
 
         if sessionState?.intent == UserIntentKind.editFood.rawValue,
            sessionState?.status == "awaiting_clarification",
            sessionState?.unresolvedSlots.contains("portion") == true,
-           sessionState?.correctionTargetName != nil {
+           sessionState?.correctionTargetName != nil,
+           ChatTurnContext.isContinuation(userMessage) {
             return await handleEditFood(
                 userMessage: userMessage,
                 provider: provider,
@@ -376,6 +440,12 @@ final class FoodLoggingService {
                 recentMessages: recentMessages,
                 sessionState: sessionState
             )
+        }
+
+        if sessionState?.intent == UserIntentKind.deleteFood.rawValue, sessionState?.status == "awaiting_clarification", ChatTurnContext.isContinuation(userMessage) {
+            let combined = "\(sessionState?.originalUserMessage ?? "delete") — clarification: \(userMessage)"
+            return await handleDeleteFood(userMessage: combined, provider: provider,
+                dayEntries: FoodMutationPolicy.scopedEntries(dayEntries, message: userMessage), dayLabel: dayLabel, recentMessages: recentMessages)
         }
 
         if let deletion = handleFastScopedFoodDelete(userMessage: userMessage) {
@@ -406,7 +476,8 @@ final class FoodLoggingService {
                 provider: provider,
                 recentEntries: recentEntries,
                 customFoods: customFoods,
-                defaultMeal: defaultMeal
+                defaultMeal: defaultMeal,
+                recentMessages: recentMessages
             )
         }
 
@@ -420,7 +491,8 @@ final class FoodLoggingService {
                 provider: provider,
                 recentEntries: recentEntries,
                 customFoods: customFoods,
-                defaultMeal: defaultMeal
+                defaultMeal: defaultMeal,
+                recentMessages: recentMessages
             )
         }
 
@@ -442,7 +514,8 @@ final class FoodLoggingService {
                 provider: provider,
                 recentEntries: recentEntries,
                 customFoods: customFoods,
-                defaultMeal: defaultMeal
+                defaultMeal: defaultMeal,
+                recentMessages: recentMessages
             )
 
         case .deleteFood:
@@ -644,16 +717,14 @@ final class FoodLoggingService {
         guard !mentionTokens.isEmpty else { return nil }
 
         let sortedEntries = dayEntries.sorted { $0.date > $1.date }
-        if let overlapping = sortedEntries.first(where: { entry in
+        let overlapping = sortedEntries.filter { entry in
                 let entryIdentity = normalizedForComparison("\(entry.brand ?? "") \(entry.name)")
                 if entryIdentity == mentionIdentity { return false }
                 let entryTokens = Set(identityTokens(in: "\(entry.brand ?? "") \(entry.name)").map(singularized))
                 return !entryTokens.intersection(mentionTokens).isEmpty
-        }) {
-            return overlapping
         }
-
-        return sortedEntries.first
+        if overlapping.count == 1 { return overlapping[0] }
+        return sortedEntries.count == 1 ? sortedEntries[0] : nil
     }
 
     private func shouldFastRouteFoodLog(
@@ -748,17 +819,22 @@ final class FoodLoggingService {
         provider: any LLMProvider,
         recentEntries: [FoodEntry],
         customFoods: [CustomFood],
-        defaultMeal: String
+        defaultMeal: String,
+        recentMessages: [(role: String, content: String)] = [],
+        pendingFoods: [String] = []
     ) async -> LoggingResult {
 
         let structuredPlan: FoodLogPlan?
         if let batchProvider = provider as? any BatchFoodResolvingProvider,
-           shouldRequestStructuredFoodPlan(userMessage) {
-            structuredPlan = try? await batchProvider.planFoodLog(userMessage: userMessage)
+           shouldRequestStructuredFoodPlan(userMessage) || !pendingFoods.isEmpty {
+            structuredPlan = try? await batchProvider.planFoodLog(userMessage: userMessage, recentMessages: recentMessages, pendingFoods: pendingFoods)
         } else {
             structuredPlan = nil
         }
 
+        if !pendingFoods.isEmpty && structuredPlan == nil {
+            return .recoverableReply("I couldn't finish matching the remaining foods. Nothing else was added; please try again or search foods.")
+        }
         let fastParse = structuredPlan == nil ? fastParseFoodLog(userMessage) : nil
         let usedFastParse = fastParse?.mentions.isEmpty == false
         let rawFoodMentions: [FastFoodMention]
@@ -792,12 +868,13 @@ final class FoodLoggingService {
                 return handleProviderError(error)
             }
         }
-        let foodMentions = deduplicatedFoodMentions(rawFoodMentions)
+        let foodMentions = validatedFoodMentions(rawFoodMentions)
 
         let meal = structuredPlan?.meal ?? fastMeal(in: userMessage) ?? defaultMeal
 
         var entries: [FoodEntry] = []
         var confirmLines: [String] = []
+        var unresolvedFoods: [String] = []
         var evidenceDrafts: [ResolvedFoodEvidenceDraft] = []
 
         var initialServings = foodMentions.map(\.servingsInfo)
@@ -906,6 +983,7 @@ final class FoodLoggingService {
 
             guard let resolution else {
                 confirmLines.append("I couldn't confidently match \"\(mention)\"")
+                unresolvedFoods.append(mention)
                 continue
             }
 
@@ -920,6 +998,7 @@ final class FoodLoggingService {
                 customFoods: customFoods
             ) else {
                 confirmLines.append("I couldn't confidently size \"\(resolution.candidate.name)\". Could you be a bit more specific?")
+                unresolvedFoods.append(mention)
                 continue
             }
 
@@ -947,16 +1026,24 @@ final class FoodLoggingService {
                 evidence: candidate.evidence
             ))
             let estimateLabel = resolution.candidate.source == .webEstimate ? " estimated" : ""
-            confirmLines.append("\(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal\(estimateLabel)")
+            confirmLines.append("✓ \(builtEntry.name) (\(builtEntry.portionDescription)) — \(builtEntry.calories.safeRoundedInt) cal\(estimateLabel)")
         }
 
         if entries.isEmpty {
-            return .recoverableReply("I couldn't find any matching foods to log. Try again or search the local food database.")
+            return .recoverableReply(confirmLines.joined(separator: "\n") + "\nNothing was added. Try again or search foods.")
         }
         return .init(
             action: .logFood(entries),
-            reply: "✓ " + confirmLines.joined(separator: "\n✓ "),
-            evidenceDrafts: evidenceDrafts
+            reply: confirmLines.joined(separator: "\n"),
+            sessionState: unresolvedFoods.isEmpty ? nil : AgentTaskState(
+                taskId: UUID(), status: "awaiting_food_details", intent: UserIntentKind.logFood.rawValue,
+                originalUserMessage: unresolvedFoods.joined(separator: ", "), latestUserMessage: userMessage,
+                meal: meal, pendingDescriptions: unresolvedFoods, unresolvedSlots: ["food_details"],
+                lastQuestion: "Tell me more about the foods that were not added.", correctionTargetName: nil,
+                lastToolContext: nil, candidateGroups: []),
+            clearSession: unresolvedFoods.isEmpty,
+            evidenceDrafts: evidenceDrafts,
+            unresolvedFoods: unresolvedFoods
         )
     }
 
@@ -1060,6 +1147,10 @@ final class FoodLoggingService {
             return .init(action: .moveMeal(from: bulkMove.from, to: bulkMove.to), reply: "")
         }
 
+        let sourceMeal = ["breakfast", "lunch", "dinner", "snack"].first {
+            userMessage.range(of: "\\bfrom\\s+\($0)\\b", options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        let dayEntries = sourceMeal.map { meal in dayEntries.filter { $0.meal == meal } } ?? dayEntries
         let logSummary = dayEntries.map { "\($0.name) (\($0.meal))" }.joined(separator: "\n")
         do {
             let mutation = try await provider.extractFoodMove(
@@ -1131,12 +1222,9 @@ final class FoodLoggingService {
         return (from: found[0].0, to: found[1].0)
     }
 
-    private func deduplicatedFoodMentions(_ mentions: [FastFoodMention]) -> [FastFoodMention] {
-        var seen = Set<String>()
-        return mentions.filter { mention in
-            let key = normalizedForComparison(mention.text)
-            return !key.isEmpty && seen.insert(key).inserted
-        }
+    private func validatedFoodMentions(_ mentions: [FastFoodMention]) -> [FastFoodMention] {
+        // A repeated mention is a separate requested serving, not a duplicate row.
+        mentions.filter { !normalizedForComparison($0.text).isEmpty && !["breakfast", "lunch", "dinner", "snack"].contains(normalizedForComparison($0.text)) }
     }
 
     // MARK: - Edit Food
@@ -1167,6 +1255,7 @@ final class FoodLoggingService {
             )
         }
 
+        let dayEntries = FoodMutationPolicy.scopedEntries(dayEntries, message: userMessage)
         let logSummary = dayEntries.map { "\($0.name) (\($0.portionDescription), \($0.meal))" }.joined(separator: "\n")
         let selection: EditTargetSelection
         do {
@@ -1176,16 +1265,6 @@ final class FoodLoggingService {
                 recentMessages: recentMessages
             )
         } catch {
-            if dayEntries.count == 1, let onlyEntry = dayEntries.first {
-                return await applyEdit(
-                    userMessage: userMessage,
-                    provider: provider,
-                    entry: onlyEntry,
-                    recentEntries: recentEntries,
-                    customFoods: customFoods,
-                    sessionState: sessionState
-                )
-            }
             return clarificationResult(
                 question: "Which item should I change?",
                 userMessage: userMessage,
@@ -1199,17 +1278,6 @@ final class FoodLoggingService {
                 userMessage: userMessage,
                 provider: provider,
                 entry: entry,
-                recentEntries: recentEntries,
-                customFoods: customFoods,
-                sessionState: sessionState
-            )
-        }
-
-        if dayEntries.count == 1, let onlyEntry = dayEntries.first {
-            return await applyEdit(
-                userMessage: userMessage,
-                provider: provider,
-                entry: onlyEntry,
                 recentEntries: recentEntries,
                 customFoods: customFoods,
                 sessionState: sessionState
@@ -1354,7 +1422,7 @@ final class FoodLoggingService {
 
             return .init(
                 action: .editEntry(
-                    foodName: entry.name,
+                    id: entry.id,
                     newGrams: newGrams,
                     newDescription: servingsInfo.portionDescription,
                     newServings: servingsInfo.servings,
@@ -1399,7 +1467,7 @@ final class FoodLoggingService {
         }
 
         return .init(
-            action: .replaceEntry(deleteName: entry.name, newEntries: [replacementEntry]),
+            action: .replaceEntryById(deleteId: entry.id, newEntries: [replacementEntry]),
             reply: "✓ Updated \(entry.name) to \(servingsInfo.portionDescription)"
         )
     }
@@ -1433,20 +1501,7 @@ final class FoodLoggingService {
     }
 
     private func resolveEntry(named target: String, in entries: [FoodEntry]) -> FoodEntry? {
-        let loweredTarget = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if let exact = entries.first(where: { $0.name.lowercased() == loweredTarget }) {
-            return exact
-        }
-        if let brandExact = entries.first(where: {
-            let fullName = "\(($0.brand ?? "").lowercased()) \($0.name.lowercased())".trimmingCharacters(in: .whitespaces)
-            return fullName == loweredTarget
-        }) {
-            return brandExact
-        }
-        return entries.first(where: {
-            let fullName = "\(($0.brand ?? "").lowercased()) \($0.name.lowercased())"
-            return fullName.contains(loweredTarget) || loweredTarget.contains($0.name.lowercased())
-        })
+        FoodMutationPolicy.uniqueEntry(named: target, in: entries)
     }
 
     private func fastParseFoodLog(_ userMessage: String) -> FastFoodParse? {
@@ -2609,6 +2664,7 @@ final class FoodLoggingService {
         dayLabel: String,
         recentMessages: [(role: String, content: String)]
     ) async -> LoggingResult {
+        let dayEntries = FoodMutationPolicy.scopedEntries(dayEntries, message: userMessage)
         let logSummary = dayEntries.map { "\($0.name) (\($0.meal))" }.joined(separator: "\n")
         guard !logSummary.isEmpty else {
             return .reply("Your log for \(dayLabel) is empty — nothing to delete.")
@@ -2627,8 +2683,17 @@ final class FoodLoggingService {
             if validatedTargets.isEmpty {
                 return .reply("I couldn't figure out what to delete. Could you be more specific?")
             }
+            let matches = validatedTargets.compactMap { FoodMutationPolicy.uniqueEntry(named: $0, in: dayEntries) }
+            guard matches.count == validatedTargets.count else {
+                let question = "There is more than one matching entry. Tell me the meal and portion to remove, or remove the exact row in your food log."
+                return .init(action: .askClarification(question), reply: question,
+                    sessionState: AgentTaskState(taskId: UUID(), status: "awaiting_clarification",
+                        intent: UserIntentKind.deleteFood.rawValue, originalUserMessage: userMessage,
+                        latestUserMessage: userMessage, meal: nil, pendingDescriptions: [], unresolvedSlots: ["target"],
+                        lastQuestion: question, correctionTargetName: nil, lastToolContext: nil, candidateGroups: []), clearSession: false)
+            }
             return .init(
-                action: .deleteEntry(foodNames: validatedTargets),
+                action: .deleteEntries(ids: matches.map(\.id)),
                 reply: "✓ Removed: \(validatedTargets.joined(separator: ", "))"
             )
         } catch {
@@ -2682,8 +2747,7 @@ final class FoodLoggingService {
             )
             return .reply(reply)
         } catch {
-            let eaten = dayEntries.reduce(0.0) { $0 + $1.calories }
-            return .reply("You've eaten \(eaten.safeRoundedInt) of \(goals.calories.safeRoundedInt) calories on \(dayLabel).")
+            return handleProviderError(error)
         }
     }
 
@@ -2833,8 +2897,7 @@ final class FoodLoggingService {
         let cal = Calendar.current
         var sections: [String] = []
 
-        // ── 1. Goals ──────────────────────────────────────────────────────
-        sections.append("GOALS: \(goals.calories.safeRoundedInt) cal, \(goals.protein.safeRoundedInt)g protein, \(goals.carbs.safeRoundedInt)g carbs, \(goals.fat.safeRoundedInt)g fat, \(goals.fiber.safeRoundedInt)g fiber.")
+        sections.append("Personal goals and weight history are handled locally and are not available in this context.")
 
         // ── 2. Selected day — full detail ─────────────────────────────────
         let eaten    = dayEntries.reduce(0.0) { $0 + $1.calories }
@@ -2843,7 +2906,7 @@ final class FoodLoggingService {
         let fat      = dayEntries.reduce(0.0) { $0 + $1.fatG }
         let fiber    = dayEntries.reduce(0.0) { $0 + $1.fiberG }
 
-        var daySection = "SELECTED DAY (\(dayLabel)): \(eaten.safeRoundedInt)/\(goals.calories.safeRoundedInt) cal, \(protein.safeRoundedInt)g protein, \(carbs.safeRoundedInt)g carbs, \(fat.safeRoundedInt)g fat, \(fiber.safeRoundedInt)g fiber. Remaining: \((goals.calories - eaten).safeRoundedInt) cal."
+        var daySection = "SELECTED DAY (\(dayLabel)): \(eaten.safeRoundedInt) cal, \(protein.safeRoundedInt)g protein, \(carbs.safeRoundedInt)g carbs, \(fat.safeRoundedInt)g fat, \(fiber.safeRoundedInt)g fiber."
         if !dayEntries.isEmpty {
             let items = dayEntries.map { "\($0.name) (\($0.portionDescription)) — \($0.calories.safeRoundedInt) cal, \($0.proteinG.safeRoundedInt)g P / \($0.carbsG.safeRoundedInt)g C / \($0.fatG.safeRoundedInt)g F [\($0.meal)]" }
             daySection += "\nItems: " + items.joined(separator: "; ")
@@ -2852,14 +2915,14 @@ final class FoodLoggingService {
 
         // ── 3. Daily food history (last 30 days) ──────────────────────────
         // Group recentEntries by calendar day, summarize each day as one line.
-        let selectedDayStart = cal.startOfDay(for: dayEntries.first?.date ?? Date())
+        let selectedDayLabel = dayLabel
         let grouped = Dictionary(grouping: recentEntries) { cal.startOfDay(for: $0.date) }
         let sortedDays = grouped.keys.sorted(by: >)
 
         var dailySummaries: [String] = []
         for day in sortedDays.prefix(30) {
             // Skip the selected day — already shown in detail above
-            if day == selectedDayStart { continue }
+            if Self.dayContextLabel(for: day) == selectedDayLabel { continue }
             let entries = grouped[day]!
             let dayCal     = entries.reduce(0.0) { $0 + $1.calories }
             let dayProtein = entries.reduce(0.0) { $0 + $1.proteinG }
@@ -2873,18 +2936,7 @@ final class FoodLoggingService {
             sections.append("FOOD HISTORY (last 30 days):\n" + dailySummaries.joined(separator: "\n"))
         }
 
-        // ── 4. Weight history (last 90 entries) ──────────────────────────
-        let sortedWeights = weightEntries.sorted { $0.date > $1.date }
-        if !sortedWeights.isEmpty {
-            let weightLines = sortedWeights.prefix(90).map { entry in
-                let dateStr = Self.dayContextLabel(for: entry.date)
-                let note = (entry.note ?? "").isEmpty ? "" : " (\(entry.note!))"
-                return "  \(dateStr): \(String(format: "%.1f", entry.weightLbs)) lbs\(note)"
-            }
-            sections.append("WEIGHT HISTORY (\(sortedWeights.count) entries):\n" + weightLines.joined(separator: "\n"))
-        } else {
-            sections.append("WEIGHT HISTORY: No weight entries logged yet.")
-        }
+        sections.append("WEIGHT HISTORY: Kept on the device. Do not infer or request weight records in this response.")
 
         // ── 5. Water / hydration history (last 30 days) ──────────────
         if !waterEntries.isEmpty {
@@ -2992,6 +3044,50 @@ final class FoodLoggingService {
         (value * 10).rounded() / 10
     }
 
+    private func handleLocalWeightRequest(_ message: String, entries: [WeightEntry], targetDate: Date) -> LoggingResult {
+        let text = message.lowercased()
+        func has(_ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
+        let deleting = has(#"\b(delete|remove|clear)\b"#)
+        let isQuestion = has(#"^\s*(what|how|why|when|did|am|have|has|is)\b"#)
+        let editing = !isQuestion && has(#"\b(update|change|correct|edit|instead)\b"#)
+        if deleting && has(#"\b(all|entire|every)\b"#) { return .init(action: .deleteAllWeights, reply: "Please confirm deletion of your weight history.") }
+        let calendar = Calendar.current
+        let day = ChatDateResolver.resolve(message, selectedDate: targetDate)
+        let matching = entries.filter { calendar.isDate($0.date, inSameDayAs: day) }
+        let target: WeightEntry? = has(#"\b(latest|last|most recent)\b"#) ? entries.max(by: { $0.date < $1.date }) : (matching.count == 1 ? matching[0] : nil)
+        if deleting || editing {
+            guard let target else { return .reply("I need one specific weigh-in. Include its date; if there are several that day, edit it in Weight history. Nothing was changed.") }
+            if deleting { return .init(action: .deleteWeight(date: target.id.uuidString), reply: "") }
+            guard target.dataSource == .nomva else { return .reply("This weigh-in came from \(target.resolvedSourceName). Correct it there so the change syncs back, or add a new Nomva weigh-in.") }
+            guard let value = WeightInputParser.pounds(in: message) else { return .reply("Include the corrected weight and unit, for example 82 kg or 180 lb.") }
+            return .init(action: .updateWeight(id: target.id.uuidString, weightLbs: value), reply: "")
+        }
+        if has(#"\b(log|record|add|weigh|weighed|weighing)\b|\bmy weight is\b"#),
+           !has(#"^\s*(what|how|should|why|when|did)\b"#) {
+            guard let value = WeightInputParser.pounds(in: message) else { return .reply("What weight and unit should I log? For example, 82 kg or 180 lb.") }
+            return .init(action: .log_weight(WeightEntry(date: day, weightLbs: value)), reply: "")
+        }
+        let sorted = entries.filter { $0.date <= Date() }.sorted { $0.date < $1.date }
+        guard let latest = sorted.last else { return .reply("No weigh-ins are available in Nomva yet. Enable Apple Health import in Weight Sync, or log a weigh-in.") }
+        if has(#"\b(trend|change|changed|lost|losing|gained|gaining|average|weeks?|months?|days?)\b"#) {
+            let days = WeightInputParser.lookbackDays(in: message) ?? 7
+            let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day))!
+            let start = calendar.date(byAdding: .day, value: -days, to: end)!
+            let range = sorted.filter { $0.date >= start && $0.date < end }
+            guard range.count >= 2, let first = range.first, let last = range.last else { return .reply("I need at least two weigh-ins in the last \(days) days to show a change. Latest: \(formatMeasurement(latest.weightLbs)) lb on \(weightDateLabel(latest.date)).") }
+            let daily = Dictionary(grouping: range, by: { calendar.startOfDay(for: $0.date) }).values.map { $0.map(\.weightLbs).reduce(0, +) / Double($0.count) }
+            let average = daily.reduce(0, +) / Double(daily.count)
+            let change = last.weightLbs - first.weightLbs
+            return .reply("Over \(days) days, your recorded weight changed from \(formatMeasurement(first.weightLbs)) to \(formatMeasurement(last.weightLbs)) lb (\(change >= 0 ? "+" : "")\(formatMeasurement(change)) lb). Your average across \(daily.count) recorded days was \(formatMeasurement(average)) lb. Missing days are excluded.")
+        }
+        let explicitDay = ChatDateResolver.resolve(message, selectedDate: .distantPast) != .distantPast
+        if explicitDay {
+            guard !matching.isEmpty else { return .reply("No weigh-in is available for \(weightDateLabel(day)).") }
+            return .reply(matching.map { "\(formatMeasurement($0.weightLbs)) lb at \($0.date.formatted(date: .omitted, time: .shortened)) (\($0.resolvedSourceName))" }.joined(separator: "\n"))
+        }
+        return .reply("Your latest weigh-in is \(formatMeasurement(latest.weightLbs)) lb on \(weightDateLabel(latest.date)) from \(latest.resolvedSourceName). I can show your recorded change or average for the last week or month.")
+    }
+
     private func handleLogWeight(
         userMessage: String,
         provider: any LLMProvider,
@@ -3017,10 +3113,7 @@ final class FoodLoggingService {
                         reply: "✓ Updated \(weightDateLabel(target.date)) weight to \(String(format: "%.1f", weight)) lbs."
                     )
                 }
-                return .init(
-                    action: .log_weight(WeightEntry(weightLbs: weight)),
-                    reply: "✓ Logged \(String(format: "%.1f", weight)) lbs."
-                )
+                return .reply("I couldn't find a unique weigh-in to update. Specify its date and time. Nothing was changed.")
             case "add":
                 if let weight = parsed.weightLbs, weight > 50, weight < 1000 {
                     return .init(
@@ -3033,20 +3126,9 @@ final class FoodLoggingService {
             }
         }
 
-        // Try to find a decimal number pattern
-        let pattern = #"(\d+\.?\d*)\s*(lbs?|pounds?|kg|kilos?)?"#
-        if let match = userMessage.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
-            let weightStr = String(userMessage[match])
-            let numPattern = #"\d+\.?\d*"#
-            if let numMatch = weightStr.range(of: numPattern, options: .regularExpression) {
-                let weight = Double(weightStr[numMatch]) ?? 0
-                if weight > 50 && weight < 1000 {
-                    return .init(
-                        action: .log_weight(WeightEntry(weightLbs: weight)),
-                        reply: "✓ Logged \(String(format: "%.1f", weight)) lbs."
-                    )
-                }
-            }
+        if let weight = WeightInputParser.pounds(in: userMessage),
+           userMessage.range(of: #"(?i)\b(delete|remove|clear|update|change|correct|edit)\b"#, options: .regularExpression) == nil {
+            return .init(action: .log_weight(WeightEntry(date: targetDate, weightLbs: weight)), reply: "")
         }
         return .reply("I couldn't understand the weight. Try something like \"I weigh 180 lbs\".")
     }

@@ -30,10 +30,13 @@ struct ManualFoodSearchView: View {
     @State private var scannerAlertText = ""
     @State private var showScannerAlert = false
     @State private var pendingBarcode = ""
+    @State private var barcodeLookupTask: Task<Void, Never>?
+    @State private var isLookingUpBarcode = false
     @State private var showCustomFoodCreate = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var isSearchingOnline = false
+    @State private var barcodeSearchMessage: String?
     
     // To dismiss both this search sheet and the child detail sheet
     @Binding var isPresented: Bool
@@ -110,7 +113,7 @@ struct ManualFoodSearchView: View {
 
                 if !trimmedSearchText.isEmpty && !hasVisibleResults && !isSearching {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("No results found for \"\(trimmedSearchText)\"")
+                        Text(barcodeSearchMessage ?? "No results found for \"\(trimmedSearchText)\"")
                             .foregroundStyle(.secondary)
 
                         if searchScope == .history {
@@ -169,7 +172,12 @@ struct ManualFoodSearchView: View {
                     focusSearchBar()
                 }
             }
+            .overlay(alignment: .top) {
+                if isLookingUpBarcode { ProgressView("Looking up barcode…").padding().background(.regularMaterial, in: Capsule()).padding() }
+            }
             .onDisappear {
+                barcodeLookupTask?.cancel()
+                isLookingUpBarcode = false
                 searchDebounceTask?.cancel()
                 searchTask?.cancel()
             }
@@ -183,7 +191,7 @@ struct ManualFoodSearchView: View {
                     isPresented = false
                 }
             }
-            .alert("Barcode Not Found", isPresented: $showScannerAlert) {
+            .alert("Barcode Lookup", isPresented: $showScannerAlert) {
                 Button("Create Custom Food") {
                     showCustomFoodCreate = true
                 }
@@ -440,6 +448,7 @@ struct ManualFoodSearchView: View {
     private func performSearch() {
         let requestedQuery = trimmedSearchText
         searchTask?.cancel()
+        barcodeSearchMessage = nil
         guard searchScope == .all, !requestedQuery.isEmpty else {
             results = []
             isSearching = false
@@ -464,14 +473,27 @@ struct ManualFoodSearchView: View {
                     found = [foodItem(from: custom)]
                 } else {
                     let outcome = await BarcodeLookupService.shared.lookup(barcode: requestedQuery)
+                    guard !Task.isCancelled, trimmedSearchText == requestedQuery else { return }
+                    pendingBarcode = requestedQuery
                     switch outcome {
                     case let .found(food, _):
                         found = [food]
-                    case .notFound, .unavailable:
+                    case .notFound:
                         found = []
+                        barcodeSearchMessage = "No product was found for this barcode. Create it once to use it next time."
+                    case .unavailable:
+                        found = []
+                        barcodeSearchMessage = "Barcode lookup is unavailable. Try again or create this food from its label."
+                    case .invalidBarcode:
+                        found = []
+                        barcodeSearchMessage = "These barcode digits could not be verified. Check the printed code and try again."
+                    case .incompleteNutrition:
+                        found = []
+                        barcodeSearchMessage = "This product was found, but its nutrition is incomplete. Use its label to create the food."
                     }
                 }
             } else {
+                pendingBarcode = ""
                 found = await FoodLoggingService.shared.searchFoodsForManualEntry(
                     query: requestedQuery,
                     customFoods: customFoods,
@@ -517,25 +539,34 @@ struct ManualFoodSearchView: View {
     private func handleScannedBarcode(_ barcode: String) {
         showScanner = false
         pendingBarcode = barcode
+        barcodeLookupTask?.cancel()
+        isLookingUpBarcode = false
 
         if let custom = customFood(matchingBarcode: barcode) {
             selectedFood = ManualFoodSelection(food: foodItem(from: custom), initialQuantity: 1)
             return
         }
 
-        Task {
+        isLookingUpBarcode = true
+        barcodeLookupTask = Task { @MainActor in
             let outcome = await BarcodeLookupService.shared.lookup(barcode: barcode)
-            await MainActor.run {
-                switch outcome {
+            guard !Task.isCancelled, pendingBarcode == barcode else { return }
+            isLookingUpBarcode = false
+            switch outcome {
                 case let .found(match, _):
                     selectedFood = ManualFoodSelection(food: match, initialQuantity: 1)
+                case .invalidBarcode:
+                    scannerAlertText = "That barcode could not be verified. Scan again or enter the printed digits."
+                    showScannerAlert = true
+                case .incompleteNutrition:
+                    scannerAlertText = "The product was found, but its nutrition is incomplete. Photograph the label to add it accurately."
+                    showScannerAlert = true
                 case .notFound:
                     scannerAlertText = "No food matched barcode \(barcode). Create it once and Nomva will recognize this code next time."
                     showScannerAlert = true
                 case .unavailable:
                     scannerAlertText = "Barcode lookup is unavailable. You can create this food with barcode \(barcode) already filled in."
                     showScannerAlert = true
-                }
             }
         }
     }
@@ -543,7 +574,7 @@ struct ManualFoodSearchView: View {
     private func customFood(matchingBarcode barcode: String) -> CustomFood? {
         let digits = barcode.filter(\.isNumber)
         guard !digits.isEmpty else { return nil }
-        return customFoods.first { $0.barcode?.filter(\.isNumber) == digits }
+        return customFoods.first { BarcodeIdentity.matches($0.barcode, barcode) }
     }
 
     private func foodItem(from food: CustomFood) -> FoodItem {

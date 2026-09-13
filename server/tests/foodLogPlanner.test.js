@@ -190,7 +190,7 @@ test("drops impossible estimates and any estimate attached to a non-composite", 
   assert.equal(single.items[0].nutritionEstimate, null);
 });
 
-test("planner sanitizer rejects empty plans, duplicates, and absurd serving counts", () => {
+test("planner sanitizer preserves repeated mentions and bounds invalid serving counts", () => {
   assert.equal(sanitizeFoodLogPlan({ items: [] }), null);
 
   const plan = sanitizeFoodLogPlan({
@@ -204,8 +204,9 @@ test("planner sanitizer rejects empty plans, duplicates, and absurd serving coun
   });
 
   assert.equal(plan.meal, null);
-  assert.equal(plan.items.length, 1);
+  assert.equal(plan.items.length, 2);
   assert.equal(plan.items[0].servings, 1);
+  assert.equal(plan.items[1].servings, 1);
 });
 
 test("structured planner handles relational, conjunctive, or scoped meal language", () => {
@@ -289,4 +290,13 @@ test("preserves a separately planned dip named inside a composite description", 
     plan.items.map((item) => item.mention),
     ["corn dipped in sour cream", "sour cream"]
   );
+});
+
+
+test("meal labels are excluded without removing foods named after meals", () => {
+  const items = ["salsa", "dinner", "breakfast burrito", "dinner rolls"].map((mention) => ({
+    mention, searchQuery: mention, kind: "single", servings: 1, servingUnit: "serving",
+  }));
+  const plan = sanitizeFoodLogPlan({ meal: "dinner", items });
+  assert.deepEqual(plan.items.map((item) => item.mention), ["salsa", "breakfast burrito", "dinner rolls"]);
 });

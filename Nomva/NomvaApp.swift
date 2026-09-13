@@ -12,14 +12,23 @@ struct NomvaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+                if containerManager.recoveryRequired {
+                    VStack(spacing: 18) {
+                        Image(systemName: "externaldrive.badge.exclamationmark").font(.largeTitle)
+                        Text("Your saved data could not be opened").font(.title2.bold())
+                        Text("Nomva has kept the existing store intact. Logging is paused so new entries cannot disappear into a temporary store. Close and reopen Nomva, or retry below.")
+                        Button("Retry opening saved data") { containerManager.refreshContainer() }
+                    }.padding(28)
+                } else { RootView() }
+            }
                 .tint(NomvaTheme.accent)
                 .environmentObject(syncManager)
                 .environmentObject(subscriptionManager)
                 .environmentObject(garminManager)
                 .environmentObject(routeCenter)
                 .task {
-                    guard !NomvaRuntime.isAutomatedTest else { return }
+                    guard !NomvaRuntime.isAutomatedTest, !containerManager.recoveryRequired else { return }
                     await garminManager.refreshIfNeeded()
                 }
                 .onOpenURL { url in
@@ -38,7 +47,7 @@ final class ModelContainerManager: ObservableObject {
         case cloud
 
         var syncEnabled: Bool {
-            self == .cloud
+            false // Health and nutrition records must remain in protected local storage.
         }
     }
 
@@ -51,9 +60,10 @@ final class ModelContainerManager: ObservableObject {
     @Published private(set) var container: ModelContainer
     @Published private(set) var activeStoreKind: StoreKind
     @Published private(set) var lastError: String?
+    @Published private(set) var recoveryRequired = false
 
     private let schema = Schema([
-        FoodEntry.self, DailyGoal.self, WeightEntry.self,
+        FoodEntry.self, DailyGoal.self, WeightEntry.self, WeightSyncState.self, WeightSyncTombstone.self,
         ChatMessage.self, CustomFood.self, UserProfile.self,
         MealTemplate.self, WaterEntry.self, LoggingSession.self,
         AgentTraceRecord.self, ResolvedFoodEvidence.self
@@ -69,6 +79,7 @@ final class ModelContainerManager: ObservableObject {
         container = state.container
         activeStoreKind = state.kind
         lastError = state.error
+        recoveryRequired = state.error != nil
     }
 
     func refreshContainer() {
@@ -76,12 +87,8 @@ final class ModelContainerManager: ObservableObject {
         do {
             try activate(desiredStore)
         } catch {
-            let fallbackMessage = "Nomva couldn't open the \(desiredStore == .cloud ? "iCloud" : "local") store, so it stayed on this device only."
-            UserDefaults.standard.set(false, forKey: Self.syncPreferenceKey)
-            persistRuntimeState(kind: .local, error: fallbackMessage)
-            container = Self.makeLocalFallbackContainer(schema: schema)
-            activeStoreKind = .local
-            lastError = fallbackMessage
+            lastError = "Nomva couldn't open its saved data. The existing store has been preserved."
+            // Keep any already-open durable store. Startup recovery remains blocked.
         }
     }
 
@@ -102,6 +109,7 @@ final class ModelContainerManager: ObservableObject {
         container = targetContainer
         activeStoreKind = kind
         lastError = nil
+        recoveryRequired = false
         persistRuntimeState(kind: kind, error: nil)
     }
 
@@ -130,16 +138,17 @@ final class ModelContainerManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: lastErrorKey)
             return (container, desiredStore, nil)
         } catch {
-            let message = "Nomva couldn't open the iCloud store on launch, so it fell back to local-only data on this device."
-            UserDefaults.standard.set(false, forKey: syncPreferenceKey)
-            UserDefaults.standard.set(StoreKind.local.rawValue, forKey: activeStoreKindKey)
+            let message = "Nomva couldn't open its saved data. No replacement store was created."
             UserDefaults.standard.set(message, forKey: lastErrorKey)
-            return (makeLocalFallbackContainer(schema: schema), .local, message)
+            return (createInMemoryContainer(schema: schema), desiredStore, message)
         }
     }
 
     private static func desiredStoreKind() -> StoreKind {
-        UserDefaults.standard.bool(forKey: syncPreferenceKey) ? .cloud : .local
+        // The legacy cloud file remains the source of truth for existing installs.
+        // Changing the mirroring policy must never switch them to an empty local file.
+        if let raw = UserDefaults.standard.string(forKey: activeStoreKindKey), let kind = StoreKind(rawValue: raw) { return kind }
+        return UserDefaults.standard.bool(forKey: syncPreferenceKey) ? .cloud : .local
     }
 
     private static func makeContainer(
@@ -161,9 +170,9 @@ final class ModelContainerManager: ObservableObject {
         cloudKitIdentifier: String
     ) throws -> ModelConfiguration {
         let url = try storeURL(for: storeKind)
-        let cloudKitDatabase: ModelConfiguration.CloudKitDatabase = storeKind == .cloud
-            ? .private(cloudKitIdentifier)
-            : .none
+        // The legacy schema mixes health records, notes and goals in one store.
+        // Keep its exact file locally; do not mirror this schema to CloudKit.
+        let cloudKitDatabase: ModelConfiguration.CloudKitDatabase = .none
 
         return ModelConfiguration(
             storeKind == .cloud ? "NomvaCloud" : "NomvaLocal",
@@ -186,23 +195,28 @@ final class ModelContainerManager: ObservableObject {
         let directory = baseURL
             .appendingPathComponent("Nomva", isDirectory: true)
             .appendingPathComponent("Stores", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var protectedDirectory = directory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try protectedDirectory.setResourceValues(values)
 
         let fileName = kind == .cloud ? "nomva-cloud.store" : "nomva-local.store"
-        return directory.appendingPathComponent(fileName)
-    }
-
-    private static func makeLocalFallbackContainer(schema: Schema) -> ModelContainer {
-        let localConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        do {
-            return try ModelContainer(for: schema, configurations: [localConfig])
-        } catch {
-            return createInMemoryContainer(schema: schema)
+        let store = directory.appendingPathComponent(fileName)
+        for suffix in ["", "-wal", "-shm"] {
+            let path = store.path + suffix
+            if FileManager.default.fileExists(atPath: path) {
+                try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: path)
+            }
         }
+        var nomvaDirectory = directory.deletingLastPathComponent()
+        try nomvaDirectory.setResourceValues(values)
+        return store
     }
 
     private static func createInMemoryContainer(schema: Schema) -> ModelContainer {
-        let inMemoryConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let inMemoryConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         do {
             return try ModelContainer(for: schema, configurations: [inMemoryConfig])
         } catch {

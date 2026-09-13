@@ -617,10 +617,10 @@ const sourceCases = [
     ["Nomva/Views/Settings/GoalsSettingsView.swift", "GoalService\\.currentGoal"],
     ["Nomva/Services/NomvaWidgetSyncBridge.swift", "GoalService\\.currentGoal"],
   ]],
-  ["duplicate food suppression", [
+  ["independent food slots", [
     ["server/index.js", "sanitizeFoodMentions"],
-    ["Nomva/Services/FoodLoggingService.swift", "deduplicatedFoodMentions"],
-    ["Nomva/Services/FoodLoggingService.swift", "foodIdentityKey"],
+    ["Nomva/Services/FoodLoggingService.swift", "validatedFoodMentions"],
+    ["Nomva/Services/FoodLoggingService.swift", "unresolvedFoods"],
   ]],
   ["typed meal move", [
     ["Nomva/Services/LLMProvider.swift", "case moveFood"],
@@ -1154,7 +1154,10 @@ async function main() {
   if (!fs.existsSync(FOOD_DB_PATH)) {
     throw new Error(`Missing bundled food database: ${FOOD_DB_PATH}`);
   }
-  const cases = buildCases();
+  const allCases = buildCases();
+  const requestedIDs = new Set(String(process.env.NOMVA_EVAL_CASE_IDS || "").split(",").filter(Boolean));
+  const cases = requestedIDs.size ? allCases.filter((testCase) => requestedIDs.has(testCase.id)) : allCases;
+  if (requestedIDs.size && cases.length !== requestedIDs.size) throw new Error("Unknown evaluation case ID");
   if (DRY_RUN) {
     const categories = cases.reduce((counts, testCase) => {
       counts[testCase.category] = (counts[testCase.category] || 0) + 1;
@@ -1193,7 +1196,7 @@ async function main() {
       checks,
       observed: execution.observed,
     };
-    console.log(`${String(index + 1).padStart(3, "0")}/200 ${result.id} ${passed ? "PASS" : "FAIL"} ${result.category} | ${result.message}`);
+    console.log(`${String(index + 1).padStart(3, "0")}/${cases.length} ${result.id} ${passed ? "PASS" : "FAIL"} ${result.category} | ${result.message}`);
     return result;
   });
 
@@ -1226,7 +1229,9 @@ async function main() {
     passedChecks,
     checkAccuracy: Math.round(passedChecks / allChecks.length * 1000) / 10,
     criticalFailures,
-    meets95Gate: passedCases / results.length >= 0.95
+    focusedRun: requestedIDs.size > 0,
+    focusedRunPassed: requestedIDs.size > 0 && passedCases === cases.length,
+    meets95Gate: requestedIDs.size === 0 && passedCases / results.length >= 0.95
       && passedChecks / allChecks.length >= 0.95
       && criticalFailures === 0
       && Object.values(byCategory).every((bucket) => bucket.caseAccuracy >= 95),
@@ -1239,12 +1244,13 @@ async function main() {
   };
 
   const report = {
-    runId: `nomva-product-${SET}-200-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+    runId: `nomva-product-${SET}-${cases.length}-${new Date().toISOString().replace(/[:.]/g, "-")}`,
     generatedAt: new Date().toISOString(),
     target: BASE_URL,
     methodology: {
-      cases: 200,
+      cases: cases.length,
       dataset: SET,
+      selectedIDs: [...requestedIDs],
       note: "Synthetic product scenarios exercise deployed semantic endpoints, server-side database retrieval, the bundled nutrition database, multi-turn references, and production client capability invariants. Training, first validation, and second holdout use separate language and food catalogs; 14 client capability and 10 resilience invariants intentionally remain common release requirements.",
     },
     summary,
@@ -1254,13 +1260,13 @@ async function main() {
 
   fs.mkdirSync(REPORT_DIR, { recursive: true });
   const reportPath = path.join(REPORT_DIR, `${report.runId}.json`);
-  const latestPath = path.join(REPORT_DIR, `latest-${SET}-200.json`);
+  const latestPath = path.join(REPORT_DIR, `latest-${SET}-${cases.length}.json`);
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   fs.writeFileSync(latestPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(summary, null, 2));
   console.log(`Report: ${reportPath}`);
   closeFoodDatabase();
-  process.exitCode = summary.meets95Gate ? 0 : 2;
+  process.exitCode = (summary.focusedRunPassed || summary.meets95Gate) ? 0 : 2;
 }
 
 main().catch((error) => {

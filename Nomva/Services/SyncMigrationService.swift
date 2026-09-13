@@ -791,6 +791,9 @@ struct WeightEntryRecord: Codable {
     var sourceName: String?
     var externalIdentifier: String?
     var healthSyncVersion: Int?
+    var healthExportedFingerprint: String?
+    var healthPendingFingerprint: String?
+    var externalAliases: [String]?
 
     init(_ model: WeightEntry) {
         id = model.id
@@ -801,6 +804,9 @@ struct WeightEntryRecord: Codable {
         sourceName = model.sourceName
         externalIdentifier = model.externalIdentifier
         healthSyncVersion = model.healthSyncVersion
+        healthExportedFingerprint = model.healthExportedFingerprint
+        healthPendingFingerprint = model.healthPendingFingerprint
+        externalAliases = model.externalAliases
     }
 
     func restore() -> WeightEntry {
@@ -826,6 +832,9 @@ struct WeightEntryRecord: Codable {
         model.sourceName = sourceName
         model.externalIdentifier = externalIdentifier
         model.healthSyncVersion = healthSyncVersion
+        model.healthExportedFingerprint = healthExportedFingerprint
+        model.healthPendingFingerprint = healthPendingFingerprint
+        model.externalAliases = externalAliases
     }
 }
 
@@ -835,6 +844,7 @@ struct ChatMessageRecord: Codable {
     var content: String
     var timestamp: Date
     var dayDate: Date
+    var affectedFoodEntryIDs: [UUID]?
 
     init(_ model: ChatMessage) {
         id = model.id
@@ -842,6 +852,7 @@ struct ChatMessageRecord: Codable {
         content = model.content
         timestamp = model.timestamp
         dayDate = model.dayDate
+        affectedFoodEntryIDs = model.affectedFoodEntryIDs
     }
 
     func restore() -> ChatMessage {
@@ -856,6 +867,7 @@ struct ChatMessageRecord: Codable {
         model.content = content
         model.timestamp = timestamp
         model.dayDate = dayDate
+        model.affectedFoodEntryIDs = affectedFoodEntryIDs
     }
 }
 

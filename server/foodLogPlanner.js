@@ -10,12 +10,15 @@ const MEALS = new Set(["breakfast", "lunch", "dinner", "snack"]);
 const ITEM_KINDS = new Set(["single", "composite", "menu"]);
 const QUANTITY_SCOPES = new Set(["none", "per_item", "all_items"]);
 
-const FOOD_LOG_PLANNER_PROMPT = `Interpret one message describing food or drink the user consumed.
+const FOOD_LOG_PLANNER_PROMPT = `Plan only foods the current user turn requests. Recent messages are context, not additional foods to log. If pendingFoods is supplied, the current message clarifies ONLY those unresolved foods; foods already confirmed in history must not be planned again. Preserve independent repeated servings even when their descriptions are identical.
+
+Interpret one message describing food or drink the user consumed.
 
 Return a non-overlapping plan of the foods that should be logged. Preserve the user's meaning instead of merely splitting at commas or conjunctions.
 
 Rules:
 - Keep restaurant, brand, menu size, preparation, flavor, milk, and other nutrition-critical modifiers.
+- Meal labels belong only in meal. Never return breakfast, lunch, dinner, or snack as a separate food item; preserve real food names such as dinner rolls or breakfast burrito.
 - Distinguish a complete dish from independently consumed sides, toppings, dips, and drinks.
 - Never return both a complete dish and ingredients already represented inside that dish. That double-counts nutrition.
 - If ingredients describe how a dish was assembled, keep them in one composite item. Separately consumed sides or measurable accompaniments remain separate items.
@@ -261,14 +264,12 @@ function sanitizeFoodLogPlan(raw) {
     ? boundedServings(parsedGlobalServings, 1)
     : null;
 
-  const seen = new Set();
   const items = [];
   for (const rawItem of raw.items.slice(0, 12)) {
     const mention = boundedText(rawItem?.mention, 220);
     if (!mention) continue;
     const identity = normalize(mention);
-    if (!identity || seen.has(identity)) continue;
-    seen.add(identity);
+    if (!identity || MEALS.has(identity)) continue;
 
     const itemServings = boundedServings(finiteNumber(rawItem.servings), 1);
     const servings = globalServings ?? itemServings;

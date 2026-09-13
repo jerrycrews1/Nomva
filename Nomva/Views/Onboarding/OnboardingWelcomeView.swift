@@ -47,7 +47,7 @@ struct OnboardingWelcomeView: View {
                     OnboardingFeatureRow(
                         icon: "icloud",
                         title: "Optional sync",
-                        detail: "Keep your data on this device or sync with iCloud."
+                        detail: "Keep your history on this device. Sync weigh-ins through Apple Health."
                     )
                 }
             }

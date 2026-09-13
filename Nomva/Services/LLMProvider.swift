@@ -323,6 +323,7 @@ protocol LLMProvider: Sendable {
 /// testable without network calls.
 protocol BatchFoodResolvingProvider: LLMProvider {
     func planFoodLog(userMessage: String) async throws -> FoodLogPlan
+    func planFoodLog(userMessage: String, recentMessages: [(role: String, content: String)], pendingFoods: [String]) async throws -> FoodLogPlan
 
     func resolveFoodCandidates(
         userMessage: String,
@@ -336,6 +337,13 @@ protocol BatchFoodResolvingProvider: LLMProvider {
         foodMentions: [String]
     ) async -> [ServingsInfo]
 }
+
+extension BatchFoodResolvingProvider {
+    func planFoodLog(userMessage: String, recentMessages: [(role: String, content: String)], pendingFoods: [String]) async throws -> FoodLogPlan {
+        try await planFoodLog(userMessage: userMessage)
+    }
+}
+
 
 extension LLMProvider {
     /// Default: not supported. Providers that can resolve against the server

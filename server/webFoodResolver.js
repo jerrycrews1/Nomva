@@ -10,17 +10,23 @@ const {
 
 const VENUE_CUE = /\b(from|at|restaurant|cafe|coffee shop|menu)\b/i;
 const CHAIN_SIZE_CUE = /\b(short|tall|grande|venti|trenta)\b/i;
+// Named orders do not always say "from". Recognize unambiguous chain names
+// before a static-food search consumes the current-menu lookup budget.
+const NAMED_MENU_CUE = /\b(?:wendy['’]?s|mcdonald['’]?s|burger king|taco bell|chick[- ]fil[- ]a|starbucks|dunkin['’]?|panera(?: bread)?|panda express|popeyes|five guys|in[- ]n[- ]out|shake shack|jersey mike['’]?s|raising cane['’]?s)\b/i;
+const PACKAGED_OR_HOMEMADE_CUE = /\b(?:canned|can of|frozen|bottled|grocery|copycat|homemade|dry mix|ground coffee|whole[- ]bean)\b/i;
 const COMPOSITE_CUE = /\b(with|topped|filled|made with|including)\b/i;
 const CRITICAL_IDENTITY_TOKENS = canonicalFoodTokenSet([
   "zero", "diet", "decaf", "iced", "hot", "short", "tall", "grande", "venti", "trenta",
   "small", "medium", "large",
+  "white", "brown",
   "chicken", "beef", "pork", "fish", "turkey", "lamb", "duck", "goose", "quail", "venison",
 ]);
 const FORBIDDEN_UNSTATED_VARIANTS = canonicalFoodTokenSet([
   "duck", "goose", "quail", "turkey", "venison", "lamb",
   "powder", "powdered", "liquid", "frozen", "dried", "dehydrated",
-  "white", "yolk", "decaf", "iced", "hot", "diet", "zero",
+  "yolk", "decaf", "iced", "hot", "diet", "zero",
 ]);
+const EGG_WHITE_VARIANT = /\beggs?[\s,-]+whites?\b|\bwhites?[\s,-]+of[\s,-]+eggs?\b/i;
 
 function finiteNumber(value) {
   if (value === null || value === undefined || typeof value === "boolean") return null;
@@ -94,10 +100,11 @@ function tokensEquivalent(left, right) {
 }
 
 function identityMatchesMention(foodMention, candidate) {
+  const primaryText = `${candidate?.brand || ""} ${candidate?.name || ""}`;
   const mentionTokens = [...new Set(foodTokens(foodMention).map(singularToken))];
   const aliases = Array.isArray(candidate?.aliases) ? candidate.aliases.join(" ") : "";
   const primaryTokens = [...new Set(
-    foodTokens(`${candidate?.brand || ""} ${candidate?.name || ""}`).map(singularToken)
+    foodTokens(primaryText).map(singularToken)
   )];
   const candidateTokens = [...new Set(
     [...primaryTokens, ...foodTokens(aliases).map(singularToken)]
@@ -109,6 +116,11 @@ function identityMatchesMention(foodMention, candidate) {
   ));
   const requiredCoverage = mentionTokens.length <= 2 ? 1 : 2 / 3;
   if (matched.length / mentionTokens.length < requiredCoverage) return false;
+
+  // "White" alone is not an egg substitution: a source-backed bowl may
+  // explicitly disclose assumed white rice. Preserve the whole egg-white
+  // identity guard without rejecting unrelated ingredients of that color.
+  if (EGG_WHITE_VARIANT.test(primaryText) && !EGG_WHITE_VARIANT.test(foodMention)) return false;
 
   const allowsDefaultHotMenuVariant = (token) => (
     token === "hot"
@@ -334,7 +346,8 @@ function createWebFoodResolver({
           hasExplicitPortion: servings !== 1 || isMenuFoodMention(mention),
         });
       }
-      if (knowledgeStore.hasFreshMiss(mention)) return null;
+      // A model declining a search is not proof that a food does not exist.
+      // Ignore legacy negative entries so a later attempt can recover.
     }
 
     const startedAt = Date.now();
@@ -393,7 +406,7 @@ function createWebFoodResolver({
     }
     const sanitized = sanitizeWebFoodResult(raw);
     if (!sanitized) {
-      if (raw?.found === false) knowledgeStore.rememberMiss(mention);
+      // Do not persist stochastic model misses as product/catalog absence.
       onEvent({
         type: "no_match",
         reason: webFoodSanitizeFailureReason(raw),
@@ -438,13 +451,14 @@ function shouldTryWebFirst(foodMention, candidates = []) {
 
 function isMenuFoodMention(foodMention) {
   const mention = String(foodMention || "");
-  return VENUE_CUE.test(mention) || CHAIN_SIZE_CUE.test(mention);
+  return VENUE_CUE.test(mention) || CHAIN_SIZE_CUE.test(mention)
+    || (NAMED_MENU_CUE.test(mention) && !PACKAGED_OR_HOMEMADE_CUE.test(mention));
 }
 
 function requiresExactMenuResearch(foodMention) {
   const mention = String(foodMention || "");
   return CHAIN_SIZE_CUE.test(mention)
-    || (VENUE_CUE.test(mention)
+    || (isMenuFoodMention(mention)
       && /\b(small|medium|large|\d+(?:\.\d+)?\s*(?:fl\s*)?(?:oz|ounce|ounces|ml))\b/i.test(mention));
 }
 

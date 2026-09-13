@@ -9,6 +9,7 @@ const {
   createWebFoodResolver,
   hasUnresolvedLeadingIdentity,
   identityMatchesMention,
+  isMenuFoodMention,
   requiresExactMenuResearch,
   sanitizeWebFoodResult,
   shouldBlockStaticFallback,
@@ -236,18 +237,17 @@ test("rejects a plausible wrong-brand product and missing critical size", async 
   assert.equal(setup.knowledgeStore.stats().activeFoods, 0);
 });
 
-test("caches explicit no-match answers without poisoning transient failures", async (t) => {
-  const noMatch = harness(t, [{ found: false }]);
-  assert.equal(await noMatch.resolver.resolve({ foodMention: "imaginary cafe plate" }), null);
-  assert.equal(await noMatch.resolver.resolve({ foodMention: "imaginary cafe plate" }), null);
-  assert.equal(noMatch.calls(), 1);
-  assert.equal(noMatch.knowledgeStore.hasFreshMiss("imaginary cafe plate"), true);
+test("model misses and legacy negative entries do not suppress a later valid result", async (t) => {
+  const mention = "Starbucks venti caramel macchiato";
+  const setup = harness(t, [{ found: false }, response()]);
+  setup.knowledgeStore.rememberMiss(mention);
+  assert.equal(await setup.resolver.resolve({ foodMention: mention }), null);
+  const recovered = await setup.resolver.resolve({ foodMention: mention });
+  assert.equal(recovered.source, "web_published");
+  assert.equal(setup.calls(), 2);
 
   const transient = harness(t, [new Error("upstream timeout")]);
-  await assert.rejects(
-    transient.resolver.resolve({ foodMention: "temporary menu item" }),
-    /upstream timeout/
-  );
+  await assert.rejects(transient.resolver.resolve({ foodMention: "temporary menu item" }), /upstream timeout/);
   assert.equal(transient.knowledgeStore.hasFreshMiss("temporary menu item"), false);
 });
 
@@ -340,4 +340,47 @@ test("an unspecified restaurant drink can use its published hot default", () => 
     identityMatchesMention("venti iced caramel macchiato from Starbucks", publishedHot),
     false
   );
+});
+
+test("a disclosed white-rice component does not become an egg-white substitution", async (t) => {
+  const setup = harness(t, [response({
+    name: "Chicken Burrito Bowl with White Rice and Black Beans",
+    brand: "Chipotle",
+    aliases: ["Chipotle chicken burrito bowl"],
+    quality: "estimated",
+    sourceUrl: "https://www.chipotle.com/nutrition-calculator",
+    components: [
+      { name: "Chicken", servingDescription: "4 oz", calories: 180, proteinG: 32, carbsG: 0, fatG: 7, fiberG: 0, sugarG: 0, sodiumMg: 310 },
+      { name: "White rice", servingDescription: "4 oz", calories: 210, proteinG: 4, carbsG: 40, fatG: 4, fiberG: 1, sugarG: 0, sodiumMg: 350 },
+      { name: "Black beans", servingDescription: "4 oz", calories: 130, proteinG: 8, carbsG: 22, fatG: 1.5, fiberG: 7, sugarG: 2, sodiumMg: 210 },
+    ],
+  })]);
+  const result = await setup.resolver.resolve({ foodMention: "Chipotle chicken burrito bowl" });
+  assert.equal(result?.source, "web_estimate");
+  assert.equal(result?.caloriesPerServing, 520);
+  assert.match(result?.evidence, /White rice/);
+  assert.equal(setup.knowledgeStore.stats().activeFoods, 1);
+});
+
+test("food-color handling still protects explicit variants and egg identities", () => {
+  assert.equal(identityMatchesMention("egg", { name: "Egg, white, raw" }), false);
+  assert.equal(identityMatchesMention("egg", { name: "Egg yolk" }), false);
+  assert.equal(identityMatchesMention("egg whites", { name: "Egg whites" }), true);
+  assert.equal(identityMatchesMention("omelet", { name: "Egg White Omelet" }), false);
+  assert.equal(identityMatchesMention("brown rice bowl", { name: "White Rice Bowl", aliases: ["brown rice bowl"] }), false);
+  assert.equal(identityMatchesMention("chicken bowl", { name: "Turkey Bowl", aliases: ["chicken bowl"] }), false);
+});
+
+test("named restaurant orders get current-menu routing without a from clause", () => {
+  for (const mention of ["large Wendy's chili", "large Wendy’s chili", "Wendys chili", "McDonald's cheeseburger", "Chick-fil-A nuggets", "Taco Bell crunchy taco", "Panda Express orange chicken"]) {
+    assert.equal(isMenuFoodMention(mention), true, mention);
+    assert.equal(shouldTryWebFirst(mention, [{ name: "generic food" }]), true, mention);
+  }
+  assert.equal(requiresExactMenuResearch("large Wendy's chili"), true);
+});
+
+test("restaurant brand routing leaves grocery products and homemade food in the catalog path", () => {
+  for (const mention of ["canned Wendy's chili", "Starbucks ground coffee", "homemade McDonald's copycat cheeseburger", "large banana", "Greek salad", "chipotle peppers"]) {
+    assert.equal(isMenuFoodMention(mention), false, mention);
+  }
 });

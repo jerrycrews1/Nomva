@@ -68,6 +68,7 @@ struct ContentView: View {
             ZStack {
                 NomvaWidgetSyncBridge()
                 FoodEntryMicronutrientBackfillView()
+                WeightSyncLifecycleView()
             }
             .allowsHitTesting(false)
         }
@@ -218,4 +219,30 @@ private struct FoodEntryMicronutrientBackfillView: View {
     ContentView()
         .environmentObject(GarminManager.shared)
         .environmentObject(NomvaRouteCenter.shared)
+}
+
+private struct WeightSyncLifecycleView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(WeightSyncPreferences.appleHealthImportKey) private var importEnabled = false
+    @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var exportEnabled = false
+
+    var body: some View {
+        Color.clear
+            .task { await startAndSync() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await startAndSync() } }
+            }
+            .onChange(of: importEnabled) { _, _ in Task { await startAndSync() } }
+            .onChange(of: exportEnabled) { _, _ in Task { await startAndSync() } }
+    }
+
+    @MainActor private func startAndSync() async {
+        guard !NomvaRuntime.isAutomatedTest else { return }
+        let container = modelContext.container
+        await AppleHealthService.startWeightObservation { @MainActor in
+            await WeightSyncCoordinator.syncEnabledSources(in: ModelContext(container))
+        }
+        await WeightSyncCoordinator.syncEnabledSources(in: ModelContext(container))
+    }
 }

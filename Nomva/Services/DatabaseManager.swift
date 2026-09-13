@@ -20,6 +20,7 @@ private let foodSelectColumns = """
 actor DatabaseManager {
     static let shared = DatabaseManager()
     private var db: OpaquePointer?
+    private var verifiedRowCount: Int?
 
     private init() {
         guard let dbPath = Bundle.main.path(forResource: "foods", ofType: "sqlite") else {
@@ -237,33 +238,24 @@ actor DatabaseManager {
     func food(byBarcode barcode: String) -> FoodItem? {
         guard let db = db else { return nil }
 
-        let rawBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawBarcode.isEmpty else { return nil }
-
-        let normalizedBarcode = normalizedBarcode(rawBarcode) ?? rawBarcode
+        guard let identity = BarcodeIdentity(barcode) else { return nil }
+        let aliases = identity.aliases
+        let placeholders = Array(repeating: "?", count: aliases.count).joined(separator: ",")
         let sql = """
-            SELECT \(foodSelectColumns)
-            FROM foods f
-            WHERE f.barcode = ?
-               OR f.barcode = ?
-               OR ltrim(replace(replace(IFNULL(f.barcode, ''), ' ', ''), '-', ''), '0') = ?
-            ORDER BY
-                CASE WHEN f.source = 'open_food_facts' THEN 1 ELSE 0 END ASC,
-                CASE WHEN f.barcode = ? THEN 0 ELSE 1 END ASC
+            SELECT \(foodSelectColumns) FROM foods f
+            WHERE f.barcode IN (\(placeholders))
+            ORDER BY CASE WHEN f.barcode = ? THEN 0 ELSE 1 END,
+                     CASE WHEN f.source = 'open_food_facts' THEN 1 ELSE 0 END
             LIMIT 1
         """
-
         var stmt: OpaquePointer?
         var result: FoodItem?
-
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, rawBarcode, -1, sqliteTransient)
-            sqlite3_bind_text(stmt, 2, normalizedBarcode, -1, sqliteTransient)
-            sqlite3_bind_text(stmt, 3, normalizedBarcode, -1, sqliteTransient)
-            sqlite3_bind_text(stmt, 4, rawBarcode, -1, sqliteTransient)
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                result = FoodItem(from: stmt!)
+            for (index, alias) in aliases.enumerated() {
+                sqlite3_bind_text(stmt, Int32(index + 1), alias, -1, sqliteTransient)
             }
+            sqlite3_bind_text(stmt, Int32(aliases.count + 1), identity.digits, -1, sqliteTransient)
+            if sqlite3_step(stmt) == SQLITE_ROW { result = FoodItem(from: stmt!) }
         }
 
         sqlite3_finalize(stmt)
@@ -290,144 +282,16 @@ actor DatabaseManager {
         }
 
         sqlite3_finalize(stmt)
+        if let verifiedRowCount { total = verifiedRowCount }
+        else {
+            var countStatement: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM foods", -1, &countStatement, nil) == SQLITE_OK,
+               sqlite3_step(countStatement) == SQLITE_ROW {
+                total = Int(sqlite3_column_int64(countStatement, 0))
+                verifiedRowCount = total
+            }
+            sqlite3_finalize(countStatement)
+        }
         return (total, buildDate)
-    }
-}
-
-enum BarcodeLookupSource {
-    case bundledDatabase
-}
-
-enum BarcodeLookupOutcome {
-    case found(FoodItem, BarcodeLookupSource)
-    case notFound
-    case unavailable
-}
-
-actor BarcodeLookupService {
-    static let shared = BarcodeLookupService()
-
-    private let database = DatabaseManager.shared
-
-    func lookup(barcode: String) async -> BarcodeLookupOutcome {
-        let digits = barcode.filter(\.isNumber)
-        guard !digits.isEmpty else { return .notFound }
-
-        if let localMatch = await database.food(byBarcode: digits) {
-            return .found(localMatch, .bundledDatabase)
-        }
-
-        return .notFound
-    }
-
-    private func firstBrand(from brands: String?) -> String? {
-        guard let brands else { return nil }
-        let first = brands.split(separator: ",").first.map(String.init)
-        return stringValue(first)
-    }
-
-    private func firstNonEmptyString(_ values: Any?...) -> String? {
-        for value in values {
-            if let text = stringValue(value), !text.isEmpty {
-                return text
-            }
-        }
-        return nil
-    }
-
-    private func stringValue(_ value: Any?) -> String? {
-        guard let value else { return nil }
-        let text = String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-
-    private func doubleValue(_ value: Any?) -> Double? {
-        switch value {
-        case let number as NSNumber:
-            return number.doubleValue
-        case let text as String:
-            return Double(text.replacingOccurrences(of: ",", with: "."))
-        default:
-            return nil
-        }
-    }
-
-    private func positiveDouble(_ value: Any?) -> Double? {
-        guard let number = doubleValue(value), number > 0 else { return nil }
-        return number
-    }
-
-    private func parseServingQuantity(from servingSize: String?) -> Double? {
-        guard let servingSize else { return nil }
-        let pattern = #"(\d+(?:[.,]\d+)?)\s*(g|gr|gram|grams|ml|milliliter|milliliters)\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-        let range = NSRange(servingSize.startIndex..<servingSize.endIndex, in: servingSize)
-        guard let match = regex.firstMatch(in: servingSize, options: [], range: range),
-              let valueRange = Range(match.range(at: 1), in: servingSize) else {
-            return nil
-        }
-        return Double(servingSize[valueRange].replacingOccurrences(of: ",", with: "."))
-    }
-
-    private func convertUnit(_ value: Double, from sourceUnit: String?, to targetUnit: String) -> Double {
-        let unit = (sourceUnit ?? targetUnit).lowercased()
-        switch targetUnit {
-        case "kcal":
-            if unit == "kj" { return value / 4.184 }
-            return value
-        case "g":
-            switch unit {
-            case "mg": return value / 1000
-            case "mcg", "µg", "ug": return value / 1_000_000
-            case "kg": return value * 1000
-            default: return value
-            }
-        case "mg":
-            switch unit {
-            case "g": return value * 1000
-            case "mcg", "µg", "ug": return value / 1000
-            case "kg": return value * 1_000_000
-            default: return value
-            }
-        default:
-            return value
-        }
-    }
-
-    private func nutrientPerServing(
-        _ nutriments: [String: Any],
-        keys: [String],
-        servingGrams: Double,
-        targetUnit: String
-    ) -> Double? {
-        for key in keys {
-            if let value = doubleValue(nutriments["\(key)_serving"]) {
-                return convertUnit(value, from: stringValue(nutriments["\(key)_unit"]), to: targetUnit)
-            }
-        }
-
-        for key in keys {
-            if let value = doubleValue(nutriments["\(key)_100g"]) {
-                let scaled = value * (servingGrams / 100)
-                return convertUnit(scaled, from: stringValue(nutriments["\(key)_unit"]), to: targetUnit)
-            }
-        }
-
-        for key in keys {
-            if let value = doubleValue(nutriments[key]) {
-                return convertUnit(value, from: stringValue(nutriments["\(key)_unit"]), to: targetUnit)
-            }
-        }
-
-        return nil
-    }
-
-    private func formattedServing(_ grams: Double) -> String {
-        if grams.rounded() == grams {
-            return "\(Int(grams)) g"
-        }
-        return String(format: "%.1f g", grams)
     }
 }

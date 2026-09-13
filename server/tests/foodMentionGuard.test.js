@@ -58,3 +58,9 @@ test("falls back to the user's message when the model returns no foods", () => {
     ["plain yogurt"]
   );
 });
+
+
+test("split-food output does not turn the target meal into another food", () => {
+  assert.deepEqual(sanitizeFoodMentions("Put salsa into dinner", ["salsa", "dinner"]), ["salsa"]);
+  assert.deepEqual(sanitizeFoodMentions("I had dinner rolls and a breakfast burrito", ["dinner rolls", "breakfast burrito"]), ["dinner rolls", "breakfast burrito"]);
+});

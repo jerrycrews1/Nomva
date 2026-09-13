@@ -205,6 +205,9 @@ class WeightEntry {
     var sourceName: String?
     var externalIdentifier: String?
     var healthSyncVersion: Int?
+    var healthExportedFingerprint: String?
+    var healthPendingFingerprint: String?
+    var externalAliases: [String]?
 
     init(
         date: Date = .now,
@@ -225,7 +228,15 @@ class WeightEntry {
         self.healthSyncVersion = healthSyncVersion
     }
 
-    var weightKg: Double { weightLbs * 0.453592 }
+    var weightKg: Double { weightLbs * 0.45359237 }
+
+    var healthFingerprint: String {
+        "\(date.timeIntervalSince1970)|\(weightLbs)"
+    }
+
+    var allExternalIdentifiers: Set<String> {
+        Set((externalAliases ?? []) + [externalIdentifier].compactMap { $0 })
+    }
 
     var dataSource: WeightDataSource {
         WeightDataSource(rawValue: sourceRaw ?? "") ?? .nomva
@@ -238,12 +249,46 @@ class WeightEntry {
     }
 }
 
+/// Device-local HealthKit cursor. Saved in the same transaction as imported changes.
+@Model
+class WeightSyncState {
+    var key: String = "apple-health"
+    var anchor: Data?
+    var lastReadAt: Date?
+    var lastSampleAt: Date?
+    var lastSourceName: String?
+    init() {}
+}
+
+/// A durable deletion/suppression record prevents import from resurrecting removed weights.
+@Model
+class WeightSyncTombstone {
+    var id: UUID = UUID()
+    var entryID: UUID = UUID()
+    var externalIdentifiers: [String] = []
+    var deleteFromHealth: Bool = false
+    var pending: Bool = true
+    var localNote: String?
+    var notBefore: Date = Date.now
+
+    init(entry: WeightEntry, now: Date = .now) {
+        entryID = entry.id
+        localNote = entry.note
+        externalIdentifiers = Array(entry.allExternalIdentifiers)
+        deleteFromHealth = entry.dataSource == .nomva
+        pending = deleteFromHealth
+        // Let the visible undo action run before touching HealthKit.
+        notBefore = now.addingTimeInterval(15)
+    }
+}
+
 // MARK: - Chat Message
 @Model
 class ChatMessage {
     var id: UUID = UUID()
     var role: String = "user"
     var content: String = ""
+    var affectedFoodEntryIDs: [UUID]?
     var timestamp: Date = Date.now
     var dayDate: Date = Date.now
 
@@ -349,6 +394,7 @@ struct AgentTaskState: Codable {
     var correctionTargetName: String?
     var lastToolContext: String?
     var candidateGroups: [CandidateGroupSnapshot]
+    var targetDate: Date? = nil
 }
 
 // MARK: - Other Records

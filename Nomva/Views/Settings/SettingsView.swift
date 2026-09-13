@@ -12,7 +12,6 @@ struct SettingsView: View {
     @State private var showGoals = false
     @AppStorage(WeightSyncPreferences.appleHealthImportKey) private var appleHealthWeightImportEnabled = false
     @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var appleHealthWeightExportEnabled = false
-    @AppStorage(WeightSyncPreferences.garminImportKey) private var garminWeightImportEnabled = false
     #if targetEnvironment(simulator)
     @State private var showSeedScreenshotDataConfirm = false
     @State private var simulatorSeedMessage: String?
@@ -98,11 +97,12 @@ struct SettingsView: View {
                                 } label: {
                                     SettingsLinkRow(
                                         icon: "icloud",
-                                        title: "iCloud Sync",
-                                        subtitle: iCloudSubtitle
+                                        title: "Data Storage",
+                                        subtitle: "On this device • weights through Apple Health"
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityIdentifier("settings.dataStorage")
 
                                 NavigationLink {
                                     CustomFoodsListView()
@@ -348,19 +348,6 @@ struct SettingsView: View {
         return "Restore"
     }
 
-    private var iCloudSubtitle: String {
-        if syncManager.iCloudEnabled {
-            return "Active in your private iCloud"
-        }
-        if let error = syncManager.lastErrorMessage, !error.isEmpty {
-            return "Local only • issue needs attention"
-        }
-        if syncManager.isAccountAvailable {
-            return "On-device only"
-        }
-        return "Local only • iCloud unavailable"
-    }
-
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
 
     private var goalsSubtitle: String {
@@ -423,9 +410,6 @@ struct SettingsView: View {
         var sources: [String] = []
         if appleHealthWeightImportEnabled || appleHealthWeightExportEnabled {
             sources.append("Apple Health")
-        }
-        if garminWeightImportEnabled {
-            sources.append("Garmin")
         }
         return sources.isEmpty
             ? "Import history and choose where weigh-ins are saved"

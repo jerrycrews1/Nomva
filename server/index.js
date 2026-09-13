@@ -48,9 +48,7 @@ const { deterministicEditTarget } = require("./editTargetGuard");
 const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
 const {
-  buildGarminUploadWindows,
   computeGarminAverages,
-  normalizedGarminWeight,
 } = require("./garminMetrics");
 const {
   entitlementIsActive,
@@ -151,7 +149,6 @@ const GARMIN_WEBHOOK_SHARED_SECRET = process.env.GARMIN_WEBHOOK_SHARED_SECRET ||
 const GARMIN_USER_ID_URL = process.env.GARMIN_USER_ID_URL || "https://healthapi.garmin.com/wellness-api/rest/user/id";
 const GARMIN_USER_PERMISSIONS_URL = process.env.GARMIN_USER_PERMISSIONS_URL || "https://healthapi.garmin.com/wellness-api/rest/user/permissions";
 const GARMIN_USER_REGISTRATION_URL = process.env.GARMIN_USER_REGISTRATION_URL || "https://healthapi.garmin.com/wellness-api/rest/user/registration";
-const GARMIN_BODY_COMPS_URL = process.env.GARMIN_BODY_COMPS_URL || "https://healthapi.garmin.com/wellness-api/rest/bodyComps";
 
 if (process.env.GARMIN_OAUTH_AUTHORIZE_URL || process.env.GARMIN_OAUTH_TOKEN_URL || process.env.GARMIN_OAUTH_SCOPE) {
   console.warn(
@@ -1029,19 +1026,6 @@ function storeGarminSummary(nomvaUserId, summary) {
   return true;
 }
 
-function storeGarminWeight(nomvaUserId, weight) {
-  const user = garminStore.users[nomvaUserId];
-  if (!user) {
-    return false;
-  }
-
-  user.weights = user.weights || {};
-  user.weights[weight.id] = weight;
-  user.lastWebhookAt = new Date().toISOString();
-  user.updatedAt = new Date().toISOString();
-  return true;
-}
-
 function applyGarminPermissionsChange(change) {
   const garminUserId = extractGarminUserId(change);
   const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
@@ -1547,12 +1531,13 @@ const webFoodOpenAI = new OpenAI({
   maxRetries: 0,
 });
 
-function webFoodResolverForRequest(req, foodMention = "") {
+function webFoodResolverForRequest(req, foodMention = "", menuSourceRequired = false) {
   const configuredSearchContext = String(
     process.env.NOMVA_WEB_FOOD_SEARCH_CONTEXT_SIZE || "low"
   ).toLowerCase();
   const requiresExactSizeResearch = requiresExactMenuResearch(foodMention);
-  const selectedModel = requiresExactSizeResearch ? WEB_FOOD_PUBLISHED_MODEL : WEB_FOOD_MODEL;
+  const requiresMenuResearch = menuSourceRequired || requiresExactSizeResearch || isMenuFoodMention(foodMention);
+  const selectedModel = requiresMenuResearch ? WEB_FOOD_PUBLISHED_MODEL : WEB_FOOD_MODEL;
   return createWebFoodResolver({
     openai: webFoodOpenAI,
     knowledgeStore: foodKnowledgeStore,
@@ -2068,10 +2053,12 @@ function handleGarminWebhook(req, res) {
   const deregistrations = Array.isArray(req.body?.deregistrations)
     ? req.body.deregistrations
     : [];
-  const candidates = collectDailySummaryCandidates(req.body);
-  const bodyCompCandidates = Array.isArray(req.body?.bodyComps) ? req.body.bodyComps : [];
+  // Weight sync belongs to Apple Health. Acknowledge legacy body-composition
+  // deliveries without caching, persisting or returning their contents.
+  const { bodyComps, ...activityPayload } = req.body || {};
+  const candidates = collectDailySummaryCandidates(activityPayload);
   let stored = 0;
-  let ignored = 0;
+  let ignored = Array.isArray(bodyComps) ? bodyComps.length : 0;
   let permissionUpdates = 0;
   let deregistered = 0;
   const unmappedGarminUsers = new Set();
@@ -2111,32 +2098,6 @@ function handleGarminWebhook(req, res) {
     const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
 
     if (!nomvaUserId || !storeGarminSummary(nomvaUserId, summary)) {
-      ignored += 1;
-      if (garminUserId) {
-        unmappedGarminUsers.add(String(garminUserId));
-      }
-      continue;
-    }
-
-    const user = garminStore.users[nomvaUserId];
-    if (garminUserId && user && !user.garminUserId) {
-      user.garminUserId = String(garminUserId);
-      garminStore.garminUserIndex[String(garminUserId)] = nomvaUserId;
-    }
-    stored += 1;
-  }
-
-  for (const candidate of bodyCompCandidates) {
-    const weight = normalizedGarminWeight(candidate);
-    if (!weight) {
-      ignored += 1;
-      continue;
-    }
-
-    const garminUserId = extractGarminUserId(candidate) || extractGarminUserId(req.body);
-    const nomvaUserId = garminUserId ? garminStore.garminUserIndex[String(garminUserId)] : null;
-
-    if (!nomvaUserId || !storeGarminWeight(nomvaUserId, weight)) {
       ignored += 1;
       if (garminUserId) {
         unmappedGarminUsers.add(String(garminUserId));
@@ -2277,99 +2238,11 @@ app.post("/v1/garmin/sync", async (req, res) => {
   }
 });
 
-app.post("/v1/garmin/weights/import", async (req, res) => {
-  const identity = garminUserForRequest(req);
-  if (identity.error === "missing_identity") {
-    return res.status(400).json({ error: "missing_identity" });
-  }
-  if (identity.error === "invalid_identity") {
-    return res.status(401).json({ error: "invalid_identity" });
-  }
-  if (!identity.user?.accessToken) {
-    return res.status(400).json({ error: "garmin_not_connected" });
-  }
-
-  const uploadLookbackDays = Math.max(
-    1,
-    Math.min(365, Number.parseInt(req.body?.uploadLookbackDays, 10) || 7)
-  );
-  // Cap the synchronous fetch windows to 14 days to prevent rate limiting.
-  // Historical data beyond this is pushed asynchronously via the Garmin webhook backfill.
-  const syncFetchDays = Math.min(14, uploadLookbackDays);
-  const windows = buildGarminUploadWindows({ lookbackDays: syncFetchDays });
-  const weightsById = new Map();
-  let nextWindow = 0;
-  let failedWindows = 0;
-  let permissionDenied = false;
-  let newlyPulledWeights = 0;
-
-  async function worker() {
-    while (nextWindow < windows.length) {
-      const window = windows[nextWindow];
-      nextWindow += 1;
-      const url = new URL(GARMIN_BODY_COMPS_URL);
-      url.searchParams.set("uploadStartTimeInSeconds", String(window.start));
-      url.searchParams.set("uploadEndTimeInSeconds", String(window.end));
-
-      try {
-        const garminResponse = await garminOAuth1Request("GET", url.toString(), [
-          ["oauth_token", identity.user.accessToken],
-        ], identity.user.tokenSecret || "");
-
-        if (!garminResponse.ok) {
-          failedWindows += 1;
-          permissionDenied ||= garminResponse.status === 401 || garminResponse.status === 403;
-          continue;
-        }
-
-        const payload = JSON.parse(await garminResponse.text() || "[]");
-        const records = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.bodyComps)
-            ? payload.bodyComps
-            : [];
-        for (const record of records) {
-          const weight = normalizedGarminWeight(record);
-          if (weight) {
-            weightsById.set(weight.id, weight);
-            if (storeGarminWeight(identity.nomvaUserId, weight)) {
-              newlyPulledWeights++;
-            }
-          }
-        }
-      } catch (error) {
-        failedWindows += 1;
-        console.error("garmin weight import window failed:", error.message);
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(6, windows.length) }, () => worker()));
-  if (permissionDenied && failedWindows === windows.length) {
-    return res.status(403).json({ error: "garmin_weight_permission_required" });
-  }
-
-  if (newlyPulledWeights > 0) {
-    persistGarminStore();
-  }
-
-  const user = identity.user;
-  if (user && user.weights) {
-    for (const storedWeight of Object.values(user.weights)) {
-      if (!weightsById.has(storedWeight.id)) {
-        weightsById.set(storedWeight.id, storedWeight);
-      }
-    }
-  }
-
-  const weights = Array.from(weightsById.values())
-    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
-  return res.json({
-    weights,
-    uploadLookbackDays,
-    fetchedWindows: windows.length - failedWindows,
-    failedWindows,
-    garminWeightWriteSupported: false,
+app.post("/v1/garmin/weights/import", (_req, res) => {
+  res.locals.skipAnalytics = true;
+  res.status(410).json({
+    error: "garmin_weight_sync_uses_apple_health",
+    message: "Share Weight from Garmin Connect to Apple Health, then enable Weight import in Nomva. Weigh-ins are not stored on Nomva Cloud.",
   });
 });
 
@@ -2410,7 +2283,7 @@ app.post("/v1/classify-intent", async (req, res) => {
   try {
     const { userMessage, recentMessages = [] } = req.body;
     const context = recentMessages
-      .slice(-4)
+      .slice(-12)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
     const enriched = context ? `${context}\nUser: ${userMessage}` : `User: ${userMessage}`;
@@ -2441,13 +2314,18 @@ app.post("/v1/plan-food-log", async (req, res) => {
     if (!userMessage) {
       return res.status(400).json({ error: "missing_user_message" });
     }
-    if (!shouldUseStructuredFoodPlan(userMessage)) {
+    const pendingFoods = Array.isArray(req.body?.pendingFoods)
+      ? req.body.pendingFoods.filter((x) => typeof x === "string").slice(0, 12).map((x) => x.slice(0, 250)) : [];
+    const history = Array.isArray(req.body?.recentMessages)
+      ? req.body.recentMessages.slice(-12).filter((m) => m && typeof m.content === "string")
+        .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.content.slice(0, 1_500) })) : [];
+    if (!shouldUseStructuredFoodPlan(userMessage) && pendingFoods.length === 0) {
       return res.status(422).json({ error: "structured_plan_not_needed" });
     }
 
     const rawPlan = await askStructured(
       FOOD_LOG_PLANNER_PROMPT,
-      `User message: "${userMessage}"`,
+      JSON.stringify({ userMessage, recentMessages: history, pendingFoods }),
       "food_log_plan",
       FOOD_LOG_PLAN_SCHEMA,
       llmAnalyticsOptions(req, "plan_food_log", {
@@ -2515,9 +2393,9 @@ async function resolveFoodCandidateRequest(req, payload, signal) {
       return { status: 400, body: { error: "missing_food_mention" } };
     }
 
-    const webResolver = webFoodResolverForRequest(req, trimmedMention);
     let attemptedWebResolution = false;
     const explicitlyRequiresCurrentMenuSource = normalizedHint === "menu" || isMenuFoodMention(trimmedMention);
+    let webResolver = webFoodResolverForRequest(req, trimmedMention, explicitlyRequiresCurrentMenuSource);
 
     const tryWebResolution = async (resolutionSignal = signal) => {
       attemptedWebResolution = true;
@@ -2589,6 +2467,9 @@ async function resolveFoodCandidateRequest(req, payload, signal) {
       : [];
     const requiresCurrentMenuSource = explicitlyRequiresCurrentMenuSource
       || hasUnresolvedLeadingIdentity(trimmedMention, catalogCandidates);
+    if (requiresCurrentMenuSource && !explicitlyRequiresCurrentMenuSource) {
+      webResolver = webFoodResolverForRequest(req, trimmedMention, true);
+    }
     const initialCandidates = requiresCurrentMenuSource ? [] : catalogCandidates;
     const hasStrongAuthoritativeMatch = initialCandidates
       .slice(0, 20)
@@ -3019,7 +2900,7 @@ app.post("/v1/pick-edit-target", async (req, res) => {
     }
 
     const history = recentMessages
-      .slice(-4)
+      .slice(-12)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
     const userPrompt = [
@@ -3247,11 +3128,11 @@ app.post("/v1/general-reply", async (req, res) => {
   try {
     const { userMessage, context = "", recentMessages = [] } = req.body;
     const history = recentMessages
-      .slice(-4)
+      .slice(-12)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
     const parts = [context, history, `User: ${userMessage}`].filter(Boolean);
-    const result = await ask(prompts.GENERAL_REPLY, parts.join("\n\n"), llmAnalyticsOptions(req, "general_reply", { maxTokens: 512 }));
+    const result = await ask(prompts.GENERAL_REPLY, parts.join("\n\n"), llmAnalyticsOptions(req, "general_reply", { maxTokens: 1_200, model: CONTEXT_MODEL }));
     res.json({ text: result.text || "I'm not sure how to answer that." });
   } catch (err) {
     return respondLLMFailure(res, err, "reply_failed");
@@ -3395,6 +3276,6 @@ process.on("unhandledRejection", (reason, promise) => {
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+app.listen(PORT, process.env.NOMVA_BIND_HOST || undefined, () => {
   console.log(`Nomva API running on port ${PORT}`);
 });

@@ -50,6 +50,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
     let barcode: String?
     let portionBasis: FoodPortionBasis
     let servingSource: FoodServingSource?
+    var missingNutrients: [String]? = nil
 
     init(
         id: Int,
@@ -82,7 +83,8 @@ struct FoodItem: Identifiable, Codable, Hashable {
         zincMg: Double? = nil,
         barcode: String? = nil,
         portionBasis: FoodPortionBasis = .grams,
-        servingSource: FoodServingSource? = nil
+        servingSource: FoodServingSource? = nil,
+        missingNutrients: [String]? = nil
     ) {
         self.id = id
         self.fdcId = fdcId
@@ -115,6 +117,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
         self.barcode = barcode
         self.portionBasis = portionBasis
         self.servingSource = servingSource
+        self.missingNutrients = missingNutrients
     }
 
     // Convenience: nutrition scaled to a custom gram amount

@@ -171,9 +171,15 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
     }
 
     func planFoodLog(userMessage: String) async throws -> FoodLogPlan {
+        try await planFoodLog(userMessage: userMessage, recentMessages: [], pendingFoods: [])
+    }
+
+    func planFoodLog(userMessage: String, recentMessages: [(role: String, content: String)], pendingFoods: [String]) async throws -> FoodLogPlan {
         let data = try await postRaw(
             "/v1/plan-food-log",
-            body: ["userMessage": userMessage],
+            body: ["userMessage": userMessage,
+                   "recentMessages": recentMessages.suffix(12).map { ["role": $0.role, "content": $0.content] },
+                   "pendingFoods": Array(pendingFoods.prefix(12))],
             timeout: 25
         )
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -305,7 +311,8 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
             )
             return try decodeFoodResolutionBatch(from: data, expectedCount: foodMentions.count)
         } catch {
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled,
+                  Self.shouldUseSingleResolutionFallback(error) else {
                 return Array(repeating: nil, count: foodMentions.count)
             }
             // A rolling server deploy may briefly precede this client build.
@@ -317,6 +324,11 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
                 resolutionHints: resolutionHints
             )
         }
+    }
+
+    static func shouldUseSingleResolutionFallback(_ error: Error) -> Bool {
+        guard case RemoteError.serverError(let status) = error else { return false }
+        return [404, 405, 501].contains(status)
     }
 
     private func resolveFoodCandidatesIndividually(
@@ -1595,15 +1607,18 @@ enum NomvaCloudSessionController {
 
 actor NomvaCloudAttestedRequestGate {
     static let shared = NomvaCloudAttestedRequestGate()
-
+    private struct Waiter {
+        let id: UUID
+        let priority: Int
+        let continuation: CheckedContinuation<Void, Error>
+    }
     private var isRunning = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
 
-    func withExclusiveAccess<T: Sendable>(
-        _ operation: @Sendable () async throws -> T
-    ) async throws -> T {
-        await acquire()
+    func withExclusiveAccess<T: Sendable>(priority: Int = 0, _ operation: @Sendable () async throws -> T) async throws -> T {
+        try await acquire(priority: priority)
         do {
+            try Task.checkCancellation()
             let result = try await operation()
             release()
             return result
@@ -1613,24 +1628,30 @@ actor NomvaCloudAttestedRequestGate {
         }
     }
 
-    private func acquire() async {
-        guard isRunning else {
-            isRunning = true
-            return
-        }
+    private func acquire(priority: Int) async throws {
+        try Task.checkCancellation()
+        guard isRunning else { isRunning = true; return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else { waiters.append(Waiter(id: id, priority: priority, continuation: continuation)) }
+            }
+        } onCancel: { Task { await self.cancel(id) } }
+    }
 
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+    private func cancel(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
     }
 
     private func release() {
-        guard !waiters.isEmpty else {
+        guard let highest = waiters.map(\.priority).max(),
+              let index = waiters.firstIndex(where: { $0.priority == highest }) else {
             isRunning = false
             return
         }
-
-        waiters.removeFirst().resume()
+        waiters.remove(at: index).continuation.resume()
     }
 }
 
@@ -1827,7 +1848,10 @@ private func sendNomvaCloudRequest(
     var analyticsRequest: URLRequest?
 
     do {
-        let final = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess {
+        let template = try buildRequest()
+        let path = template.url?.path ?? ""
+        let priority = path.contains("analytics") || path.contains("/garmin/") ? -1 : 0
+        let final = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess(priority: priority) {
             func perform(
                 forceSessionRefresh: Bool,
                 forceAttestationRefresh: Bool
@@ -1837,7 +1861,7 @@ private func sendNomvaCloudRequest(
                     identity: identity,
                     forceRefresh: forceSessionRefresh
                 )
-                var request = try buildRequest()
+                var request = template
                 try await NomvaCloudAppAttestManager.shared.applyHeaders(
                     to: &request,
                     baseURL: baseURL,
@@ -2226,7 +2250,11 @@ struct GarminCloudService {
             return request
         }
         try validateResponse(response, data: data)
-        return try JSONDecoder().decode(GarminWeightImportPayload.self, from: data).weights
+        let payload = try JSONDecoder().decode(GarminWeightImportPayload.self, from: data)
+        guard payload.failedWindows == 0 else {
+            throw GarminCloudError.serverError(502, "Garmin history is incomplete: \(payload.failedWindows) upload windows failed. Try again, or use Garmin → Apple Health → Nomva.")
+        }
+        return payload.weights
     }
 
     func disconnect() async throws {

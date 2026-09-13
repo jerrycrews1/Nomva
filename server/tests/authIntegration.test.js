@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 
 function availablePort() {
@@ -43,6 +44,11 @@ test("production accepts scoped automation auth and rejects simulator spoofing",
   const port = await availablePort();
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nomva-auth-integration-"));
   const automationToken = "integration-secret-with-more-than-32-characters";
+  fs.writeFileSync(path.join(dataDirectory, "garmin-store.json"), JSON.stringify({
+    users: { "integration-user": { garminUserId: "integration-garmin-user", summaries: {},
+      deviceTokenHash: crypto.createHash("sha256").update("integration-device").digest("hex") } },
+    garminUserIndex: { "integration-garmin-user": "integration-user" }, states: {},
+  }));
   const child = spawn(process.execPath, ["index.js"], {
     cwd: path.join(__dirname, ".."),
     env: {
@@ -58,6 +64,7 @@ test("production accepts scoped automation auth and rejects simulator spoofing",
       NOMVA_AUTOMATION_TOKEN: automationToken,
       NOMVA_ENTITLEMENT_MODE: "audit",
       APP_STORE_ONLINE_CHECKS: "0",
+      GARMIN_WEBHOOK_SHARED_SECRET: "synthetic-weight-privacy-check",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -113,6 +120,28 @@ test("production accepts scoped automation auth and rejects simulator spoofing",
     },
   });
   assert.equal(status.status, 200);
+
+  const weightImport = await fetch(`http://127.0.0.1:${port}/v1/garmin/weights/import`, {
+    method: "POST",
+    headers: { ...baseHeaders, "X-Nomva-Automation-Token": automationToken, Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify({ uploadLookbackDays: 365 }),
+  });
+  assert.equal(weightImport.status, 410);
+  const weightResult = await weightImport.json();
+  assert.equal(weightResult.error, "garmin_weight_sync_uses_apple_health");
+  assert.equal(weightResult.weights, undefined);
+
+  const weightWebhook = await fetch(`http://127.0.0.1:${port}/garmin/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Garmin-Webhook-Secret": "synthetic-weight-privacy-check" },
+    body: JSON.stringify({ bodyComps: [{ userId: "integration-garmin-user", summaryId: "synthetic-weight",
+      weightInGrams: 81_234, measurementTimeInSeconds: 1_700_000_000 }] }),
+  });
+  assert.equal(weightWebhook.status, 200);
+  const discarded = await weightWebhook.json();
+  assert.equal(discarded.stored, 0);
+  assert.equal(discarded.ignored, 1);
+  assert.deepEqual(discarded.unmappedGarminUsers, []);
 
   const unauthorizedBatch = await fetch(`http://127.0.0.1:${port}/v1/resolve-food-candidates`, {
     method: "POST",

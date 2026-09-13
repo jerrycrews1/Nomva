@@ -111,6 +111,7 @@ struct NomvaCoreTests {
     @MainActor
     func syncArchiveRoundTrip() throws {
         let source = try inMemoryContainer()
+        defer { withExtendedLifetime(source) {} }
         let sourceContext = ModelContext(source)
         let entry = food(name: "Greek yogurt", calories: 110, protein: 15, carbs: 8, fat: 2)
         entry.meal = "breakfast"
@@ -128,6 +129,7 @@ struct NomvaCoreTests {
 
         let archive = try SyncMigrationService.captureArchive(from: source, storeKind: .local)
         let destination = try inMemoryContainer()
+        defer { withExtendedLifetime(destination) {} }
         let counts = try SyncMigrationService.merge(archive: archive, into: destination)
         let destinationContext = ModelContext(destination)
 
@@ -146,6 +148,7 @@ struct NomvaCoreTests {
     @MainActor
     func weightImportDeduplication() throws {
         let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
         let context = ModelContext(container)
         let measuredAt = Date(timeIntervalSince1970: 1_750_000_000)
         let apple = WeightImportCandidate(
@@ -153,7 +156,7 @@ struct NomvaCoreTests {
             externalIdentifier: "apple:sample-1",
             date: measuredAt,
             weightLbs: 172.4,
-            sourceName: "Smart Scale",
+            sourceName: "Garmin Connect",
             nomvaEntryID: nil
         )
 
@@ -162,8 +165,8 @@ struct NomvaCoreTests {
         let sameMeasurementFromGarmin = WeightImportCandidate(
             source: .garmin,
             externalIdentifier: "garmin:sample-1",
-            date: measuredAt.addingTimeInterval(90),
-            weightLbs: 172.45,
+            date: measuredAt,
+            weightLbs: 172.4,
             sourceName: "Garmin Connect",
             nomvaEntryID: nil
         )
@@ -181,6 +184,7 @@ struct NomvaCoreTests {
     @MainActor
     func distinctWeightImports() throws {
         let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
         let context = ModelContext(container)
         let measuredAt = Date(timeIntervalSince1970: 1_750_000_000)
         let candidates = [
@@ -195,8 +199,8 @@ struct NomvaCoreTests {
             WeightImportCandidate(
                 source: .appleHealth,
                 externalIdentifier: "apple:evening",
-                date: measuredAt.addingTimeInterval(3_600),
-                weightLbs: 171.8,
+                date: measuredAt.addingTimeInterval(30),
+                weightLbs: 172.4,
                 sourceName: "Apple Health",
                 nomvaEntryID: nil
             )
@@ -299,9 +303,9 @@ struct NomvaCoreTests {
         #expect(entries.allSatisfy { $0.source == "web_estimate" })
 
         let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
         let context = ModelContext(container)
-        entries.forEach(context.insert)
-        try context.save()
+        _ = try FoodMutationPolicy.commitNewLog(result, in: context, timestamp: .now)
 
         let saved = try context.fetch(FetchDescriptor<FoodEntry>())
         #expect(saved.count == 3)
@@ -491,15 +495,412 @@ struct NomvaCoreTests {
         )
     }
 
+    @Test("Saved chat receipts include unresolved foods and estimates")
+    @MainActor
+    func partialChatReceiptMatchesStoredRows() throws {
+        let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
+        let context = ModelContext(container)
+        let food = self.food(name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3)
+        food.source = "web_estimate"
+        let result = FoodLoggingService.LoggingResult(action: .logFood([food]), reply: "untrusted success", unresolvedFoods: ["Mystery sandwich"])
+        let saved = try FoodMutationPolicy.commitNewLog(result, in: context, timestamp: Date(timeIntervalSince1970: 1_750_000_000))
+        let reply = FoodMutationPolicy.savedFoodReply(result, entries: saved)
+        #expect(try context.fetchCount(FetchDescriptor<FoodEntry>()) == 1)
+        #expect(reply.contains("95 cal estimated"))
+        #expect(reply.contains("Not added: Mystery sandwich"))
+        #expect(!reply.contains("untrusted success"))
+    }
+
+    @Test("Destructive name matching refuses ambiguous and approximate targets")
+    @MainActor
+    func safeFoodTargets() {
+        let first = food(name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3)
+        let second = food(name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3)
+        first.meal = "breakfast"; second.meal = "lunch"
+        #expect(FoodMutationPolicy.uniqueEntry(named: "Apple", in: [first, second]) == nil)
+        #expect(FoodMutationPolicy.uniqueEntry(named: "Apple pie", in: [first]) == nil)
+        #expect(FoodMutationPolicy.uniqueEntry(named: second.id.uuidString, in: [first, second])?.id == second.id)
+        let scoped = FoodMutationPolicy.scopedEntries([first, second], message: "Remove the apple at lunch")
+        #expect(FoodMutationPolicy.uniqueEntry(named: "Apple", in: scoped)?.id == second.id)
+    }
+
+    @Test("Relative dates use the real calendar across daylight saving changes")
+    func explicitChatDates() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 10)))
+        let selected = try #require(calendar.date(from: DateComponents(year: 2025, month: 12, day: 1)))
+        let yesterday = ChatDateResolver.resolve("I ate an apple yesterday", selectedDate: selected, now: now, calendar: calendar)
+        #expect(calendar.component(.day, from: yesterday) == 8)
+        #expect(calendar.component(.month, from: yesterday) == 3)
+        #expect(ChatDateResolver.resolve("log an apple", selectedDate: selected, now: now, calendar: calendar) == selected)
+        let explicit = ChatDateResolver.resolve("my weight on 2026-02-14", selectedDate: selected, now: now, calendar: calendar)
+        #expect(calendar.component(.day, from: explicit) == 14)
+        #expect(calendar.component(.month, from: explicit) == 2)
+    }
+
+    @Test("Weights and corrections are processed locally with explicit units")
+    @MainActor
+    func localWeightUnitsAndMissingTarget() async throws {
+        let service = FoodLoggingService(provider: BatchFoodTestProvider(plan: applePlan(count: 1), candidates: []), canUseAI: true)
+        let goal = DailyGoal(calories: 2_000, protein: 150, carbs: 250, fat: 65)
+        let result = await service.process(userMessage: "I weigh 80 kg", recentMessages: [], goals: goal,
+            targetDate: .now, targetEntries: [], recentEntries: [])
+        guard case .log_weight(let entry) = result.action else { Issue.record("Expected a local weigh-in"); return }
+        #expect(abs(entry.weightLbs - 176.36980975) < 0.00001)
+        let correction = await service.process(userMessage: "Correct my weight to 81 kg", recentMessages: [], goals: goal,
+            targetDate: .now, targetEntries: [], recentEntries: [])
+        guard case .reply = correction.action else { Issue.record("A missing correction target must not create a weigh-in"); return }
+        #expect(correction.reply.contains("Nothing was changed"))
+    }
+
+    @Test("UPC, EAN and zero-padded GTIN aliases preserve identity")
+    func barcodeIdentity() throws {
+        let upc = try #require(BarcodeIdentity("042100005264"))
+        #expect(upc.gtin14 == "00042100005264")
+        #expect(BarcodeIdentity("04252614", isUPCE: true)?.gtin14 == upc.gtin14)
+        #expect(BarcodeIdentity.matches("0042100005264", "042100005264"))
+        #expect(BarcodeIdentity("96385074") != nil)
+        #expect(BarcodeIdentity("042100005265") == nil)
+        #expect(BarcodeIdentity("0000000000000") == nil)
+        #expect(BarcodeIdentity("x042100005264") == nil)
+    }
+
+    @Test("Open Food Facts units, zeros and missing nutrition are interpreted correctly")
+    func barcodeNutrition() throws {
+        let identity = try #require(BarcodeIdentity("9999999999994"))
+        let raw = #"{"status":1,"product":{"code":"9999999999994","product_name":"Fixture drink","serving_size":"250 ml","serving_quantity":250,"serving_quantity_unit":"ml","nutriments":{"energy-kj_100g":167.36,"proteins_100g":0,"carbohydrates_100g":10,"fat_100g":0,"sodium_100g":0.05,"sodium_unit":"mg"}}}"#
+        guard case .found(let food, _) = try OpenFoodFactsDecoder.decode(Data(raw.utf8), identity: identity) else { Issue.record("Expected decoded product"); return }
+        #expect(abs(food.caloriesPerServing - 100) < 0.00001)
+        #expect(food.sodiumMg == 125)
+        #expect(food.proteinG == 0)
+        #expect(!food.canScaleByGrams)
+        #expect(food.servingGrams == nil)
+        #expect(food.missingNutrients == ["fiber", "sugar"])
+        let unspecifiedBasis = raw.replacingOccurrences(of: #""serving_size":"250 ml","serving_quantity":250,"serving_quantity_unit":"ml","#, with: "")
+        guard case .found(let unspecified, _) = try OpenFoodFactsDecoder.decode(Data(unspecifiedBasis.utf8), identity: identity) else { Issue.record("Expected label basis"); return }
+        #expect(unspecified.servingGrams == nil)
+        #expect(!unspecified.canScaleByGrams)
+        #expect(unspecified.servingDesc?.contains("g or ml") == true)
+        let incomplete = raw.replacingOccurrences(of: #""energy-kj_100g":167.36,"#, with: "")
+        guard case .incompleteNutrition = try OpenFoodFactsDecoder.decode(Data(incomplete.utf8), identity: identity) else { Issue.record("Missing calories cannot become zero"); return }
+    }
+
+    @Test("Barcode service caches exact products and never caches outages as misses")
+    func barcodeCacheAndRecovery() async throws {
+        let spy = BarcodeFetchProbe()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("nomva-barcode-test-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let service = BarcodeLookupService(cacheURL: url, minimumRequestInterval: 0, localLookup: { _ in nil }, fetch: { try await spy.fetch($0) })
+        guard case .unavailable = await service.lookup(barcode: "9999999999994") else { Issue.record("First synthetic request should fail"); return }
+        guard case .found = await service.lookup(barcode: "9999999999994") else { Issue.record("Retry should find the product"); return }
+        guard case .found(_, .cache) = await service.lookup(barcode: "9999999999994") else { Issue.record("Expected cache hit"); return }
+        #expect(await spy.calls == 2)
+        let reloaded = BarcodeLookupService(cacheURL: url, localLookup: { _ in nil }, fetch: { _ in throw URLError(.notConnectedToInternet) })
+        guard case .found(_, .cache) = await reloaded.lookup(barcode: "9999999999994") else { Issue.record("Cache must survive relaunch"); return }
+    }
+
+    @Test("Batch resolution only falls back for an unsupported endpoint")
+    func batchFailureDoesNotFanOut() {
+        #expect(RemoteAPIProvider.shouldUseSingleResolutionFallback(RemoteAPIProvider.RemoteError.serverError(404)))
+        for status in [401, 403, 429, 500, 502, 503] {
+            #expect(!RemoteAPIProvider.shouldUseSingleResolutionFallback(RemoteAPIProvider.RemoteError.serverError(status)))
+        }
+        #expect(!RemoteAPIProvider.shouldUseSingleResolutionFallback(URLError(.timedOut)))
+    }
+
+    @Test("Health export reuses its version after failure and skips unchanged weights")
+    @MainActor
+    func healthExportRetry() async throws {
+        let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
+        let context = ModelContext(container)
+        let entry = WeightEntry(weightLbs: 180)
+        context.insert(entry); try context.save()
+        let probe = HealthClientProbe()
+        let client = WeightHealthClient(fetchChanges: { _ in throw URLError(.unknown) }, save: { try await probe.save($0) }, delete: { _ in })
+        do {
+            _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: context, client: client, enabled: true)
+            Issue.record("First synthetic write should fail")
+        } catch { }
+        let initialVersion = try #require(entry.healthSyncVersion)
+        #expect(initialVersion > 0)
+        #expect(entry.healthExportedFingerprint == nil)
+        _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: context, client: client, enabled: true)
+        #expect(entry.healthSyncVersion == initialVersion)
+        #expect(entry.healthExportedFingerprint == entry.healthFingerprint)
+        let unchanged = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: context, client: client, enabled: true)
+        #expect(unchanged == 0)
+        entry.weightLbs = 181
+        _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: context, client: client, enabled: true)
+        let editedVersion = try #require(entry.healthSyncVersion)
+        #expect(editedVersion > initialVersion)
+        #expect(await probe.versions == [initialVersion, initialVersion, editedVersion])
+    }
+
+    @Test("Health cursor commits with data and source deletions remove only imported records")
+    @MainActor
+    func anchoredWeightImport() async throws {
+        let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
+        let context = ModelContext(container)
+        let sample = AppleHealthWeightSample(externalIdentifier: "apple:fixture", date: .now, weightLbs: 180, sourceName: "Garmin Connect", nomvaEntryID: nil)
+        let client = WeightHealthClient(fetchChanges: { _ in AppleHealthWeightChangePage(samples: [sample], deletedIdentifiers: [], anchor: Data([1]), changeCount: 1) }, save: { _ in [:] }, delete: { _ in })
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: client)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 1)
+        #expect(try context.fetch(FetchDescriptor<WeightSyncState>()).first?.anchor == Data([1]))
+        let deletion = WeightHealthClient(fetchChanges: { anchor in
+            #expect(anchor == Data([1]))
+            return AppleHealthWeightChangePage(samples: [], deletedIdentifiers: ["apple:fixture"], anchor: Data([2]), changeCount: 1)
+        }, save: { _ in [:] }, delete: { _ in })
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: deletion)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: client)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+    }
+
+    @Test("Deleting imported weights suppresses re-import without deleting another app's Health record")
+    @MainActor
+    func importedWeightSuppression() async throws {
+        let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
+        let context = ModelContext(container)
+        let candidate = WeightImportCandidate(source: .appleHealth, externalIdentifier: "apple:removed", date: .now, weightLbs: 180, sourceName: "Garmin Connect", nomvaEntryID: nil)
+        _ = try WeightSyncCoordinator.apply([candidate], to: context)
+        let entry = try #require(context.fetch(FetchDescriptor<WeightEntry>()).first)
+        WeightSyncCoordinator.queueDeletion(entry, in: context)
+        try context.save()
+        let client = WeightHealthClient(fetchChanges: { _ in throw URLError(.unknown) }, save: { _ in [:] }, delete: { _ in Issue.record("Must not delete third-party Health records") })
+        try await WeightSyncCoordinator.flushDeletions(in: context, client: client, enabled: true, now: Date().addingTimeInterval(30))
+        _ = try WeightSyncCoordinator.apply([candidate], to: context)
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+    }
+
+    @Test("Mixed food and weight requests retain both actions")
+    @MainActor
+    func mixedFoodAndWeight() async {
+        let service = FoodLoggingService(provider: BatchFoodTestProvider(plan: applePlan(count: 1), candidates: [learnedAppleCandidate()]), canUseAI: true)
+        let result = await service.process(userMessage: "I ate an apple; I weigh 80 kg", recentMessages: [],
+            goals: DailyGoal(calories: 2_000, protein: 150, carbs: 250, fat: 65), targetDate: .now, targetEntries: [], recentEntries: [])
+        guard case .compound(let actions) = result.action else { Issue.record("Expected separate food and weight actions"); return }
+        #expect(actions.count == 2)
+        guard case .logFood = actions[0].action, case .log_weight = actions[1].action else {
+            Issue.record("Both requested log actions must survive"); return
+        }
+    }
+
+    @Test("Cancelled requests leave the serial queue before their operation runs")
+    func cancelledRequestQueue() async throws {
+        let gate = NomvaCloudAttestedRequestGate()
+        let latch = GateTestLatch()
+        let first = Task { try await gate.withExclusiveAccess { await latch.hold() } }
+        await latch.waitUntilStarted()
+        let cancelled = Task { try await gate.withExclusiveAccess { Issue.record("Cancelled operation ran") } }
+        cancelled.cancel()
+        do { try await cancelled.value; Issue.record("Expected cancellation") } catch is CancellationError { }
+        await latch.release()
+        try await first.value
+        let next = try await gate.withExclusiveAccess { 42 }
+        #expect(next == 42)
+    }
+
+    @Test("Named dates and invalid dates are handled explicitly")
+    func namedChatDates() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 9, day: 12)))
+        let date = ChatDateResolver.resolve("I weighed 180 lb on September 11", selectedDate: now, now: now, calendar: calendar)
+        #expect(calendar.component(.day, from: date) == 11)
+        #expect(ChatDateResolver.validationIssue("I weighed 180 lb on February 30", now: now, calendar: calendar) != nil)
+        #expect(ChatDateResolver.resolve("I weighed 180 lb on 9/11/26", selectedDate: now, now: now, calendar: calendar) == date)
+        #expect(ChatDateResolver.resolve("I ate 1/2 cup of rice", selectedDate: now, now: now, calendar: calendar) == now)
+        #expect(ChatDateResolver.validationIssue("log on 2026-02-30", now: now, calendar: calendar) != nil)
+        #expect(ChatDateResolver.validationIssue("log yesterday and today", now: now, calendar: calendar) != nil)
+    }
+
+    @Test("Midnight batches stay on their requested day")
+    @MainActor
+    func midnightFoodBatch() throws {
+        let container = try inMemoryContainer()
+        defer { withExtendedLifetime(container) {} }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: .now)
+        let end = try #require(calendar.date(byAdding: .day, value: 1, to: start))
+        let entries = [food(name: "Apple", calories: 90, protein: 0, carbs: 23, fat: 0), food(name: "Banana", calories: 100, protein: 1, carbs: 25, fat: 0)]
+        let result = FoodLoggingService.LoggingResult(action: .logFood(entries), reply: "")
+        let saved = try FoodMutationPolicy.commitNewLog(result, in: container.mainContext, timestamp: end.addingTimeInterval(-1))
+        #expect(saved.allSatisfy { calendar.isDate($0.date, inSameDayAs: start) })
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<FoodEntry>()) == 2)
+    }
+
+    @Test("Weight change questions calculate the requested range without editing")
+    @MainActor
+    func weightChangeQuery() async throws {
+        let service = FoodLoggingService(provider: BatchFoodTestProvider(plan: applePlan(count: 1), candidates: []), canUseAI: false)
+        let calendar = Calendar.current
+        let earlier = try #require(calendar.date(byAdding: .day, value: -21, to: .now))
+        let entries = [WeightEntry(date: earlier, weightLbs: 180), WeightEntry(date: .now, weightLbs: 175)]
+        let result = await service.process(userMessage: "How did my weight change over four weeks?", recentMessages: [],
+            goals: DailyGoal(calories: 2_000, protein: 150, carbs: 250, fat: 65), targetDate: .now,
+            targetEntries: [], recentEntries: [], weightEntries: entries)
+        guard case .reply = result.action else { Issue.record("A question must not mutate weight"); return }
+        #expect(result.reply.contains("28 days"))
+        #expect(result.reply.contains("-5"))
+        #expect(entries[0].weightLbs == 180)
+        #expect(WeightInputParser.lookbackDays(in: "three months") == 90)
+    }
+
+    @Test("Local health and goal answers do not become cloud conversation context")
+    @MainActor
+    func chatHistoryPrivacy() {
+        let history = [ChatMessage(role: "user", content: "How many calories are left?"),
+            ChatMessage(role: "assistant", content: "You have 600 calories available."),
+            ChatMessage(role: "user", content: "I ate an apple"),
+            ChatMessage(role: "assistant", content: "Logged Apple."),
+            ChatMessage(role: "user", content: "How did my weight change?"),
+            ChatMessage(role: "assistant", content: "Your average was 176.4 lb.")]
+        let retained = ChatHistoryPrivacy.cloudMessages(history)
+        #expect(retained.count == 2)
+        #expect(retained[0].content == "I ate an apple")
+    }
+
+    @Test("Pending Health writes and deletion suppression survive reopening the store")
+    @MainActor
+    func persistentHealthRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nomva-health-retry-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let schema = Schema([WeightEntry.self, WeightSyncState.self, WeightSyncTombstone.self])
+        let configuration = ModelConfiguration("HealthRetry", schema: schema, url: directory.appendingPathComponent("weights.store"), cloudKitDatabase: .none)
+        let probe = HealthClientProbe()
+        let client = WeightHealthClient(fetchChanges: { _ in throw URLError(.unknown) }, save: { try await probe.save($0) }, delete: { _ in })
+        var persistedVersion = 0
+        do {
+            let container = try ModelContainer(for: schema, configurations: configuration)
+            let context = ModelContext(container)
+            let entry = WeightEntry(weightLbs: 180)
+            context.insert(entry); try context.save()
+            do {
+                _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: context, client: client, enabled: true)
+                Issue.record("First write should fail")
+            } catch { }
+            persistedVersion = try #require(entry.healthSyncVersion)
+            let imported = WeightEntry(weightLbs: 179, source: .appleHealth, externalIdentifier: "apple:persisted-deletion")
+            context.insert(imported); try context.save()
+            WeightSyncCoordinator.queueDeletion(imported, in: context)
+            try context.save()
+        }
+        let reopened = try ModelContainer(for: schema, configurations: configuration)
+        let context = ModelContext(reopened)
+        let rows = try context.fetch(FetchDescriptor<WeightEntry>())
+        #expect(rows.count == 1)
+        let entry = try #require(rows.first)
+        #expect(entry.healthSyncVersion == persistedVersion)
+        #expect(entry.healthPendingFingerprint == entry.healthFingerprint)
+        #expect(try context.fetchCount(FetchDescriptor<WeightSyncTombstone>()) == 1)
+        _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: rows, in: context, client: client, enabled: true)
+        #expect(await probe.versions == [persistedVersion, persistedVersion])
+        #expect(entry.healthExportedFingerprint == entry.healthFingerprint)
+    }
+
+    @Test("Two devices exchange weight edits and deletions through Health without a Nomva server")
+    @MainActor
+    func twoDeviceHealthWeights() async throws {
+        let first = try inMemoryContainer(), second = try inMemoryContainer()
+        let a = first.mainContext, b = second.mainContext
+        let health = CrossDeviceHealthProbe()
+        let client = WeightHealthClient(fetchChanges: { try await health.read($0) }, save: { await health.save($0) }, delete: { await health.delete($0) })
+        let entry = WeightEntry(weightLbs: 180, note: "Local note")
+        a.insert(entry); try a.save()
+        _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [entry], in: a, client: client, enabled: true)
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: a, client: client)
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: b, client: client)
+        let received = try #require(b.fetch(FetchDescriptor<WeightEntry>()).first)
+        #expect(received.id == entry.id)
+        #expect(received.note == nil) // Notes never leave the first device.
+        let originalVersion = try #require(received.healthSyncVersion)
+        received.weightLbs = 179
+        _ = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(from: [received], in: b, client: client, enabled: true)
+        #expect(try #require(received.healthSyncVersion) > originalVersion)
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: a, client: client)
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: b, client: client)
+        #expect(entry.weightLbs == 179)
+        #expect(entry.note == "Local note")
+        #expect(try a.fetchCount(FetchDescriptor<WeightEntry>()) == 1)
+        #expect(try b.fetchCount(FetchDescriptor<WeightEntry>()) == 1)
+        WeightSyncCoordinator.queueDeletion(received, in: b); try b.save()
+        try await WeightSyncCoordinator.flushDeletions(in: b, client: client, enabled: true, now: .now.addingTimeInterval(30))
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: a, client: client)
+        #expect(try a.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+        #expect(try b.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+    }
+
+    @Test("A newer Health update preserves an unsent local edit and advances its next revision")
+    @MainActor
+    func remoteHealthUpdateWithPendingEdit() throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let entry = WeightEntry(weightLbs: 180, healthSyncVersion: 10)
+        entry.healthExportedFingerprint = entry.healthFingerprint
+        entry.weightLbs = 178
+        entry.healthPendingFingerprint = entry.healthFingerprint
+        context.insert(entry); try context.save()
+        let incoming = WeightImportCandidate(source: .appleHealth, externalIdentifier: "apple:remote-edit", date: entry.date,
+            weightLbs: 179, sourceName: "Nomva", nomvaEntryID: entry.id, syncVersion: 20)
+        _ = try WeightSyncCoordinator.apply([incoming], to: context)
+        #expect(entry.weightLbs == 178)
+        #expect(entry.healthSyncVersion == 20)
+        #expect(entry.healthPendingFingerprint == nil)
+        #expect(entry.healthExportedFingerprint != entry.healthFingerprint)
+        #expect(WeightSyncCoordinator.nextHealthSyncVersion(after: 20, now: Date(timeIntervalSince1970: 0)) == 21)
+    }
+
+    @Test("An upgraded legacy weight accepts a newer Health revision without re-exporting its stale value")
+    @MainActor
+    func legacyWeightAdoptsNewerHealthVersion() throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let entry = WeightEntry(weightLbs: 180, externalIdentifier: "apple:legacy", healthSyncVersion: 5)
+        context.insert(entry); try context.save()
+        let incoming = WeightImportCandidate(source: .appleHealth, externalIdentifier: "apple:newer", date: entry.date,
+            weightLbs: 179, sourceName: "Nomva", nomvaEntryID: entry.id, syncVersion: 6)
+        _ = try WeightSyncCoordinator.apply([incoming], to: context)
+        #expect(entry.weightLbs == 179)
+        #expect(entry.healthSyncVersion == 6)
+        #expect(entry.healthExportedFingerprint == entry.healthFingerprint)
+    }
+
+    @Test("A Health replacement arriving after its deletion page is not suppressed")
+    @MainActor
+    func healthReplacementAcrossPages() async throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let entry = WeightEntry(weightLbs: 180, externalIdentifier: "apple:old", healthSyncVersion: 10)
+        entry.note = "Retained only on this device"
+        entry.healthExportedFingerprint = entry.healthFingerprint
+        let id = entry.id, date = entry.date
+        context.insert(entry); try context.save()
+        let client = WeightHealthClient(fetchChanges: { anchor in
+            if anchor == nil { return AppleHealthWeightChangePage(samples: [], deletedIdentifiers: ["apple:old"], anchor: Data([1]), changeCount: 500) }
+            return AppleHealthWeightChangePage(samples: [AppleHealthWeightSample(externalIdentifier: "apple:new", date: date,
+                weightLbs: 179, sourceName: "Nomva", nomvaEntryID: id, syncVersion: 20)], deletedIdentifiers: [], anchor: Data([2]), changeCount: 1)
+        }, save: { _ in [:] }, delete: { _ in })
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: client)
+        let rows = try context.fetch(FetchDescriptor<WeightEntry>())
+        #expect(rows.count == 1)
+        #expect(rows.first?.id == id)
+        #expect(rows.first?.weightLbs == 179)
+        #expect(rows.first?.healthSyncVersion == 20)
+        #expect(rows.first?.note == "Retained only on this device")
+    }
+
     @MainActor
     private func inMemoryContainer() throws -> ModelContainer {
         let schema = Schema([
-            FoodEntry.self, DailyGoal.self, WeightEntry.self,
+            FoodEntry.self, DailyGoal.self, WeightEntry.self, WeightSyncState.self, WeightSyncTombstone.self,
             ChatMessage.self, CustomFood.self, UserProfile.self,
             MealTemplate.self, WaterEntry.self, LoggingSession.self,
             AgentTraceRecord.self, ResolvedFoodEvidence.self,
         ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let configuration = ModelConfiguration("Test-\(UUID())", schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 }
@@ -668,5 +1069,68 @@ private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
             confident: true,
             hasExplicitPortion: true
         )
+    }
+}
+
+private actor BarcodeFetchProbe {
+    var calls = 0
+    func fetch(_ request: URLRequest) throws -> (Data, URLResponse) {
+        calls += 1
+        if calls == 1 { throw URLError(.timedOut) }
+        let body = #"{"status":1,"product":{"code":"9999999999994","product_name":"Test food","nutriments":{"energy-kcal_100g":100,"proteins_100g":2,"carbohydrates_100g":20,"fat_100g":1}}}"#
+        return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+private actor HealthClientProbe {
+    var versions: [Int] = []
+    func save(_ writes: [AppleHealthWeightWrite]) throws -> [UUID: String] {
+        versions.append(contentsOf: writes.map(\.syncVersion))
+        if versions.count == 1 { throw URLError(.networkConnectionLost) }
+        return Dictionary(uniqueKeysWithValues: writes.map { ($0.entryID, "apple:stored") })
+    }
+}
+
+private actor GateTestLatch {
+    private var started = false
+    private var startWaiter: CheckedContinuation<Void, Never>?
+    private var finishWaiter: CheckedContinuation<Void, Never>?
+    func hold() async {
+        started = true
+        startWaiter?.resume(); startWaiter = nil
+        await withCheckedContinuation { finishWaiter = $0 }
+    }
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiter = $0 }
+    }
+    func release() { finishWaiter?.resume(); finishWaiter = nil }
+}
+
+private actor CrossDeviceHealthProbe {
+    private var samples: [UUID: AppleHealthWeightSample] = [:]
+    private var changes: [AppleHealthWeightChangePage] = []
+    func save(_ writes: [AppleHealthWeightWrite]) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        for write in writes {
+            if let old = samples[write.entryID], (old.syncVersion ?? 0) >= write.syncVersion { continue }
+            let old = samples[write.entryID]
+            let sample = AppleHealthWeightSample(externalIdentifier: "apple:" + UUID().uuidString, date: write.date,
+                weightLbs: write.weightLbs, sourceName: "Nomva", nomvaEntryID: write.entryID, syncVersion: write.syncVersion)
+            samples[write.entryID] = sample
+            changes.append(AppleHealthWeightChangePage(samples: [sample], deletedIdentifiers: old.map { [$0.externalIdentifier] } ?? [], anchor: nil, changeCount: 1))
+            result[write.entryID] = sample.externalIdentifier
+        }
+        return result
+    }
+    func delete(_ id: UUID) {
+        guard let old = samples.removeValue(forKey: id) else { return }
+        changes.append(AppleHealthWeightChangePage(samples: [], deletedIdentifiers: [old.externalIdentifier], anchor: nil, changeCount: 1))
+    }
+    func read(_ anchor: Data?) throws -> AppleHealthWeightChangePage {
+        let start = try anchor.map { try JSONDecoder().decode(Int.self, from: $0) } ?? 0
+        let pending = changes.dropFirst(start)
+        return AppleHealthWeightChangePage(samples: pending.flatMap(\.samples), deletedIdentifiers: pending.flatMap(\.deletedIdentifiers),
+            anchor: try JSONEncoder().encode(changes.count), changeCount: pending.count)
     }
 }

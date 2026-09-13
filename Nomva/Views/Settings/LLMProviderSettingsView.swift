@@ -24,7 +24,7 @@ struct LLMProviderSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Nomva Cloud")
                             .font(.subheadline.weight(.medium))
-                        Text("Task-specific GPT-5 models")
+                        Text("Models selected for each task")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -42,8 +42,8 @@ struct LLMProviderSettingsView: View {
 
             Section("What Is Sent") {
                 Label("Your current request", systemImage: "text.bubble")
-                Label("Up to 6 recent chat messages for references like “that”", systemImage: "arrow.uturn.backward")
-                Label("Relevant recent food, water, weight, and goal summaries for questions", systemImage: "list.bullet.clipboard")
+                Label("Up to 12 recent messages for food references; weight conversations are excluded", systemImage: "arrow.uturn.backward")
+                Label("Relevant recent food and water summaries for questions", systemImage: "list.bullet.clipboard")
                 Label("A photo only when you choose Photo Scan", systemImage: "photo")
             }
 
@@ -51,7 +51,7 @@ struct LLMProviderSettingsView: View {
                 Text("Nomva stores hashed operational metadata such as route, timing, status, model, and token counts for up to 90 days. Nomva analytics do not store raw chat text, food names, photos, or barcodes.")
                     .font(.subheadline)
 
-                Text("Your food log, chat history, custom foods, templates, goals, hydration, and weight history remain in your selected on-device or private iCloud data store.")
+                Text("Your history stays in protected storage on this device. Automatic weight history and personal goal summaries are excluded from AI requests. Weight exchange uses Apple Health.")
                     .font(.subheadline)
             } header: {
                 Text("Storage And Retention")
