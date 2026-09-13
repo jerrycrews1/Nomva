@@ -6,7 +6,7 @@ The backend is deployed at https://nomva.nerdquad.com. Its health check reports 
 
 The signed iPhone archive is ready at `/Users/jerrycrews/Library/Developer/Xcode/Archives/2026-09-12/Nomva 1.5-43.xcarchive`. Both the app and widget are build 43. The archive has production App Attest and HealthKit background-delivery entitlements.
 
-**TestFlight upload is pending.** Command-line export returned `Failed to Use Accounts`; the Organizer follow-up reported that the Mac is locked and automatic unlock failed. Unlocking the Mac is required to finish uploading. Upload, Apple processing, tester assignment, installation, and physical HealthKit delivery have not been established for this build.
+**TestFlight upload succeeded on September 12, 2026 at 21:11 PDT.** After the Mac was unlocked, command-line export uploaded build 43 to App Store Connect and reported `Uploaded package is processing` and `EXPORT SUCCEEDED`. Apple processing completion and internal tester assignment still need verification; Safari requires the user's Touch ID to resume the existing account session. Installation and physical HealthKit delivery have not been established for this build.
 
 ## Storage and sync scope
 
