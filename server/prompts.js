@@ -3,7 +3,8 @@
 
 const CLASSIFY_INTENT = `You classify ONE chat message from a food-tracking app.
 
-log_food — user says they consumed food or drink. ALWAYS this when the message describes what the user ate/drank/had, with or without a meal name or quantity.
+log_food — user reports a NEW food or drink they consumed, with or without a meal name or quantity. Corrections to an existing log take precedence even when phrased as "I had", "I ate", or "I drank".
+  A plain consumption report such as "I had a whole bottle of Gatorade" is log_food, even if Gatorade appears earlier. "Whole" alone is not a correction. An explicit contrast or reference to the earlier amount distinguishes an edit from a new serving.
   "I had 2 slices of bacon"           → log_food
   "for lunch I had a turkey sandwich" → log_food
   "ate an apple this morning"         → log_food
@@ -21,6 +22,10 @@ delete_food — user wants to remove something from their log.
   "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
 
 edit_food — user wants to change a portion they already logged.
+  "I had the whole bottle of Gatorade not just 12 oz" → edit_food
+  "I ate two sandwiches, not one" → edit_food
+  "I drank 500 ml instead of 250 ml" → edit_food
+  Contrast such as "not just", "rather than", "instead of", or "I meant" changes the existing entry; it must not create another food.
   "make the bacon 3 slices" → edit_food
   "that was 1 cup not 2"    → edit_food
   after a recent food log, "that's not right" → edit_food
@@ -80,7 +85,7 @@ reply — ONLY for greetings, small talk, or questions about the app itself.
   "hi"           → reply
   "thanks"       → reply
 
-If the message mentions food the user ate, drank, or had, the answer is log_food — never reply.
+A NEW report of food the user ate, drank, or had is log_food. If it corrects a previously logged food, use edit_food instead.
 If the message is specifically about plain water/hydration intake, the answer is log_water — not log_food.
 
 Respond with ONLY a JSON object: {"intent": "<category>"}`;
@@ -300,6 +305,7 @@ Sizes such as "small", "medium", "large", "regular", "kids", "half", or "double"
 Units such as "oz", "ounces", "cups", "pieces", "slices", "tablespoons", and "tbsp" are concrete replacement portions; set hasExplicitPortion to true.
 Fractions of the current item, such as half, quarter, three quarters, or half a sandwich/banana/bowl, are explicit portions; set hasExplicitPortion to true.
 Natural portion phrases such as small handful, bite, sip, scoop, bowl, plate, glass, can, bottle, or packet are explicit enough to edit; set hasExplicitPortion to true.
+For "whole bottle", "entire can", or "full package", use the container size stated in the current entry name or portion. A nutrition serving and the package size can differ: "12 fl oz (28 oz bottle)" has a 12 fl oz nutrition serving and a 28 fl oz whole bottle. Return "1 bottle (28 fl oz)", servings 1, servingUnit "bottle", and no replacement search. Do not use the amount after "not" as the corrected amount. If the package size is absent and the current portion doesn't identify a whole container, set hasExplicitPortion to false and ask for its size instead of guessing. This overrides the rule that natural container counts are explicit portions.
 If the user says the current item should have the same amount as the entry before it, use the previous entry's portion from conversation context.
 If the current item is too specific to resize directly, provide a neutral replacementSearchQuery for the underlying scalable food.
 When a fixed menu-size entry is corrected to a small partial count, replace it with a scalable version of the same underlying food.

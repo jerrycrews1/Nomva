@@ -1,0 +1,130 @@
+[
+  {
+    "id": "portion-regression-intent-0",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I had the whole bottle of Gatorade not just 12 oz",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "edit_food"
+    }
+  },
+  {
+    "id": "portion-regression-intent-1",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I ate two sandwiches, not one",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "edit_food"
+    }
+  },
+  {
+    "id": "portion-regression-intent-2",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I drank 500 ml instead of 250 ml",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "edit_food"
+    }
+  },
+  {
+    "id": "portion-regression-intent-3",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I had another Gatorade",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "portion-regression-intent-4",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I had a whole bottle of Gatorade",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "portion-regression-intent-5",
+    "task": "classify_intent",
+    "category": "portion_regression",
+    "difficulty": "medium",
+    "message": "I had not only eggs but also toast",
+    "recentMessages": [
+      {
+        "role": "assistant",
+        "content": "Logged Gatorade Cool Blue (12 fl oz), Celsius (1 can), and Coke Zero (16 fl oz)."
+      }
+    ],
+    "expect": {
+      "intent": "log_food"
+    }
+  },
+  {
+    "id": "portion-regression-full-bottle",
+    "task": "resolve_edit_request",
+    "category": "portion_regression",
+    "difficulty": "hard",
+    "message": "I had the whole bottle of Gatorade not just 12 oz",
+    "currentEntryName": "Gatorade Cool Blue \u2014 12 fl oz (28 oz bottle)",
+    "currentEntryBrand": "Gatorade",
+    "currentPortionDescription": "12 fl oz",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": true,
+        "servings": 1,
+        "portionDescription": "1 bottle (28 fl oz)"
+      }
+    }
+  },
+  {
+    "id": "portion-regression-unknown-size",
+    "task": "resolve_edit_request",
+    "category": "portion_regression",
+    "difficulty": "hard",
+    "message": "I had the whole bottle of Gatorade not just 12 oz",
+    "currentEntryName": "Gatorade Cool Blue",
+    "currentEntryBrand": "Gatorade",
+    "currentPortionDescription": "12 fl oz",
+    "expect": {
+      "editRequest": {
+        "hasExplicitPortion": false
+      }
+    }
+  }
+]

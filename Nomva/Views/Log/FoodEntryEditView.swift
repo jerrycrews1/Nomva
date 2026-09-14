@@ -4,24 +4,42 @@ import UIKit
 
 struct FoodEntryEditView: View {
     let entry: FoodEntry
+    private let originalPortion: FoodPortionSnapshot
     @State private var portionGrams: Double
     @State private var servings: Double
     @State private var mealSelection: String
     @State private var showDeleteConfirm = false
     @State private var didCopyFoodName = false
+    @State private var saveError: String?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query private var evidenceRecords: [ResolvedFoodEvidence]
 
     init(entry: FoodEntry) {
         self.entry = entry
+        originalPortion = FoodPortionSnapshot(entry)
         _portionGrams   = State(initialValue: entry.portionGrams)
         _servings       = State(initialValue: entry.servings)
         _mealSelection  = State(initialValue: entry.meal)
     }
 
-    private var baseGramsPerServing: Double {
-        (portionGrams / max(servings, 0.01))
+    private var amountBinding: Binding<Double> {
+        Binding(get: { servings }, set: { value in
+            servings = value
+            if originalPortion.hasKnownWeight { portionGrams = value * originalPortion.gramsPerServing }
+        })
+    }
+
+    private var gramsBinding: Binding<Double> {
+        Binding(get: { portionGrams }, set: { value in
+            portionGrams = value
+            servings = value / originalPortion.gramsPerServing
+        })
+    }
+
+    private var validPortion: Bool {
+        servings.isFinite && (0.05...100).contains(servings)
+            && (!originalPortion.hasKnownWeight || (portionGrams.isFinite && (1...5000).contains(portionGrams)))
     }
 
     private var amountNumberFormatter: NumberFormatter {
@@ -33,30 +51,7 @@ struct FoodEntryEditView: View {
     }
 
     var scaledNutrition: NutritionValues {
-        let factor = portionGrams / 100
-        return NutritionValues(
-            calories: entry.caloriesPer100g * factor,
-            protein:  entry.proteinPer100g  * factor,
-            carbs:    entry.carbsPer100g    * factor,
-            fat:      entry.fatPer100g      * factor,
-            fiber:    entry.fiberPer100g    * factor,
-            sugar:    entry.sugarPer100g    * factor,
-            sodium:   entry.sodiumPer100g   * factor,
-            saturatedFat: entry.saturatedFatPer100g.map { $0 * factor },
-            transFat: entry.transFatPer100g.map { $0 * factor },
-            cholesterol: entry.cholesterolPer100g.map { $0 * factor },
-            addedSugar: entry.addedSugarPer100g.map { $0 * factor },
-            vitaminD: entry.vitaminDPer100g.map { $0 * factor },
-            calcium: entry.calciumPer100g.map { $0 * factor },
-            iron: entry.ironPer100g.map { $0 * factor },
-            potassium: entry.potassiumPer100g.map { $0 * factor },
-            vitaminA: entry.vitaminAPer100g.map { $0 * factor },
-            vitaminC: entry.vitaminCPer100g.map { $0 * factor },
-            vitaminB12: entry.vitaminB12Per100g.map { $0 * factor },
-            folate: entry.folatePer100g.map { $0 * factor },
-            magnesium: entry.magnesiumPer100g.map { $0 * factor },
-            zinc: entry.zincPer100g.map { $0 * factor }
-        )
+        originalPortion.scaledNutrition(grams: portionGrams, servings: servings)
     }
 
     private var nutritionEvidence: ResolvedFoodEvidence? {
@@ -128,28 +123,35 @@ struct FoodEntryEditView: View {
                     HStack {
                         Text("Amount")
                         Spacer()
-                        TextField("Amount", value: $servings, format: .number)
+                        TextField("Amount", value: amountBinding, format: .number)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
-                            .onChange(of: servings) { _, newValue in
-                                portionGrams = newValue * (entry.portionGrams / max(entry.servings, 0.1))
-                            }
+                            .accessibilityIdentifier("foodEdit.amount")
                         
                         Text(displayUnit(for: servings, unit: entry.servingUnit))
                             .foregroundStyle(.secondary)
                     }
 
-                    HStack {
-                        Text("Total Grams")
-                        Spacer()
-                        TextField("grams", value: $portionGrams, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .onChange(of: portionGrams) { _, newValue in
-                                servings = newValue / max(entry.portionGrams / max(entry.servings, 0.1), 0.1)
-                            }
+                    if originalPortion.hasKnownWeight {
+                        HStack {
+                            Text("Total Grams")
+                            Spacer()
+                            TextField("grams", value: gramsBinding, format: .number)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                                .accessibilityIdentifier("foodEdit.grams")
+                        }
+                    } else {
+                        Text("Nutrition is calculated per portion. A weight in grams isn't available for this food.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !validPortion {
+                        Text("Enter a positive amount up to 100 portions.")
+                            .font(.footnote)
+                            .foregroundStyle(NomvaTheme.danger)
                     }
                 }
 
@@ -198,8 +200,15 @@ struct FoodEntryEditView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveChanges() }
                         .bold()
+                        .disabled(!validPortion)
+                        .accessibilityIdentifier("foodEdit.save")
                 }
             }
+            .alert("Couldn't save this entry", isPresented: Binding(
+                get: { saveError != nil }, set: { if !$0 { saveError = nil } }
+            )) {
+                Button("OK", role: .cancel) { saveError = nil }
+            } message: { Text(saveError ?? "Please try again.") }
             .confirmationDialog("Delete this entry?", isPresented: $showDeleteConfirm) {
                 Button("Delete", role: .destructive) {
                     modelContext.delete(entry)
@@ -240,39 +249,29 @@ struct FoodEntryEditView: View {
     }
 
     private func saveChanges() {
-        // Clamp typed portions to the same sane bounds the AI pipeline uses
-        // (servings 0.05–100, grams 1–5,000) so a stray keystroke can't
-        // create a 3-million-calorie day.
-        servings = servings.isFinite ? min(max(servings, 0.05), 100) : 1
-        portionGrams = portionGrams.isFinite ? min(max(portionGrams, 1), 5000) : entry.portionGrams
-
-        let nutrition = scaledNutrition
-        entry.portionGrams = portionGrams
-        entry.servings = servings
-        entry.portionDescription = formattedPortionDescription(amount: servings, unit: entry.servingUnit)
+        guard validPortion else { return }
+        let scale = originalPortion.hasKnownWeight
+            ? portionGrams / originalPortion.grams
+            : servings / max(originalPortion.servings, 0.05)
+        // A meal-only edit must preserve the original portion description and nutrition.
+        let description = abs(scale - 1) < 0.000001
+            ? entry.portionDescription
+            : FoodPortionMath.resizedDescription(for: entry, scale: scale,
+                description: formattedPortionDescription(amount: servings, unit: entry.servingUnit))
+        let oldMeal = entry.meal
+        let oldDescription = entry.portionDescription
+        originalPortion.apply(to: entry, scale: scale, servings: servings,
+                              unit: entry.servingUnit, description: description)
         entry.meal = mealSelection
-        entry.calories = nutrition.calories
-        entry.proteinG = nutrition.protein
-        entry.carbsG = nutrition.carbs
-        entry.fatG = nutrition.fat
-        entry.fiberG = nutrition.fiber
-        entry.sugarG = nutrition.sugar
-        entry.sodiumMg = nutrition.sodium
-        entry.saturatedFatG = nutrition.saturatedFat
-        entry.transFatG = nutrition.transFat
-        entry.cholesterolMg = nutrition.cholesterol
-        entry.addedSugarG = nutrition.addedSugar
-        entry.vitaminDMcg = nutrition.vitaminD
-        entry.calciumMg = nutrition.calcium
-        entry.ironMg = nutrition.iron
-        entry.potassiumMg = nutrition.potassium
-        entry.vitaminAMcgRAE = nutrition.vitaminA
-        entry.vitaminCMg = nutrition.vitaminC
-        entry.vitaminB12Mcg = nutrition.vitaminB12
-        entry.folateMcgDFE = nutrition.folate
-        entry.magnesiumMg = nutrition.magnesium
-        entry.zincMg = nutrition.zinc
-        dismiss()
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            originalPortion.apply(to: entry, scale: 1, servings: originalPortion.servings,
+                                  unit: entry.servingUnit, description: oldDescription)
+            entry.meal = oldMeal
+            saveError = "Your previous portion was kept. Please try saving again."
+        }
     }
 
     private func formattedPortionDescription(amount: Double, unit: String) -> String {

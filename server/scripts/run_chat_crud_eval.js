@@ -8,6 +8,7 @@ const OpenAI = require("openai");
 const prompts = require("../prompts");
 const { deterministicDeleteTargets } = require("../deleteTargetGuard");
 const { deterministicEditTarget } = require("../editTargetGuard");
+const { validatedEditResolution } = require("../llmOutputGuards");
 const { structuredOutputForTask } = require("../llmSchemas");
 const { requestStructuredJSON } = require("../structuredLLM");
 const { secureSystemPrompt } = require("../llmPromptSecurity");
@@ -737,7 +738,7 @@ async function ask(openai, testCase) {
     cacheKey: `nomva_eval_${testCase.task}_v1`,
   });
   return {
-    output: parseJsonObject(JSON.stringify(output)),
+    output: parseJsonObject(JSON.stringify(testCase.task === "resolve_edit_request" ? validatedEditResolution(output) : output)),
     raw,
     durationMs: Date.now() - startedAt,
     totalTokens: response.usage?.total_tokens || null,

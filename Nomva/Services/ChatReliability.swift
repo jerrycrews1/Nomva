@@ -49,7 +49,7 @@ enum FoodMutationPolicy {
         case .compound(let children): return children.flatMap(affectedFoodIDs)
         case .logFood(let foods), .replaceEntryById(_, let foods), .replaceEntry(_, let foods):
             return foods.filter { $0.modelContext != nil }.map(\.id)
-        case .editEntry(let id, _, _, _, _), .moveEntry(let id, _): return [id]
+        case .editEntry(let id, _, _, _, _, _), .moveEntry(let id, _): return [id]
         default: return []
         }
     }

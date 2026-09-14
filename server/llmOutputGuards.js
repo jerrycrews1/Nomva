@@ -44,8 +44,20 @@ function validatedEditSelection(rawSelection, logSummary) {
   };
 }
 
+function validatedEditResolution(result) {
+  const question = typeof result?.clarificationQuestion === "string"
+    ? result.clarificationQuestion.trim().slice(0, 240) : "";
+  return {
+    ...result,
+    // A request for missing information must never also authorize a mutation.
+    hasExplicitPortion: result?.hasExplicitPortion === true && !(question && result?.confident === false),
+    clarificationQuestion: question || null,
+  };
+}
+
 module.exports = {
   currentLogNameMap,
   validatedDeleteTargets,
   validatedEditSelection,
+  validatedEditResolution,
 };

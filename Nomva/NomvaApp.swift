@@ -124,7 +124,18 @@ final class ModelContainerManager: ObservableObject {
         cloudKitIdentifier: String
     ) -> (container: ModelContainer, kind: StoreKind, error: String?) {
         if NomvaRuntime.isAutomatedTest {
-            return (createInMemoryContainer(schema: schema), .local, nil)
+            let container = createInMemoryContainer(schema: schema)
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-NomvaBeverageRegression") {
+                let context = container.mainContext
+                context.insert(FoodEntry(name: "Gatorade Cool Blue — 12 fl oz (28 oz bottle)", brand: "Gatorade", meal: "dinner",
+                    portionGrams: 0, portionDescription: "12 fl oz", servings: 1, servingUnit: "bottle",
+                    calories: 80, proteinG: 0, carbsG: 22, fatG: 0, fiberG: 0, sugarG: 21, sodiumMg: 160,
+                    rawUserInput: "Gatorade", source: "web_published"))
+                try? context.save()
+            }
+            #endif
+            return (container, .local, nil)
         }
 
         let desiredStore = desiredStoreKind()

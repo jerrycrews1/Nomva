@@ -271,7 +271,7 @@ final class FoodLoggingService {
         case logFood([FoodEntry])
         case replaceEntry(deleteName: String, newEntries: [FoodEntry])
         case replaceEntryById(deleteId: UUID, newEntries: [FoodEntry])
-        case editEntry(id: UUID, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String)
+        case editEntry(id: UUID, newGrams: Double, newDescription: String, newServings: Double, newServingUnit: String, nutritionScale: Double)
         case moveEntry(id: UUID, destinationMeal: String)
         case moveMeal(from: String, to: String)
         case deleteEntry(foodNames: [String])
@@ -450,6 +450,13 @@ final class FoodLoggingService {
 
         if let deletion = handleFastScopedFoodDelete(userMessage: userMessage) {
             return deletion
+        }
+
+        if FoodCorrectionIntent.isExplicit(userMessage),
+           userMessage.range(of: #"(?i)\b(water|hydration)\b"#, options: .regularExpression) == nil {
+            return await handleEditFood(userMessage: userMessage, provider: provider,
+                dayEntries: dayEntries, dayLabel: dayLabel, recentEntries: recentEntries,
+                customFoods: customFoods, recentMessages: recentMessages, sessionState: sessionState)
         }
 
         if let correction = await handleImplicitFoodIdentityCorrection(
@@ -1256,6 +1263,10 @@ final class FoodLoggingService {
         }
 
         let dayEntries = FoodMutationPolicy.scopedEntries(dayEntries, message: userMessage)
+        if let target = FoodCorrectionIntent.namedTarget(in: userMessage, entries: dayEntries) {
+            return await applyEdit(userMessage: userMessage, provider: provider, entry: target,
+                recentEntries: recentEntries, customFoods: customFoods, sessionState: sessionState)
+        }
         let logSummary = dayEntries.map { "\($0.name) (\($0.portionDescription), \($0.meal))" }.joined(separator: "\n")
         let selection: EditTargetSelection
         do {
@@ -1300,20 +1311,24 @@ final class FoodLoggingService {
         sessionState: AgentTaskState?
     ) async -> LoggingResult {
         let editResolution: EditResolution
-        do {
-            editResolution = try await provider.resolveEditRequest(
-                userMessage: userMessage,
-                currentEntryName: entry.name,
-                currentEntryBrand: entry.brand,
-                currentPortionDescription: entry.portionDescription
-            )
-        } catch {
-            return clarificationResult(
-                question: "What amount should I change \(entry.name) to?",
-                userMessage: userMessage,
-                correctionTargetName: entry.name,
-                originalUserMessage: sessionState?.originalUserMessage
-            )
+        if let whole = FoodPortionMath.wholeContainer(for: entry, message: userMessage) {
+            editResolution = whole
+        } else {
+            do {
+                editResolution = try await provider.resolveEditRequest(
+                    userMessage: userMessage,
+                    currentEntryName: entry.name,
+                    currentEntryBrand: entry.brand,
+                    currentPortionDescription: entry.portionDescription
+                )
+            } catch {
+                return clarificationResult(
+                    question: "What amount should I change \(entry.name) to?",
+                    userMessage: userMessage,
+                    correctionTargetName: entry.name,
+                    originalUserMessage: sessionState?.originalUserMessage
+                )
+            }
         }
 
         let replacementSearchQuery = editResolution.replacementSearchQuery?
@@ -1335,7 +1350,8 @@ final class FoodLoggingService {
             effectiveResolution = editResolution
         }
 
-        guard effectiveResolution.hasExplicitPortion else {
+        guard effectiveResolution.hasExplicitPortion,
+              effectiveResolution.confident || effectiveResolution.clarificationQuestion == nil else {
             return clarificationResult(
                 question: effectiveResolution.clarificationQuestion ?? "What amount should I change \(entry.name) to?",
                 userMessage: userMessage,
@@ -1352,84 +1368,40 @@ final class FoodLoggingService {
             hasExplicitPortion: effectiveResolution.hasExplicitPortion
         )
 
-        if canEditDirectly(entry),
-           replacementSearchQuery == nil {
-            let newGrams = await estimateGrams(
-                for: SearchCandidate(
-                    candidateId: "entry_\(entry.id.uuidString)",
-                    source: .recent,
-                    databaseSource: entry.source,
-                    fdcId: entry.fdcId,
-                    customFoodId: nil,
-                    recentEntryId: entry.id,
-                    name: entry.name,
-                    brand: entry.brand,
-                    servingGrams: entry.portionGrams,
-                    servingDesc: entry.portionDescription,
-                    caloriesPerServing: entry.calories,
-                    proteinG: entry.proteinG,
-                    carbsG: entry.carbsG,
-                    fatG: entry.fatG,
-                    fiberG: entry.fiberG,
-                    sugarG: entry.sugarG,
-                    sodiumMg: entry.sodiumMg,
-                    saturatedFatG: entry.saturatedFatG,
-                    transFatG: entry.transFatG,
-                    cholesterolMg: entry.cholesterolMg,
-                    addedSugarG: entry.addedSugarG,
-                    vitaminDMcg: entry.vitaminDMcg,
-                    calciumMg: entry.calciumMg,
-                    ironMg: entry.ironMg,
-                    potassiumMg: entry.potassiumMg,
-                    vitaminAMcgRAE: entry.vitaminAMcgRAE,
-                    vitaminCMg: entry.vitaminCMg,
-                    vitaminB12Mcg: entry.vitaminB12Mcg,
-                    folateMcgDFE: entry.folateMcgDFE,
-                    magnesiumMg: entry.magnesiumMg,
-                    zincMg: entry.zincMg,
-                    barcode: entry.barcode,
-                    portionBasis: entry.portionGrams > 0 && entry.caloriesPer100g > 0 ? .grams : .fixedServing,
-                    servingSource: nil,
-                    per100gValues: NutritionValues(
-                        calories: entry.caloriesPer100g,
-                        protein: entry.proteinPer100g,
-                        carbs: entry.carbsPer100g,
-                        fat: entry.fatPer100g,
-                        fiber: entry.fiberPer100g,
-                        sugar: entry.sugarPer100g,
-                        sodium: entry.sodiumPer100g,
-                        saturatedFat: entry.saturatedFatPer100g,
-                        transFat: entry.transFatPer100g,
-                        cholesterol: entry.cholesterolPer100g,
-                        addedSugar: entry.addedSugarPer100g,
-                        vitaminD: entry.vitaminDPer100g,
-                        calcium: entry.calciumPer100g,
-                        iron: entry.ironPer100g,
-                        potassium: entry.potassiumPer100g,
-                        vitaminA: entry.vitaminAPer100g,
-                        vitaminC: entry.vitaminCPer100g,
-                        vitaminB12: entry.vitaminB12Per100g,
-                        folate: entry.folatePer100g,
-                        magnesium: entry.magnesiumPer100g,
-                        zinc: entry.zincPer100g
-                    )
-                ),
-                portionDescription: servingsInfo.portionDescription,
-                provider: provider,
-                referenceServingDescription: entry.portionDescription,
-                referenceServingGrams: entry.portionGrams > 0 ? entry.portionGrams : nil
-            )
-
-            return .init(
-                action: .editEntry(
-                    id: entry.id,
-                    newGrams: newGrams,
-                    newDescription: servingsInfo.portionDescription,
-                    newServings: servingsInfo.servings,
-                    newServingUnit: servingsInfo.servingUnit
-                ),
-                reply: "✓ Updated \(entry.name) to \(servingsInfo.portionDescription)"
-            )
+        if replacementSearchQuery == nil {
+            let asksForWholeContainer = userMessage.range(of: #"(?i)\b(?:whole|entire|full)\s+(?:bottle|can|packet|package)\b"#, options: .regularExpression) != nil
+            var scale = FoodPortionMath.scale(for: entry, description: servingsInfo.portionDescription,
+                                             servings: servingsInfo.servings, unit: servingsInfo.servingUnit)
+            let unknownContainerSize = asksForWholeContainer
+                && FoodPortionMath.wholeContainer(for: entry, message: userMessage) == nil
+                && FoodPortionMath.requestedMeasure(in: userMessage, beverage: FoodPortionMath.isBeverage(entry)) == nil
+                && FoodPortionMath.measure(in: entry.portionDescription, beverage: FoodPortionMath.isBeverage(entry)) != nil
+            if unknownContainerSize {
+                scale = nil
+            }
+            if scale == nil, !unknownContainerSize, canEditDirectly(entry) {
+                if let grams = try? await provider.estimateGrams(
+                    foodName: entry.name, portionDescription: servingsInfo.portionDescription,
+                    referenceServingDescription: entry.portionDescription,
+                    referenceServingGrams: entry.portionGrams
+                ), grams.isFinite, (1...5000).contains(grams) {
+                    scale = grams / entry.portionGrams
+                }
+            }
+            guard let scale, scale.isFinite, (0.001...100).contains(scale),
+                  servingsInfo.servings.isFinite, (0.05...100).contains(servingsInfo.servings),
+                  entry.portionGrams * scale <= 5000 else {
+                let question = userMessage.range(of: #"(?i)\b(?:whole|entire|full)\s+(?:bottle|can|packet|package)\b"#, options: .regularExpression) != nil
+                    ? "What size is the whole container (for example, 28 fl oz)? I'll update \(entry.name) when you tell me."
+                    : "What amount should \(entry.name) be? Include the unit, such as 2 servings or 12 fl oz."
+                return clarificationResult(question: question, userMessage: userMessage,
+                    correctionTargetName: entry.name, originalUserMessage: sessionState?.originalUserMessage)
+            }
+            return .init(action: .editEntry(id: entry.id,
+                newGrams: entry.portionGrams > 0 ? entry.portionGrams * scale : 0,
+                newDescription: FoodPortionMath.resizedDescription(for: entry, scale: scale, description: servingsInfo.portionDescription), newServings: servingsInfo.servings,
+                newServingUnit: servingsInfo.servingUnit, nutritionScale: scale),
+                reply: "✓ Updated \(entry.name) to \(servingsInfo.portionDescription)")
         }
 
         let replacementQuery = replacementSearchQuery ?? entry.name

@@ -5,6 +5,8 @@ const STOP_WORDS = new Set([
   "for", "from", "with", "without", "actually", "make", "change", "edit",
   "fix", "correct", "update", "serving", "servings", "cup", "cups", "oz",
   "ounce", "ounces", "gram", "grams", "g", "cal", "calories", "only",
+  "i", "had", "ate", "drank", "not", "just", "whole", "entire", "full", "of",
+  "bottle", "bottles", "can", "cans", "packet", "packets", "fl", "ml",
 ]);
 
 const COFFEE_FAMILY_TOKENS = new Set([

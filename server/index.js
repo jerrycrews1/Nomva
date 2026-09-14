@@ -26,6 +26,7 @@ const { secureSystemPrompt } = require("./llmPromptSecurity");
 const {
   validatedDeleteTargets,
   validatedEditSelection,
+  validatedEditResolution,
 } = require("./llmOutputGuards");
 const {
   createWebFoodResolver,
@@ -2927,7 +2928,7 @@ app.post("/v1/resolve-edit-request", async (req, res) => {
     } = req.body;
     const brandLine = currentEntryBrand ? `\nCurrent brand: ${currentEntryBrand}` : "";
     const userPrompt = `Current entry: ${currentEntryName}${brandLine}\nCurrent portion: ${currentPortionDescription}\nUser said: ${userMessage}`;
-    const result = await ask(prompts.RESOLVE_EDIT_REQUEST, userPrompt, llmAnalyticsOptions(req, "resolve_edit_request"));
+    const result = validatedEditResolution(await ask(prompts.RESOLVE_EDIT_REQUEST, userPrompt, llmAnalyticsOptions(req, "resolve_edit_request")));
     res.json({
       servings: result.servings ?? 1,
       portionDescription: result.portionDescription || "1 serving",

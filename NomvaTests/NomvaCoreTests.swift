@@ -5,6 +5,133 @@ import Testing
 
 @Suite("Nomva core behavior")
 struct NomvaCoreTests {
+    @Test("Editing a fixed serving preserves all saved nutrition without inventing grams")
+    @MainActor
+    func fixedServingEditor() {
+        let entry = beverageFixture()
+        let snapshot = FoodPortionSnapshot(entry)
+        #expect(!snapshot.hasKnownWeight)
+        let unchanged = snapshot.scaledNutrition(grams: 0, servings: 1)
+        #expect(unchanged.calories == 80)
+        #expect(unchanged.carbs == 22)
+        #expect(unchanged.sodium == 160)
+        #expect(unchanged.vitaminD == nil)
+        let editor = FoodEntryEditView(entry: entry)
+        #expect(editor.scaledNutrition.calories == 80)
+        snapshot.apply(to: entry, scale: 2, servings: 2, unit: "bottle", description: "2 bottles")
+        #expect(entry.calories == 160)
+        #expect(entry.carbsG == 44)
+        #expect(entry.sodiumMg == 320)
+        #expect(entry.portionGrams == 0)
+        #expect(FoodEntryEditView(entry: entry).scaledNutrition.calories == 160)
+    }
+
+    @Test("Known weights and zero-calorie drinks scale every nutrient from the original portion")
+    @MainActor
+    func knownWeightPortionEditor() {
+        let entry = beverageFixture()
+        entry.portionGrams = 355
+        entry.calories = 0
+        let snapshot = FoodPortionSnapshot(entry)
+        #expect(snapshot.hasKnownWeight)
+        #expect(snapshot.scaledNutrition(grams: 710, servings: 2).calories == 0)
+        #expect(snapshot.scaledNutrition(grams: 710, servings: 2).sodium == 320)
+        #expect(snapshot.scaledNutrition(grams: 177.5, servings: 0.5).carbs == 11)
+    }
+
+    @Test("The reported whole-bottle correction updates only the existing Gatorade")
+    @MainActor
+    func wholeBottleCorrectionPersists() async throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        let gatorade = beverageFixture()
+        let celsius = food(name: "CELSIUS Grape Rush Energy Drink, 12 fl oz can", calories: 10, protein: 0, carbs: 0, fat: 0)
+        let cola = food(name: "Coca-Cola Zero Sugar, 16 fl oz", calories: 0, protein: 0, carbs: 0, fat: 0)
+        let entries = [gatorade, celsius, cola]
+        for entry in entries { context.insert(entry) }
+        try context.save()
+        // This provider would classify the sentence as a new food and cannot resolve edits.
+        // The production correction/portion path must handle the explicit correction itself.
+        let service = FoodLoggingService(provider: BatchFoodTestProvider(plan: applePlan(count: 1), candidates: []), canUseAI: true)
+        let result = await service.process(userMessage: "I had the whole bottle of Gatorade not just 12 oz",
+            recentMessages: [("assistant", "Logged Gatorade, Celsius and Coca-Cola Zero")],
+            goals: DailyGoal(calories: 2678, protein: 150, carbs: 220, fat: 67),
+            targetDate: .now, targetEntries: entries, recentEntries: entries)
+        guard case let .editEntry(id, grams, description, servings, unit, scale) = result.action else {
+            Issue.record("Expected a correction, got \(result.reply)"); return
+        }
+        #expect(id == gatorade.id)
+        #expect(grams == 0)
+        #expect(description == "1 bottle (28 fl oz)")
+        #expect(abs(scale - 28.0 / 12.0) < 0.00001)
+        FoodPortionSnapshot(gatorade).apply(to: gatorade, scale: scale, servings: servings, unit: unit, description: description)
+        try context.save()
+        let stored = try context.fetch(FetchDescriptor<FoodEntry>())
+        #expect(stored.count == 3)
+        #expect(abs(gatorade.calories - 186.6666667) < 0.001)
+        #expect(abs(NutritionTotals.from(entries: stored).calories - 196.6666667) < 0.001)
+        #expect(celsius.calories == 10)
+        #expect(cola.calories == 0)
+        #expect(FoodEntryEditView(entry: gatorade).scaledNutrition.calories == gatorade.calories)
+    }
+
+    @Test("Whole-container arithmetic handles ounces, milliliters and missing sizes")
+    @MainActor
+    func containerPortionMath() throws {
+        let entry = beverageFixture()
+        entry.name = "Orange juice (1 litre bottle)"
+        entry.portionDescription = "250 ml"
+        let whole = try #require(FoodPortionMath.wholeContainer(for: entry, message: "I drank the entire bottle not just 250 ml"))
+        #expect(FoodPortionMath.scale(for: entry, description: whole.portionDescription, servings: 1, unit: "bottle") == 4)
+        #expect(abs(try #require(FoodPortionMath.scale(for: entry, description: "1 cup", servings: 1, unit: "cup")) - 236.5882365 / 250) < 0.00001)
+        entry.name = "Orange juice"
+        #expect(FoodPortionMath.wholeContainer(for: entry, message: "I drank the whole bottle not just 250 ml") == nil)
+        #expect(FoodPortionMath.wholeContainer(for: entry, message: "I had the whole bottle, 500 ml, not 250 ml")?.portionDescription == "1 bottle (500 ml)")
+        #expect(FoodPortionMath.wholeContainer(for: entry, message: "I had the whole bottle of Gatorade, not Coke") == nil)
+        #expect(FoodPortionMath.measure(in: "1/2 cup", beverage: true)?.amount == 0.5)
+        #expect(FoodPortionMath.measure(in: "1 1/2 cups", beverage: true)?.amount == 1.5)
+    }
+
+    @Test("Corrections cannot become new food logs or choose an ambiguous brand")
+    @MainActor
+    func correctionRoutingAndAmbiguity() {
+        for message in ["I had the whole bottle of Gatorade not just 12 oz", "I ate two sandwiches, not one", "I drank 500 ml instead of 250 ml"] {
+            #expect(FoodCorrectionIntent.isExplicit(message))
+        }
+        for message in ["I had a bottle of Gatorade", "I had another Gatorade", "I ate not only eggs but also toast"] {
+            #expect(!FoodCorrectionIntent.isExplicit(message))
+        }
+        let first = beverageFixture()
+        let second = beverageFixture()
+        second.name = "Gatorade Fruit Punch"
+        #expect(FoodCorrectionIntent.namedTarget(in: "I had the whole bottle of Gatorade not just 12 oz", entries: [first, second]) == nil)
+    }
+
+    @Test("An unknown bottle size asks for clarification without changing nutrition")
+    @MainActor
+    func unknownBottleSizeStaysUnchanged() async {
+        let entry = beverageFixture()
+        entry.name = "Gatorade Cool Blue"
+        let resolution = EditResolution(servings: 1, portionDescription: "1 bottle", servingUnit: "bottle",
+            confident: true, hasExplicitPortion: true, clarificationQuestion: nil, replacementSearchQuery: nil)
+        let provider = BatchFoodTestProvider(plan: applePlan(count: 1), candidates: [], editResolution: resolution)
+        let result = await FoodLoggingService(provider: provider, canUseAI: true).process(
+            userMessage: "I had the whole bottle of Gatorade not just 12 oz", recentMessages: [],
+            goals: DailyGoal(calories: 2000, protein: 150, carbs: 200, fat: 60),
+            targetDate: .now, targetEntries: [entry], recentEntries: [entry])
+        #expect(result.sessionState?.status == "awaiting_clarification")
+        #expect(result.reply.contains("What size"))
+        #expect(entry.calories == 80)
+    }
+
+    @MainActor
+    private func beverageFixture() -> FoodEntry {
+        FoodEntry(name: "Gatorade Cool Blue — 12 fl oz (28 oz bottle)", brand: "Gatorade", meal: "dinner",
+            portionGrams: 0, portionDescription: "12 fl oz", servings: 1, servingUnit: "bottle",
+            calories: 80, proteinG: 0, carbsG: 22, fatG: 0, fiberG: 0, sugarG: 21, sodiumMg: 160,
+            rawUserInput: "Gatorade", source: "web_published")
+    }
+
     @Test("Mifflin-St Jeor uses the supplied body data")
     func bmrCalculation() {
         let result = GoalService.calculateBMR(
@@ -928,6 +1055,7 @@ private enum BatchFoodTestProviderError: Error {
 private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
     let plan: FoodLogPlan
     let candidates: [ResolvedFoodCandidate?]
+    var editResolution: EditResolution? = nil
 
     func planFoodLog(userMessage _: String) async throws -> FoodLogPlan { plan }
 
@@ -1040,7 +1168,10 @@ private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
         currentEntryName _: String,
         currentEntryBrand _: String?,
         currentPortionDescription _: String
-    ) async throws -> EditResolution { throw BatchFoodTestProviderError.unsupported }
+    ) async throws -> EditResolution {
+        guard let editResolution else { throw BatchFoodTestProviderError.unsupported }
+        return editResolution
+    }
 
     func estimateGrams(
         foodName _: String,

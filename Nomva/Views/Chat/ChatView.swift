@@ -986,37 +986,17 @@ struct ChatView: View {
             presentUndo("\(toDelete.count) food item\(toDelete.count == 1 ? "" : "s") removed")
             return "Removed: \(displayNames(for: toDelete))."
 
-        case .editEntry(let id, let newGrams, let newDesc, let newServings, let newServingUnit):
+        case .editEntry(let id, let newGrams, let newDesc, let newServings, let newServingUnit, let nutritionScale):
             guard let match = targetEntries.first(where: { $0.id == id }) else {
                 return "That entry is no longer in this log. Nothing was changed."
             }
+            guard nutritionScale.isFinite, (0.001...100).contains(nutritionScale) else {
+                return "That portion couldn't be calculated. Your entry was left unchanged."
+            }
+            let originalPortion = FoodPortionSnapshot(match)
             let saved = commitMutation {
-                let factor = newGrams / 100
-                match.portionGrams       = newGrams
-                match.portionDescription = newDesc
-                match.servings = newServings
-                match.servingUnit = newServingUnit
-                match.calories  = match.caloriesPer100g * factor
-                match.proteinG  = match.proteinPer100g  * factor
-                match.carbsG    = match.carbsPer100g    * factor
-                match.fatG      = match.fatPer100g      * factor
-                match.fiberG    = match.fiberPer100g    * factor
-                match.sugarG    = match.sugarPer100g    * factor
-                match.sodiumMg  = match.sodiumPer100g   * factor
-                match.saturatedFatG = match.saturatedFatPer100g.map { $0 * factor }
-                match.transFatG = match.transFatPer100g.map { $0 * factor }
-                match.cholesterolMg = match.cholesterolPer100g.map { $0 * factor }
-                match.addedSugarG = match.addedSugarPer100g.map { $0 * factor }
-                match.vitaminDMcg = match.vitaminDPer100g.map { $0 * factor }
-                match.calciumMg = match.calciumPer100g.map { $0 * factor }
-                match.ironMg = match.ironPer100g.map { $0 * factor }
-                match.potassiumMg = match.potassiumPer100g.map { $0 * factor }
-                match.vitaminAMcgRAE = match.vitaminAPer100g.map { $0 * factor }
-                match.vitaminCMg = match.vitaminCPer100g.map { $0 * factor }
-                match.vitaminB12Mcg = match.vitaminB12Per100g.map { $0 * factor }
-                match.folateMcgDFE = match.folatePer100g.map { $0 * factor }
-                match.magnesiumMg = match.magnesiumPer100g.map { $0 * factor }
-                match.zincMg = match.zincPer100g.map { $0 * factor }
+                originalPortion.apply(to: match, scale: nutritionScale, servings: newServings,
+                                      unit: newServingUnit, description: newDesc)
             } verify: {
                 match.portionDescription == newDesc
                     && abs(match.portionGrams - newGrams) < 0.001

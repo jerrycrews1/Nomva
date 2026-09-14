@@ -296,9 +296,9 @@ struct FoundationModelsProvider: LLMProvider {
         let instructions = """
         You classify ONE chat message from a food-tracking app.
 
-        log_food  — user says they consumed food or drink. ALWAYS this when the
-                    message describes what the user ate/drank/had, with or without
-                    a meal name or quantity.
+        log_food — user reports a NEW food or drink they consumed.
+          Corrections take precedence even when phrased as "I had", "I ate", or "I drank".
+          "I had a whole bottle of Gatorade" is a new log; "whole" alone is not a correction.
           "I had 2 slices of bacon"           → log_food
           "for lunch I had a turkey sandwich" → log_food
           "ate an apple this morning"         → log_food
@@ -314,6 +314,9 @@ struct FoundationModelsProvider: LLMProvider {
           "undo" or "revert" by itself is not delete_food unless the user explicitly says delete, remove, clear, or did not eat
 
         edit_food — user wants to change a portion they already logged.
+          "I had the whole bottle of Gatorade not just 12 oz" → edit_food
+          "I ate two sandwiches, not one" → edit_food
+          "I drank 500 ml instead of 250 ml" → edit_food
           "make the bacon 3 slices" → edit_food
           "that was 1 cup not 2"    → edit_food
           after a recent food log, "that's not right" → edit_food
@@ -364,8 +367,8 @@ struct FoundationModelsProvider: LLMProvider {
           "thanks"       → reply
           "how do I use this app?" → reply
 
-        If the message mentions food the user ate, drank, or had, the answer is
-        log_food — never reply.
+        A new consumption report is log_food. A correction to a previously logged
+        food is edit_food, including a contrast such as "not just" or "instead of".
         If the message is specifically about water/hydration intake, the answer is
         log_water — not log_food.
         """

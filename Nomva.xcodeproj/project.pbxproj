@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FA4400000000000000000002 /* FoodPortionEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4400000000000000000001 /* FoodPortionEditing.swift */; };
 		08D4A9E3860044A4B91A07D9 /* NomvaUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74B6706705849459BCDB8C6 /* NomvaUI.swift */; };
 		114FCEC33E8606EFE21BEE00 /* GoalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D65D9E758F86DAD24CEABD4 /* GoalService.swift */; };
 		146E1B9EED5AA441E3D1E40C /* FoodItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F966C75C27458886DE760BB0 /* FoodItem.swift */; };
@@ -127,6 +128,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FA4400000000000000000001 /* FoodPortionEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodPortionEditing.swift; sourceTree = "<group>"; };
 		0153052C61D6303447B320A6 /* foods.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = foods.sqlite; sourceTree = "<group>"; };
 		04C165BFC61BB770D0529EA7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0C2F8579117134984DCCB596 /* OnboardingGoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingGoalsView.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 				F9B100000000000000000002 /* BarcodeLookupService.swift */,
 				9BD1642B4F4044AD7A2C6E7A /* SyncManager.swift */,
 				F9B100000000000000000001 /* ChatReliability.swift */,
+				FA4400000000000000000001 /* FoodPortionEditing.swift */,
 				FA66666666666666666666AA /* SubscriptionManager.swift */,
 				F5D900000000000000000001 /* SubscriptionPolicy.swift */,
 				FA22222222222222222222AA /* FoundationModelsProvider.swift */,
@@ -679,6 +682,7 @@
 				F9A100000000000000000002 /* BarcodeLookupService.swift in Sources */,
 				E329AFBD95A4CA54B24904CA /* SyncManager.swift in Sources */,
 				F9A100000000000000000001 /* ChatReliability.swift in Sources */,
+				FA4400000000000000000002 /* FoodPortionEditing.swift in Sources */,
 				F0C470452F95BF4900AC8FDB /* HydrationSheetView.swift in Sources */,
 				F04A50612F9306CA004C3C56 /* SeedData.swift in Sources */,
 				667A293377F3484989A9855F /* OnboardingUI.swift in Sources */,
@@ -856,7 +860,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -888,7 +892,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -973,7 +977,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1003,7 +1007,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
