@@ -6,7 +6,7 @@ The backend correction fixes are deployed at https://nomva.nerdquad.com. Product
 
 The signed archive is `/Users/jerrycrews/Library/Developer/Xcode/Archives/2026-09-14/Nomva 1.5-44.xcarchive`. Both app and widget are version 1.5, build 44. App Attest is production and HealthKit entitlements are present. Executable SHA256: `749c622cde258428c4400891529c41331c32077ef6c109afdcc9c4e526fadf4e`.
 
-**TestFlight upload succeeded on September 14.** Retrying the existing archive with `/Users/jerrycrews/Library/Caches/NomvaValidation-44/TestFlightExport.plist` returned `Uploaded package is processing`, `Upload succeeded` and `EXPORT SUCCEEDED`. This is an internal-only TestFlight upload; no rebuild or backend redeployment was needed. Apple processing has begun. Processing completion, assignment to the existing internal Testers group, tester availability and installation are not yet verified: App Store Connect in Safari requires the user's Touch ID to complete saved-account sign-in. The successful retry log is retained with the release evidence as `testflight-upload-success.log`.
+**Nomva 1.5 (44) is available in TestFlight.** The September 14 upload succeeded, and App Store Connect now shows upload status `Complete`, build status `Testing`, the existing internal `Testers` group, and one invite. The group automatically received this Xcode build after processing. This is an internal-only release; no rebuild or backend redeployment was needed. Installation of build 44 and physical-device acceptance remain unverified. The successful retry log is retained with the release evidence as `testflight-upload-success.log`, and the verified Apple status is recorded in `archive-summary.json`.
 
 ## What changed
 
