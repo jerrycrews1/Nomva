@@ -2547,6 +2547,7 @@ async function resolveFoodCandidateRequest(req, payload, signal) {
       userMessage,
       foodMention: trimmedMention,
       searchQuery: trimmedQuery,
+      initialCandidates,
       foodSearchStore,
       deadlineMs: Number(process.env.NOMVA_FOOD_RESOLUTION_DEADLINE_MS || 7_000),
       askAgent: (userPrompt) => askStructured(

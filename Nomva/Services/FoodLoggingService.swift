@@ -887,6 +887,7 @@ final class FoodLoggingService {
         var initialServings = foodMentions.map(\.servingsInfo)
         var resolutions = Array<CandidateResolution?>(repeating: nil, count: foodMentions.count)
         var remotelyAttemptedIndices = Set<Int>()
+        var unavailableIndices = Set<Int>()
 
         // Reuse an exact user-owned food immediately. Bundled database rows go
         // through the server's guarded selector so lexical rank alone can never
@@ -958,7 +959,12 @@ final class FoodLoggingService {
                 resolutionHints: unresolvedCandidateIndices.map { foodMentions[$0].resolutionHint }
             )
             for (position, mentionIndex) in unresolvedCandidateIndices.enumerated() {
-                guard let resolved = remoteCandidates[position] else { continue }
+                guard remoteCandidates.indices.contains(position) else {
+                    unavailableIndices.insert(mentionIndex)
+                    continue
+                }
+                if remoteCandidates[position].isUnavailable { unavailableIndices.insert(mentionIndex) }
+                guard let resolved = remoteCandidates[position].candidate else { continue }
                 resolutions[mentionIndex] = await candidateResolution(
                     from: resolved,
                     recentEntries: recentEntries,
@@ -966,6 +972,7 @@ final class FoodLoggingService {
                     initialServingsInfo: initialServings[mentionIndex],
                     initialServingsAreAuthoritative: foodMentions[mentionIndex].servingsAreAuthoritative
                 )
+                if resolutions[mentionIndex] == nil { unavailableIndices.insert(mentionIndex) }
             }
         }
 
@@ -1037,6 +1044,9 @@ final class FoodLoggingService {
         }
 
         if entries.isEmpty {
+            if !unavailableIndices.isEmpty {
+                return .recoverableReply("Food lookup couldn't finish. Nothing was added. Please try again, or search foods while the connection recovers.")
+            }
             return .recoverableReply(confirmLines.joined(separator: "\n") + "\nNothing was added. Try again or search foods.")
         }
         return .init(
@@ -1998,9 +2008,14 @@ final class FoodLoggingService {
             portionDescription: resolved.portionDescription.isEmpty ? initialServingsInfo.portionDescription : resolved.portionDescription,
             servingUnit: resolvedServingUnit(resolved.servingUnit),
             confident: resolved.confident,
-            hasExplicitPortion: resolved.hasExplicitPortion || initialServingsInfo.hasExplicitPortion
+            hasExplicitPortion: resolved.hasExplicitPortion,
+            isDatabaseServingRatio: true
         )
-        guard initialServingsAreAuthoritative, initialServingsInfo.hasExplicitPortion else {
+        // The planner's "1" for "half a cup" is not one catalog serving.
+        // Keep the resolver's candidate-aware ratio and portion description
+        // together; only fall back to the plan if it did not size the portion.
+        guard initialServingsAreAuthoritative, initialServingsInfo.hasExplicitPortion,
+              !resolved.hasExplicitPortion else {
             return CandidateResolution(candidate: candidate, servingsInfo: resolvedServingsInfo)
         }
 
@@ -2466,6 +2481,11 @@ final class FoodLoggingService {
             return max(explicitGrams, 1)
         }
 
+        if servingsInfo.isDatabaseServingRatio, let base = candidate.servingGrams,
+           base > 0, servingsInfo.servings.isFinite, servingsInfo.servings > 0 {
+            return base * servingsInfo.servings
+        }
+
         let normalizedUnit = singularized(servingsInfo.servingUnit.lowercased())
         if servingsInfo.hasExplicitPortion,
            ["serving", "portion"].contains(normalizedUnit),
@@ -2569,13 +2589,16 @@ final class FoodLoggingService {
         nutrition: NutritionValues
     ) -> FoodEntry {
         let per100 = candidate.per100g
+        let displayedServings = servingsInfo.isDatabaseServingRatio
+            ? FoodPortionMath.portionCount(in: servingsInfo.portionDescription) ?? servingsInfo.servings
+            : servingsInfo.servings
         return FoodEntry(
             name: candidate.name,
             brand: candidate.brand,
             meal: meal,
             portionGrams: grams,
             portionDescription: servingsInfo.portionDescription,
-            servings: servingsInfo.servings,
+            servings: displayedServings,
             servingUnit: resolvedServingUnit(servingsInfo.servingUnit),
             calories: nutrition.calories,
             proteinG: nutrition.protein,

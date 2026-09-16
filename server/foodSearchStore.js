@@ -40,6 +40,7 @@ const SEARCH_NOISE_TOKENS = new Set([
   "grams", "kg", "ml", "milliliter", "milliliters", "l", "liter", "liters", "lb",
   "lbs", "pound", "pounds", "cup", "cups", "tablespoon", "tablespoons", "tbsp",
   "teaspoon", "teaspoons", "tsp",
+  "piece", "pieces", "slice", "slices",
 ]);
 
 const REQUIRED_IDENTITY_TOKENS = canonicalFoodTokenSet([
@@ -70,7 +71,7 @@ const UNEXPECTED_VARIANT_TOKENS = canonicalFoodTokenSet([
   "cracker", "crispbread", "melba",
   "pickle", "pickled", "muffin", "cake", "cupcake",
   "noodle", "noodles", "soup", "creamed",
-  "ingredient", "use",
+  "ingredient", "use", "stuffing", "chicken", "beef", "pork",
 ]);
 
 const BRAND_NOISE_TOKENS = canonicalFoodTokenSet([
@@ -448,7 +449,7 @@ function createFoodSearchStore(options = {}) {
   let db;
   try {
     db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    db.pragma("query_only = ON");
+    db.pragma("temp_store = MEMORY");
   } catch (error) {
     return {
       isAvailable: false,
@@ -475,6 +476,12 @@ function createFoodSearchStore(options = {}) {
     if (!rowCount) {
       throw new Error("foods table is empty");
     }
+    // Reference names are searched for every spelling/portion variant. Keep
+    // this small, public subset in memory instead of rescanning the entire
+    // packaged-food catalog for each name search. The main DB stays read-only.
+    db.exec(`CREATE TEMP TABLE nomva_reference_foods AS
+      SELECT * FROM foods WHERE source IN ('foundation', 'survey_fndds', 'sr_legacy')`);
+    db.pragma("query_only = ON");
   } catch (error) {
     try { db.close(); } catch { /* ignore */ }
     return {
@@ -526,7 +533,7 @@ function createFoodSearchStore(options = {}) {
       .join(" AND ");
     const referenceNameSql = `
       SELECT ${FOOD_COLUMNS}
-      FROM foods f
+      FROM nomva_reference_foods f
       WHERE f.source IN ('foundation', 'survey_fndds', 'sr_legacy')
         AND ${referenceNameWhere}
       ORDER BY
@@ -577,7 +584,11 @@ function createFoodSearchStore(options = {}) {
     }
 
     looseParams.push(normalized, `${normalized}%`, `%${normalized}%`, normalized, maxRows);
-    const looseRows = db.prepare(looseSql).all(...looseParams);
+    // FTS already retrieved complete-token matches. Scanning all 800k rows
+    // for every relaxed query stalls every concurrent request in this process.
+    // Substring recovery is only needed when the indexed search has no match.
+    const looseRows = strictRows.length || referenceRows.length || referenceNameRows.length
+      ? [] : db.prepare(looseSql).all(...looseParams);
     const merged = new Map();
     for (const row of [...referenceNameRows, ...referenceRows, ...strictRows, ...looseRows]) {
       if (!merged.has(row.id)) {

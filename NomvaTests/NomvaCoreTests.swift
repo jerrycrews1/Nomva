@@ -5,6 +5,93 @@ import Testing
 
 @Suite("Nomva core behavior")
 struct NomvaCoreTests {
+    @Test("A failed lookup request is never described as unknown foods")
+    @MainActor
+    func unavailableFoodLookupIsRecoverable() async throws {
+        let provider = BatchFoodTestProvider(plan: applePlan(count: 3), candidates: [], resolutionUnavailable: true)
+        let result = await FoodLoggingService(provider: provider, canUseAI: true).process(
+            userMessage: "I ate one apple, another apple, and a third apple", recentMessages: [],
+            goals: DailyGoal(calories: 2_000, protein: 150, carbs: 220, fat: 67),
+            targetDate: .now, targetEntries: [], recentEntries: [])
+        #expect(result.isRecoverableFailure)
+        #expect(result.reply.contains("Food lookup couldn't finish"))
+        #expect(!result.reply.contains("confidently match"))
+        let container = try inMemoryContainer()
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<FoodEntry>()) == 0)
+    }
+
+    @Test("Per-food service failures remain distinct from no match and preserve neighbors")
+    func foodResolutionFailureKinds() throws {
+        let payload = Data(#"{"results":[{"requestIndex":0,"candidate":{"candidateId":"db_42","name":"Apple","servings":1},"error":null},{"requestIndex":1,"candidate":null,"error":"food_resolution_failed"},{"requestIndex":2,"candidate":null,"error":"food_candidate_not_found"}]}"#.utf8)
+        let outcomes = try RemoteAPIProvider().decodeFoodResolutionBatch(from: payload, expectedCount: 3)
+        #expect(outcomes[0].candidate?.name == "Apple")
+        #expect(outcomes[1].isUnavailable)
+        #expect(!outcomes[2].isUnavailable)
+        #expect(outcomes[2].candidate == nil)
+    }
+
+    @Test("The shipped food catalog opens through an Apple-style aliased container path")
+    func bundledCatalogThroughAliasedPath() async throws {
+        let bundled = try #require(Bundle.main.url(forResource: "foods", withExtension: "sqlite"))
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let alias = temporary.appendingPathComponent("container")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: bundled.deletingLastPathComponent())
+        let database = DatabaseManager(databaseURL: alias.appendingPathComponent("foods.sqlite"))
+        let chicken = await database.food(byRowId: 798794)
+        #expect(chicken?.name.contains("Chicken") == true)
+        #expect(chicken?.caloriesPerServing == 288.84)
+        #expect(await database.food(byRowId: 803118) != nil)
+        #expect(await database.food(byRowId: 801286) != nil)
+    }
+
+    @Test("The reported dinner resolves against the shipped catalog and persists correct portions")
+    @MainActor
+    func reportedDinnerPersists() async throws {
+        // Recorded from the authenticated production API on September 15.
+        // Exercise the real decoder, bundled catalog, portion math and save path.
+        let payload = Data(#"{"results":[{"requestIndex":0,"candidate":{"candidateId":"db_798794","name":"Chicken, broiler or fryers, breast, skinless, boneless, meat only, cooked, braised","source":"foundation","servings":1,"portionDescription":"1 chicken breast","servingUnit":"piece","confident":true,"hasExplicitPortion":true},"error":null},{"requestIndex":1,"candidate":{"candidateId":"db_803118","name":"Broccoli, raw","source":"survey_fndds","servings":0.5,"portionDescription":"1/2 cup broccoli","servingUnit":"cup","confident":true,"hasExplicitPortion":true},"error":null},{"requestIndex":2,"candidate":{"candidateId":"db_801286","name":"Cornbread, made from home recipe","source":"survey_fndds","servings":0.73,"portionDescription":"1 piece of cornbread (about 65 g)","servingUnit":"piece","confident":false,"hasExplicitPortion":true},"error":null}]}"#.utf8)
+        let candidates = try RemoteAPIProvider().decodeFoodResolutionBatch(from: payload, expectedCount: 3).map(\.candidate)
+        let mentions = ["one skinless boneless chicken breast", "half cup broccoli", "one piece of cornbread"]
+        let portions = ["1 chicken breast", "1/2 cup", "1 piece"]
+        let units = ["chicken breast", "cup", "piece"]
+        let plan = FoodLogPlan(meal: "dinner", quantityScope: "per_item", globalServings: nil,
+            foods: mentions.indices.map { index in
+                PlannedFoodMention(text: mentions[index], searchQuery: mentions[index], kind: "single",
+                    servingsInfo: ServingsInfo(servings: 1, portionDescription: portions[index],
+                        servingUnit: units[index], confident: true, hasExplicitPortion: true))
+            })
+        let provider = BatchFoodTestProvider(plan: plan, candidates: candidates)
+        let result = await FoodLoggingService(provider: provider, canUseAI: true).process(
+            userMessage: "One chicken breast skinless boneless, half cup broccoli, and one piece of cornbread for dinner",
+            recentMessages: [], goals: DailyGoal(calories: 2_678, protein: 150, carbs: 220, fat: 67),
+            targetDate: .now, targetEntries: [], recentEntries: [])
+        guard case let .logFood(entries) = result.action else {
+            Issue.record("Dinner was not logged: \(result.reply)"); return
+        }
+        #expect(entries.count == 3)
+        #expect(result.unresolvedFoods.isEmpty)
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        _ = try FoodMutationPolicy.commitNewLog(result, in: context, timestamp: .now)
+        let saved = try ModelContext(container).fetch(FetchDescriptor<FoodEntry>())
+        #expect(saved.count == 3)
+        #expect(saved.allSatisfy { $0.meal == "dinner" })
+        let chicken = try #require(saved.first { $0.foodDatabaseId == 798794 })
+        let broccoli = try #require(saved.first { $0.foodDatabaseId == 803118 })
+        let cornbread = try #require(saved.first { $0.foodDatabaseId == 801286 })
+        #expect(abs(chicken.portionGrams - 174) < 0.01)
+        #expect(abs(broccoli.portionGrams - 45) < 0.01)
+        #expect(abs(cornbread.portionGrams - 65) < 0.1)
+        #expect(chicken.servings == 1)
+        #expect(broccoli.servings == 0.5)
+        #expect(cornbread.servings == 1)
+        #expect(abs(chicken.calories - 288.84) < 0.01)
+        #expect(abs(broccoli.calories - 17.55) < 0.01)
+        #expect(abs(cornbread.calories - 186.55) < 0.1)
+    }
+
     @Test("Editing a fixed serving preserves all saved nutrition without inventing grams")
     @MainActor
     func fixedServingEditor() {
@@ -382,9 +469,10 @@ struct NomvaCoreTests {
             .decodeFoodResolutionBatch(from: data, expectedCount: 3)
 
         #expect(decoded.count == 3)
-        #expect(decoded[0]?.candidateId == "db_42")
-        #expect(decoded[1] == nil)
-        #expect(decoded[2]?.candidateId == "db_42")
+        #expect(decoded[0].candidate?.candidateId == "db_42")
+        #expect(decoded[1].candidate == nil)
+        #expect(!decoded[1].isUnavailable)
+        #expect(decoded[2].candidate?.candidateId == "db_42")
     }
 
     @Test("New food logs preserve independent entries sharing one catalog row")
@@ -1056,6 +1144,7 @@ private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
     let plan: FoodLogPlan
     let candidates: [ResolvedFoodCandidate?]
     var editResolution: EditResolution? = nil
+    var resolutionUnavailable = false
 
     func planFoodLog(userMessage _: String) async throws -> FoodLogPlan { plan }
 
@@ -1064,7 +1153,10 @@ private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
         foodMentions _: [String],
         searchQueries _: [String],
         resolutionHints _: [String?]
-    ) async -> [ResolvedFoodCandidate?] { candidates }
+    ) async -> [FoodResolutionOutcome] {
+        if resolutionUnavailable { return plan.foods.map { _ in .unavailable } }
+        return candidates.map { $0.map(FoodResolutionOutcome.resolved) ?? .noMatch }
+    }
 
     func extractServingsBatch(
         userMessage _: String,

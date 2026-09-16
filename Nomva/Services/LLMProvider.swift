@@ -32,6 +32,25 @@ struct ServingsInfo: Sendable {
     let servingUnit: String
     let confident: Bool
     let hasExplicitPortion: Bool
+    // A catalog resolver reports a multiplier of the selected database row,
+    // whereas the planner only knows the user's physical quantity.
+    var isDatabaseServingRatio: Bool = false
+}
+
+enum FoodResolutionOutcome: Sendable {
+    case resolved(ResolvedFoodCandidate)
+    case noMatch
+    case unavailable
+
+    var candidate: ResolvedFoodCandidate? {
+        if case let .resolved(candidate) = self { return candidate }
+        return nil
+    }
+
+    var isUnavailable: Bool {
+        if case .unavailable = self { return true }
+        return false
+    }
 }
 
 struct PlannedFoodMention: Sendable {
@@ -330,7 +349,7 @@ protocol BatchFoodResolvingProvider: LLMProvider {
         foodMentions: [String],
         searchQueries: [String],
         resolutionHints: [String?]
-    ) async -> [ResolvedFoodCandidate?]
+    ) async -> [FoodResolutionOutcome]
 
     func extractServingsBatch(
         userMessage: String,
@@ -384,7 +403,21 @@ extension LLMProvider {
 // MARK: - API Configuration
 
 enum NomvaAPI {
+    #if DEBUG && targetEnvironment(simulator)
+    static var baseURL: String {
+        // Live release tests use an isolated API over an SSH loopback tunnel.
+        // No test URL or authentication bypass is accepted by a release build.
+        if NomvaRuntime.isAutomatedTest,
+           let value = ProcessInfo.processInfo.environment["NOMVA_LIVE_API_URL"],
+           let url = URL(string: value), url.scheme == "http",
+           ["127.0.0.1", "localhost"].contains(url.host ?? "") {
+            return value
+        }
+        return "https://nomva.nerdquad.com"
+    }
+    #else
     static let baseURL = "https://nomva.nerdquad.com"
+    #endif
 }
 
 // MARK: - Factory

@@ -82,7 +82,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
     func decodeFoodResolutionBatch(
         from data: Data,
         expectedCount: Int
-    ) throws -> [ResolvedFoodCandidate?] {
+    ) throws -> [FoodResolutionOutcome] {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard expectedCount >= 0,
               let rawResults = json["results"] as? [[String: Any]],
@@ -90,7 +90,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
             throw ResolveFoodCandidateError.invalidResponse
         }
 
-        var resolved = Array<ResolvedFoodCandidate?>(repeating: nil, count: expectedCount)
+        var resolved = Array(repeating: FoodResolutionOutcome.noMatch, count: expectedCount)
         var seenIndices = Set<Int>()
         for result in rawResults {
             guard let requestIndexValue = finiteNumber(result["requestIndex"]),
@@ -104,12 +104,14 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
                 guard let candidate = resolvedFoodCandidate(from: candidateJSON) else {
                     throw ResolveFoodCandidateError.invalidResponse
                 }
-                resolved[requestIndex] = candidate
+                resolved[requestIndex] = .resolved(candidate)
             } else {
                 guard result["candidate"] is NSNull,
-                      nonemptyString(result["error"]) != nil else {
+                      let error = nonemptyString(result["error"]) else {
                     throw ResolveFoodCandidateError.invalidResponse
                 }
+                resolved[requestIndex] = ["food_candidate_not_found", "no_matching_food", "not_found"].contains(error)
+                    ? .noMatch : .unavailable
             }
         }
         guard seenIndices.count == expectedCount else {
@@ -289,7 +291,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
         foodMentions: [String],
         searchQueries: [String] = [],
         resolutionHints: [String?] = []
-    ) async -> [ResolvedFoodCandidate?] {
+    ) async -> [FoodResolutionOutcome] {
         guard !foodMentions.isEmpty else { return [] }
 
         let items: [[String: Any]] = foodMentions.enumerated().map { index, mention in
@@ -313,7 +315,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
         } catch {
             guard !Task.isCancelled,
                   Self.shouldUseSingleResolutionFallback(error) else {
-                return Array(repeating: nil, count: foodMentions.count)
+                return Array(repeating: .unavailable, count: foodMentions.count)
             }
             // A rolling server deploy may briefly precede this client build.
             // Keep the single-item route as a compatibility fallback.
@@ -336,14 +338,14 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
         foodMentions: [String],
         searchQueries: [String],
         resolutionHints: [String?]
-    ) async -> [ResolvedFoodCandidate?] {
-        await withTaskGroup(of: (Int, ResolvedFoodCandidate?).self) { group in
+    ) async -> [FoodResolutionOutcome] {
+        await withTaskGroup(of: (Int, FoodResolutionOutcome).self) { group in
             for (index, mention) in foodMentions.enumerated() {
                 group.addTask {
                     do {
                         return (
                             index,
-                            try await self.resolveFoodCandidate(
+                            .resolved(try await self.resolveFoodCandidate(
                                 userMessage: userMessage,
                                 foodMention: mention,
                                 searchQuery: searchQueries.indices.contains(index)
@@ -352,15 +354,17 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
                                 resolutionHint: resolutionHints.indices.contains(index)
                                     ? resolutionHints[index]
                                     : nil
-                            )
+                            ))
                         )
+                    } catch ResolveFoodCandidateError.noMatch {
+                        return (index, .noMatch)
                     } catch {
-                        return (index, nil)
+                        return (index, .unavailable)
                     }
                 }
             }
 
-            var resolved = Array<ResolvedFoodCandidate?>(repeating: nil, count: foodMentions.count)
+            var resolved = Array(repeating: FoodResolutionOutcome.unavailable, count: foodMentions.count)
             for await (index, candidate) in group {
                 resolved[index] = candidate
             }

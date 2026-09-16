@@ -120,6 +120,16 @@ enum FoodPortionMath {
         return (left.count > 1 ? left[0] : 0) + numerator / denominator
     }
 
+    static func portionCount(in description: String) -> Double? {
+        let text = description.lowercased().replacingOccurrences(of: "½", with: "1/2")
+            .replacingOccurrences(of: "¼", with: "1/4").replacingOccurrences(of: "¾", with: "3/4")
+        guard let regex = try? NSRegularExpression(pattern: "^\\s*(?:about\\s+)?(\(number))(?=\\s|$)"),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text),
+              let value = amount(String(text[range])), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
     static func measure(in text: String, beverage: Bool) -> Measure? {
         let text = text.lowercased().replacingOccurrences(of: "½", with: " 1/2").replacingOccurrences(of: "¼", with: " 1/4").replacingOccurrences(of: "¾", with: " 3/4")
         let pattern = "\\b(\(number))\\s*(?:-\\s*)?(\(physicalUnit))(?=$|\\b)"

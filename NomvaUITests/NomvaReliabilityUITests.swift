@@ -2,6 +2,46 @@ import XCTest
 
 final class NomvaReliabilityUITests: XCTestCase {
     @MainActor
+    func testReportedDinnerThroughLiveChatAndSavedLog() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-NomvaUITesting", "-NomvaPowerTestAccess", "-onboarding_complete", "YES", "-NomvaStartChat"]
+        app.launchEnvironment["NOMVA_LIVE_API_URL"] = ProcessInfo.processInfo.environment["NOMVA_LIVE_API_URL"] ?? "http://127.0.0.1:18445"
+        app.launch()
+        let input = app.descendants(matching: .any)["chat.input"].firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.typeText("One chicken breast skinless boneless, half cup broccoli, and one piece of cornbread for dinner")
+        let start = Date()
+        app.buttons["Send message"].tap()
+        let receipt = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[cd] %@ AND label CONTAINS[cd] %@ AND label CONTAINS[cd] %@ AND label CONTAINS %@", "chicken", "broccoli", "cornbread", "✓")).firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 20), "Live food logging failed: \(app.debugDescription)")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 20, "A basic dinner must finish within the user-facing time budget")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Nothing was added")).firstMatch.exists)
+        app.tabBars.buttons["Log"].tap()
+        for (name, minimumGrams, maximumGrams) in [("Chicken", 100.0, 250.0), ("Broccoli", 30.0, 95.0), ("Cornbread", 25.0, 90.0)] {
+            let rows = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH[cd] %@", name))
+            XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 5))
+            XCTAssertEqual(rows.count, 1, "Each food must be saved exactly once")
+            rows.firstMatch.tap()
+            XCTAssertTrue(app.navigationBars["Edit Entry"].waitForExistence(timeout: 5))
+            let grams = try XCTUnwrap(Double(app.textFields["foodEdit.grams"].value as? String ?? ""))
+            XCTAssertGreaterThanOrEqual(grams, minimumGrams)
+            XCTAssertLessThanOrEqual(grams, maximumGrams)
+            let amount = try XCTUnwrap(Double(app.textFields["foodEdit.amount"].value as? String ?? ""))
+            XCTAssertEqual(amount, name == "Broccoli" ? 0.5 : 1, accuracy: 0.01)
+            XCTAssertFalse(app.staticTexts["0.0 kcal"].exists)
+            let dinner = app.buttons["Dinner"]
+            XCTAssertTrue(dinner.isSelected, "The food must be in dinner")
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Live dinner saved \(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.buttons["Cancel"].tap()
+        }
+    }
+
+    @MainActor
     func testBottleNutritionSurvivesEditingAndChatCorrection() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -27,7 +27,7 @@ const UNEXPECTED_VARIANT_TOKENS = canonicalFoodTokenSet([
   "cracker", "crispbread", "melba",
   "pickle", "pickled", "muffin", "cake", "cupcake",
   "noodle", "noodles", "soup", "creamed",
-  "ingredient", "use",
+  "ingredient", "use", "stuffing", "chicken", "beef", "pork",
 ]);
 
 const FOOD_SELECTION_SCHEMA = {
@@ -134,7 +134,7 @@ function normalizedFoodTokens(value) {
     "with", "and", "about", "one", "two", "three", "four", "five", "six",
     "seven", "eight", "nine", "ten", "oz", "ounce", "ounces", "g", "gram",
     "grams", "cup", "cups", "serving", "servings",
-    "whole", "side",
+    "whole", "side", "half", "quarter", "piece", "pieces", "slice", "slices",
   ]);
   return [...normalizedTokens(String(value || "")
     .normalize("NFKD")
@@ -405,6 +405,7 @@ async function resolveFoodCandidate({
   userMessage,
   foodMention,
   searchQuery = null,
+  initialCandidates = null,
   foodSearchStore,
   askAgent,
   deadlineMs = null,
@@ -416,7 +417,7 @@ async function resolveFoodCandidate({
   const searchRounds = [{
     query: trimmedQuery,
     offset: 0,
-    candidates: foodSearchStore.search(trimmedQuery, { limit: 30, offset: 0 }),
+    candidates: initialCandidates ?? foodSearchStore.search(trimmedQuery, { limit: 30, offset: 0 }),
   }];
   const candidates = searchRounds[0].candidates;
   onEvent({ type: "search", turn: 0, query: trimmedQuery, offset: 0, candidateCount: candidates.length });

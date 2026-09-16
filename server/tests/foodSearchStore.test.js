@@ -27,6 +27,16 @@ function combinedIdentity(row) {
   return `${row.name || ""} ${row.brand || ""}`.toLowerCase();
 }
 
+test("portion words do not turn the reported cornbread into a packaged product or stuffing", () => {
+  for (const query of ["cornbread", "cornbread, 1 piece", "one piece of cornbread"]) {
+    const row = search(query)[0];
+    assert.ok(isAuthoritativeReferenceSource(row.source));
+    assert.equal(row.brand, null);
+    assert.match(row.name, /^Cornbread,/i);
+    assert.doesNotMatch(row.name, /stuffing|chicken/i);
+  }
+});
+
 test("finds an exact common prepared food ahead of sauces and seasonings", () => {
   const rows = search("sloppy joe");
   assert.ok(rows.length > 0);

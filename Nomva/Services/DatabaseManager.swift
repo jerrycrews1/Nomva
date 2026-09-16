@@ -22,11 +22,14 @@ actor DatabaseManager {
     private var db: OpaquePointer?
     private var verifiedRowCount: Int?
 
-    private init() {
-        guard let dbPath = Bundle.main.path(forResource: "foods", ofType: "sqlite") else {
+    init(databaseURL: URL? = Bundle.main.url(forResource: "foods", withExtension: "sqlite")) {
+        guard let databaseURL else {
             print("DatabaseManager: foods.sqlite not found in bundle")
             return
         }
+        // Apple can expose the signed bundle through /var -> /private/var.
+        // Resolve that trusted bundle path before SQLite's no-symlink check.
+        let dbPath = databaseURL.resolvingSymlinksInPath().path
         var openedDatabase: OpaquePointer?
         // SQLITE_OPEN_NOFOLLOW avoids symlink attacks; SQLITE_OPEN_READONLY keeps it safe
         let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_NOFOLLOW
