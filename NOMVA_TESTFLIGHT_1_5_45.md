@@ -6,7 +6,7 @@ The three backend changes are deployed at https://nomva.nerdquad.com. Production
 
 The signed archive is `/Users/jerrycrews/Library/Developer/Xcode/Archives/2026-09-15/Nomva 1.5-45.xcarchive`. Both `com.nomva.app` and its widget are version 1.5, build 45. Production App Attest and HealthKit entitlements are present. The executable SHA256 is `3e042d313f10bc51957622b64e7629e03e23095367f8d50cf4aac4d90296a65b`; all eight changed iOS source, project, and test inputs match the validation checkout.
 
-**Upload is pending.** The first attempt returned `Failed to Use Accounts` while computer control reported a locked Mac. This is a signed archive, not evidence of TestFlight availability. Physical installation and acceptance of build 45 remain unverified.
+**Uploaded successfully on September 16 at 18:26 PDT.** After restoring Xcode's Apple account session, the existing signed archive uploaded with `Upload succeeded` and `EXPORT SUCCEEDED`; Apple reported that package processing had started. No rebuild was required. App Store Connect processing completion and availability in the internal `Testers` group are not yet verified because Safari is awaiting the Apple passkey Touch ID prompt. Physical installation and acceptance of build 45 remain unverified. The successful upload log is retained as `testflight-upload-success-20260916.log` in the release evidence directory.
 
 ## What failed and what changed
 
