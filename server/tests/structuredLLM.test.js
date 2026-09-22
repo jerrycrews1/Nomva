@@ -14,6 +14,51 @@ const schema = {
   required: ["ok"],
 };
 
+function recoverableRequest(create, extra = {}) {
+  return requestStructuredJSON({ openai: { responses: { create } }, model: "gpt-5.6-luna",
+    instructions: "Return the contract.", input: "test", schemaName: "unit_test", schema,
+    timeoutMs: 1200, recoveryAttempts: 1, ...extra });
+}
+
+test("a stalled inference is aborted and recovered within one shared deadline", async () => {
+  const started = Date.now();
+  let calls = 0;
+  const result = await recoverableRequest(async (_, options) => {
+    assert.equal(options.maxRetries, 0);
+    if (++calls === 2) return { output_text: '{"ok":true}' };
+    return new Promise((_, reject) => {
+      const socket = setTimeout(() => reject(new Error("Abort was not delivered")), 2000);
+      options.signal.addEventListener("abort", () => { clearTimeout(socket); reject(options.signal.reason); }, { once: true });
+    });
+  });
+  assert.deepEqual(result.value, { ok: true });
+  assert.equal(calls, 2);
+  assert.ok(Date.now() - started < 1400);
+});
+
+test("upstream failures stop after two attempts and respect long retry hints", async () => {
+  for (const hinted of [false, true]) {
+    let calls = 0;
+    await assert.rejects(recoverableRequest(async () => {
+      calls++;
+      throw Object.assign(new Error("unavailable"), { status: 503, headers: hinted ? { "retry-after": "30" } : {} });
+    }));
+    assert.equal(calls, hinted ? 1 : 2);
+  }
+});
+
+test("cancellation, authentication, and billing failures never replay inference", async () => {
+  for (const error of [Object.assign(new Error("auth"), { status: 401 }), Object.assign(new Error("quota"), { status: 429, code: "insufficient_quota" })]) {
+    let calls = 0;
+    await assert.rejects(recoverableRequest(async () => { calls++; throw error; }));
+    assert.equal(calls, 1);
+  }
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(recoverableRequest(async () => { calls++; controller.abort(); throw new Error("cancelled"); }, { signal: controller.signal }));
+  assert.equal(calls, 1);
+});
+
 test("uses strict Responses API JSON Schema without storing model output", async () => {
   let capturedRequest;
   let capturedOptions;

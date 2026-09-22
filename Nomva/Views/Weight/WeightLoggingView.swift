@@ -364,7 +364,7 @@ struct WeightLoggingView: View {
                             Spacer()
                             Button("Undo") {
                                 undoManager?.undo()
-                                try? modelContext.save()
+                                NomvaPersistence.save(modelContext)
                                 self.undoNotice = nil
                             }
                             .font(.caption.weight(.semibold))
@@ -1053,6 +1053,15 @@ struct WeightSyncSettingsView: View {
                 .buttonStyle(NomvaPrimaryButtonStyle())
                 .disabled(isWorking || !hasEnabledSource)
 
+                if appleHealthImportEnabled {
+                    Button("Recheck All Health History") {
+                        Task { await syncNow(recheckHistory: true) }
+                    }
+                    .disabled(isWorking)
+                    Text("Use this after changing Health permissions or when an older weigh-in is missing. Existing entries and removed-weight preferences are preserved.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 if let statusMessage {
                     Label(statusMessage, systemImage: "checkmark.circle.fill")
                         .font(.subheadline.weight(.semibold))
@@ -1144,23 +1153,18 @@ struct WeightSyncSettingsView: View {
     }
 
     @MainActor
-    private func syncNow() async {
-        await performSync {
-            var messages: [String] = []
-            if appleHealthImportEnabled {
-                let result = try await WeightSyncCoordinator.importAppleHealth(into: modelContext)
-                messages.append("Apple Health: \(result.inserted) added, \(result.updated) updated; read access may limit results")
-            }
-            if appleHealthExportEnabled {
-                try await WeightSyncCoordinator.flushDeletions(in: modelContext)
-                let count = try await WeightSyncCoordinator.exportAllNomvaWeightsToAppleHealth(
-                    from: entries,
-                    in: modelContext
-                )
-                messages.append("Apple Health: \(count) saved")
-            }
-            return messages.isEmpty ? "Choose a weight source first." : messages.joined(separator: " • ")
-        }
+    private func syncNow(recheckHistory: Bool = false) async {
+        guard !isWorking else { return }
+        isWorking = true
+        statusMessage = nil
+        errorMessage = nil
+        defer { isWorking = false }
+        let report = await WeightSyncCoordinator.synchronize(in: modelContext,
+            importEnabled: appleHealthImportEnabled, exportEnabled: appleHealthExportEnabled,
+            recheckHistory: recheckHistory)
+        statusMessage = report.summary
+        persistedErrorMessage = report.errors.joined(separator: "\n")
+        errorMessage = report.errors.isEmpty ? nil : persistedErrorMessage
     }
 
     @MainActor

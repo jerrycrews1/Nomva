@@ -834,7 +834,15 @@ final class FoodLoggingService {
         let structuredPlan: FoodLogPlan?
         if let batchProvider = provider as? any BatchFoodResolvingProvider,
            shouldRequestStructuredFoodPlan(userMessage) || !pendingFoods.isEmpty {
-            structuredPlan = try? await batchProvider.planFoodLog(userMessage: userMessage, recentMessages: recentMessages, pendingFoods: pendingFoods)
+            do {
+                structuredPlan = try await batchProvider.planFoodLog(userMessage: userMessage, recentMessages: recentMessages, pendingFoods: pendingFoods)
+            } catch RemoteAPIProvider.RemoteError.structuredPlanNotNeeded {
+                structuredPlan = nil
+            } catch {
+                // A timeout/outage must not start a second, slower interpretation
+                // pipeline which can lose the original quantities or pending foods.
+                return handleProviderError(error)
+            }
         } else {
             structuredPlan = nil
         }

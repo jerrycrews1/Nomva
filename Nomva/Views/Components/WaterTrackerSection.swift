@@ -50,7 +50,7 @@ struct WaterTrackerSection: View {
                     Button {
                         let entry = WaterEntry(amountOz: oz)
                         modelContext.insert(entry)
-                        try? modelContext.save()
+                        NomvaPersistence.save(modelContext)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     } label: {
                         Text("+\(oz.safeRoundedInt)")

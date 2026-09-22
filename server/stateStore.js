@@ -189,6 +189,7 @@ function ensureSchema(db) {
   `);
 
   ensureColumn(db, "app_sessions", "trust_mode", "TEXT");
+  ensureColumn(db, "garmin_summaries", "coverage_json", "TEXT");
   ensureColumn(db, "app_sessions", "trust_environment", "TEXT");
   ensureColumn(db, "app_sessions", "entitlement_status", "TEXT");
   ensureColumn(db, "app_sessions", "entitlement_source", "TEXT");
@@ -264,8 +265,9 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
         active_calories,
         steps,
         total_calories,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        updated_at,
+        coverage_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertGarminState = db.prepare(`
@@ -335,7 +337,8 @@ function persistStateSnapshot(db, garminStore, appSessionStore, appAttestStore) 
           summary.activeCalories ?? null,
           summary.steps ?? null,
           summary.totalCalories ?? null,
-          summary.updatedAt || null
+          summary.updatedAt || null,
+          JSON.stringify({ summaryId: summary.summaryId ?? null, durationInSeconds: summary.durationInSeconds ?? null })
         );
       }
     }
@@ -477,7 +480,8 @@ function loadGarminStoreFromDB(db) {
       active_calories,
       steps,
       total_calories,
-      updated_at
+      updated_at,
+      coverage_json
     FROM garmin_summaries
   `).all();
 
@@ -487,6 +491,7 @@ function loadGarminStoreFromDB(db) {
       continue;
     }
     user.summaries[row.summary_date] = {
+      ...JSON.parse(row.coverage_json || "{}"),
       date: row.summary_date,
       activeCalories: row.active_calories,
       steps: row.steps,

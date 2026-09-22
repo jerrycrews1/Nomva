@@ -109,7 +109,7 @@ final class ExportService {
         let csv = rows
             .map { $0.map(csvField).joined(separator: ",") }
             .joined(separator: "\n") + "\n"
-        let url = URL.documentsDirectory.appending(path: "Nomva_Coach_Report.csv")
+        let url = URL.temporaryDirectory.appending(path: "Nomva_Coach_Report-\(UUID().uuidString).csv")
         do {
             try csv.write(to: url, atomically: true, encoding: .utf8)
             return url
@@ -166,8 +166,8 @@ final class ExportService {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(backup)
-            let url = URL.documentsDirectory.appending(path: "Nomva_Backup.json")
-            try data.write(to: url, options: .atomic)
+            let url = URL.temporaryDirectory.appending(path: "Nomva_Backup-\(UUID().uuidString).json")
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
             return url
         } catch {
             return nil

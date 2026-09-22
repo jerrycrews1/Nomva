@@ -1,5 +1,22 @@
 import Foundation
 import SwiftData
+import Combine
+
+@MainActor
+final class NomvaPersistence: ObservableObject {
+    static let shared = NomvaPersistence()
+    @Published var errorMessage: String?
+
+    @discardableResult
+    static func save(_ context: ModelContext) -> Bool {
+        do { try context.save(); return true }
+        catch {
+            context.rollback()
+            shared.errorMessage = "Your latest change could not be saved. Please try again. If this continues, check available device storage and export a backup before reinstalling Nomva."
+            return false
+        }
+    }
+}
 
 @MainActor
 enum FoodMutationPolicy {

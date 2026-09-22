@@ -4,6 +4,7 @@ import SwiftData
 struct ContentView: View {
     @State private var selectedTab: Tab = Self.initialTab
     @StateObject private var subManager = SubscriptionManager.shared
+    @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @EnvironmentObject private var garminManager: GarminManager
@@ -74,12 +75,20 @@ struct ContentView: View {
         }
         .task {
             routeCenter.consumeStoredRouteIfNeeded()
+            await AppleHealthActivityManager.shared.startAndRefresh(enabled: activitySourceRaw == GoalActivitySource.appleHealth.rawValue)
             await garminManager.refreshIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             routeCenter.consumeStoredRouteIfNeeded()
-            Task { await garminManager.refresh() }
+            Task {
+                await subManager.checkEntitlements()
+                await AppleHealthActivityManager.shared.startAndRefresh(enabled: activitySourceRaw == GoalActivitySource.appleHealth.rawValue)
+                await garminManager.refresh()
+            }
+        }
+        .onChange(of: activitySourceRaw) { _, source in
+            Task { await AppleHealthActivityManager.shared.startAndRefresh(enabled: source == GoalActivitySource.appleHealth.rawValue) }
         }
         .onReceive(routeCenter.$currentRoute.compactMap { $0 }) { route in
             selectedTab = tab(for: route)

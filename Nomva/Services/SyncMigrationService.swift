@@ -25,6 +25,7 @@ enum SyncMigrationService {
         var agentTraceRecords: [AgentTraceRecordRecord]
         var resolvedFoodEvidence: [ResolvedFoodEvidenceRecord]
         var mealTemplates: [MealTemplateRecord]
+        var weightSyncTombstones: [WeightSyncTombstoneRecord]? = nil
 
         var totalRecordCount: Int {
             foodEntries.count
@@ -38,6 +39,7 @@ enum SyncMigrationService {
             + agentTraceRecords.count
             + resolvedFoodEvidence.count
             + mealTemplates.count
+            + (weightSyncTombstones?.count ?? 0)
         }
 
         var baseline: Baseline {
@@ -93,16 +95,20 @@ enum SyncMigrationService {
             loggingSessions: try context.fetch(FetchDescriptor<LoggingSession>()).map(LoggingSessionRecord.init),
             agentTraceRecords: try context.fetch(FetchDescriptor<AgentTraceRecord>()).map(AgentTraceRecordRecord.init),
             resolvedFoodEvidence: try context.fetch(FetchDescriptor<ResolvedFoodEvidence>()).map(ResolvedFoodEvidenceRecord.init),
-            mealTemplates: try context.fetch(FetchDescriptor<MealTemplate>()).map(MealTemplateRecord.init)
+            mealTemplates: try context.fetch(FetchDescriptor<MealTemplate>()).map(MealTemplateRecord.init),
+            weightSyncTombstones: try context.fetch(FetchDescriptor<WeightSyncTombstone>()).map(WeightSyncTombstoneRecord.init)
         )
     }
 
     static func merge(
         archive: Archive,
         into container: ModelContainer,
-        deletionBaseline: Baseline? = nil
+        deletionBaseline: Baseline? = nil,
+        replacingAll: Bool = false
     ) throws -> TransferCounts {
         let context = ModelContext(container)
+        context.autosaveEnabled = false
+        if replacingAll { try deleteAllRecords(in: context) }
         var counts = TransferCounts()
 
         let existingFoodEntries = try context.fetch(FetchDescriptor<FoodEntry>())
@@ -347,6 +353,13 @@ enum SyncMigrationService {
             )
         }
 
+        var existingTombstones = Set(try context.fetch(FetchDescriptor<WeightSyncTombstone>()).map(\.id))
+        let liveWeightIDs = Set(try context.fetch(FetchDescriptor<WeightEntry>()).map(\.id))
+        for record in archive.weightSyncTombstones ?? [] where !existingTombstones.contains(record.id) && !liveWeightIDs.contains(record.entryID) {
+            context.insert(record.restore())
+            existingTombstones.insert(record.id)
+            counts.inserted += 1
+        }
         try context.save()
         return counts
     }
@@ -355,10 +368,7 @@ enum SyncMigrationService {
         with archive: Archive,
         in container: ModelContainer
     ) throws -> TransferCounts {
-        let context = ModelContext(container)
-        try deleteAllRecords(in: context)
-        try context.save()
-        return try merge(archive: archive, into: container)
+        try merge(archive: archive, into: container, replacingAll: true)
     }
 
     static func writeArchive(_ archive: Archive, reason: String) throws -> URL {
@@ -367,7 +377,7 @@ enum SyncMigrationService {
         formatter.formatOptions = [.withInternetDateTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
         let timestamp = formatter.string(from: archive.exportedAt)
             .replacingOccurrences(of: ":", with: "-")
-        let url = directory.appendingPathComponent("\(reason)-\(timestamp).json")
+        let url = directory.appendingPathComponent("\(reason)-\(timestamp)-\(UUID().uuidString).json")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -375,6 +385,18 @@ enum SyncMigrationService {
         try protectSyncFile(at: url)
         try pruneArchivedBackups(in: directory, keepingMostRecent: 8)
         return url
+    }
+
+    static func recoveryArchives() throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: syncFilesDirectory(), includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("before-restore-") && $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    static func readRecoveryArchive(_ url: URL) throws -> Archive {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Archive.self, from: Data(contentsOf: url))
     }
 
     static func saveBaseline(_ baseline: Baseline) throws {
@@ -423,6 +445,8 @@ enum SyncMigrationService {
         try context.fetch(FetchDescriptor<FoodEntry>()).forEach(context.delete)
         try context.fetch(FetchDescriptor<DailyGoal>()).forEach(context.delete)
         try context.fetch(FetchDescriptor<WeightEntry>()).forEach(context.delete)
+        try context.fetch(FetchDescriptor<WeightSyncState>()).forEach(context.delete)
+        try context.fetch(FetchDescriptor<WeightSyncTombstone>()).forEach(context.delete)
         try context.fetch(FetchDescriptor<ChatMessage>()).forEach(context.delete)
         try context.fetch(FetchDescriptor<CustomFood>()).forEach(context.delete)
         try context.fetch(FetchDescriptor<UserProfile>()).forEach(context.delete)
@@ -443,13 +467,15 @@ enum SyncMigrationService {
         updateModel: (Model, Record) -> Void,
         counts: inout TransferCounts
     ) {
-        let existingByID = Dictionary(uniqueKeysWithValues: existing.map { (modelID($0), $0) })
+        var existingByID = Dictionary(existing.map { (modelID($0), $0) }, uniquingKeysWith: { first, _ in first })
         for record in records {
             if let current = existingByID[recordID(record)] {
                 updateModel(current, record)
                 counts.updated += 1
             } else {
-                context.insert(makeModel(record))
+                let model = makeModel(record)
+                context.insert(model)
+                existingByID[recordID(record)] = model
                 counts.inserted += 1
             }
         }
@@ -498,6 +524,31 @@ enum SyncMigrationService {
         for backup in backups.dropFirst(limit) {
             try? FileManager.default.removeItem(at: backup)
         }
+    }
+}
+
+struct WeightSyncTombstoneRecord: Codable {
+    var id: UUID
+    var entryID: UUID
+    var externalIdentifiers: [String]
+    var deleteFromHealth: Bool
+    var pending: Bool
+    var localNote: String?
+    var notBefore: Date
+
+    init(_ value: WeightSyncTombstone) {
+        id = value.id; entryID = value.entryID; externalIdentifiers = value.externalIdentifiers
+        deleteFromHealth = value.deleteFromHealth; pending = value.pending
+        localNote = value.localNote; notBefore = value.notBefore
+    }
+
+    func restore() -> WeightSyncTombstone {
+        let value = WeightSyncTombstone()
+        value.entryID = entryID
+        value.id = id; value.externalIdentifiers = externalIdentifiers
+        value.deleteFromHealth = deleteFromHealth; value.pending = pending
+        value.localNote = localNote; value.notBefore = notBefore
+        return value
     }
 }
 
@@ -841,6 +892,7 @@ struct WeightEntryRecord: Codable {
 struct ChatMessageRecord: Codable {
     var id: UUID
     var role: String
+    var deliveryStateRaw: String?
     var content: String
     var timestamp: Date
     var dayDate: Date
@@ -849,6 +901,7 @@ struct ChatMessageRecord: Codable {
     init(_ model: ChatMessage) {
         id = model.id
         role = model.role
+        deliveryStateRaw = model.deliveryStateRaw
         content = model.content
         timestamp = model.timestamp
         dayDate = model.dayDate
@@ -864,6 +917,7 @@ struct ChatMessageRecord: Codable {
     func apply(to model: ChatMessage) {
         model.id = id
         model.role = role
+        model.deliveryStateRaw = deliveryStateRaw
         model.content = content
         model.timestamp = timestamp
         model.dayDate = dayDate

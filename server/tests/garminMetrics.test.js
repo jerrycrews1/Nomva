@@ -4,7 +4,37 @@ const {
   buildGarminUploadWindows,
   computeGarminAverages,
   normalizedGarminWeight,
+  mergeGarminSummary,
 } = require("../garminMetrics");
+
+test("accepts lower corrected calories for the same coverage and preserves missing fields", () => {
+  const old = { date: "2026-09-20", activeCalories: 800, steps: 9000, durationInSeconds: 86400 };
+  const revised = mergeGarminSummary(old, { date: old.date, activeCalories: 500, durationInSeconds: 86400 });
+  assert.equal(revised.activeCalories, 500);
+  assert.equal(revised.steps, 9000);
+});
+
+test("does not overwrite a full day with a shorter segment even when calories increase", () => {
+  const old = { activeCalories: 600, durationInSeconds: 86400 };
+  assert.equal(mergeGarminSummary(old, { activeCalories: 900, durationInSeconds: 3600 }), old);
+});
+
+test("fresh pull can correct legacy totals and true zero is retained", () => {
+  const old = { activeCalories: 700 };
+  assert.equal(mergeGarminSummary(old, { activeCalories: 0 }, { authoritative: true }).activeCalories, 0);
+  assert.equal(mergeGarminSummary(old, { activeCalories: -1 }, { authoritative: true }), old);
+});
+
+test("missing activity is not a measured zero", () => {
+  const result = computeGarminAverages([
+    { date: "2026-09-20", activeCalories: null },
+    { date: "2026-09-19", activeCalories: "" },
+    { date: "2026-09-18", activeCalories: 0 },
+    { date: "2026-09-17", activeCalories: 400 },
+  ], { currentLocalDate: "2026-09-21" });
+  assert.equal(result.sampledDays, 2);
+  assert.equal(result.averageActiveCalories, 200);
+});
 
 test("averages available completed days inside the requested calendar window", () => {
   const result = computeGarminAverages([

@@ -17,6 +17,8 @@ struct ExportSettingsView: View {
     
     @State private var showFileImporter = false
     @State private var importError: String?
+    @State private var recoveryArchives: [URL] = []
+    @State private var pendingRecovery: URL?
     
     enum ExportRange: String, CaseIterable {
         case last7Days = "Last 7 Days"
@@ -80,6 +82,7 @@ struct ExportSettingsView: View {
                             .pickerStyle(.segmented)
                             
                             Button {
+                                guard NomvaPersistence.save(modelContext) else { return }
                                 let data = filteredData
                                 if let url = ExportService.shared.generateCoachReport(
                                     entries: data.foods,
@@ -89,6 +92,8 @@ struct ExportSettingsView: View {
                                     detailLevel: reportDetail
                                 ) {
                                     shareFile(url: url)
+                                } else {
+                                    importError = "The report could not be created. Check available storage and try again."
                                 }
                             } label: {
                                 HStack {
@@ -105,11 +110,14 @@ struct ExportSettingsView: View {
                         }
                     }
                     
-                    SettingsSectionCard("Full App Backup", detail: "Complete JSON backup of all your Nomva data.") {
+                    SettingsSectionCard("Full App Backup", detail: "Keep a copy outside Nomva before changing phones or reinstalling. App history stays on this device and is excluded from automatic device backup. Exported files contain personal nutrition and health information; choose a destination you trust.") {
                         VStack(spacing: 12) {
                             Button {
+                                guard NomvaPersistence.save(modelContext) else { return }
                                 if let url = ExportService.shared.generateBackup() {
                                     shareFile(url: url)
+                                } else {
+                                    importError = "The backup could not be created. Check available storage and try again."
                                 }
                             } label: {
                                 HStack {
@@ -146,11 +154,39 @@ struct ExportSettingsView: View {
                             .foregroundColor(NomvaTheme.danger)
                             .padding()
                     }
+                    if !recoveryArchives.isEmpty {
+                        SettingsSectionCard("Local Recovery", detail: "Return to the saved state from before a previous restore. These copies remain on this device.") {
+                            ForEach(recoveryArchives, id: \.self) { url in
+                                Button(recoveryLabel(for: url)) {
+                                    pendingRecovery = url
+                                }
+                                .font(.caption)
+                            }
+                        }
+                    }
                 }
                 .padding()
             }
         }
         .navigationTitle("Backup & Export")
+        .task { recoveryArchives = (try? SyncMigrationService.recoveryArchives()) ?? [] }
+        .confirmationDialog("Restore this earlier local state?", isPresented: Binding(
+            get: { pendingRecovery != nil }, set: { if !$0 { pendingRecovery = nil } }
+        ), titleVisibility: .visible) {
+            Button("Restore Earlier State", role: .destructive) {
+                guard let url = pendingRecovery else { return }
+                do {
+                    try modelContext.save()
+                    let archive = try SyncMigrationService.readRecoveryArchive(url)
+                    let current = try SyncMigrationService.captureArchive(from: modelContext.container, storeKind: ModelContainerManager.shared.activeStoreKind)
+                    _ = try SyncMigrationService.writeArchive(current, reason: "before-restore")
+                    _ = try SyncMigrationService.replaceStore(with: archive, in: modelContext.container)
+                    importError = "Earlier local state restored. Your previous state is kept in Local Recovery."
+                    recoveryArchives = try SyncMigrationService.recoveryArchives()
+                } catch { importError = "Recovery failed: \(error.localizedDescription)" }
+                pendingRecovery = nil
+            }
+        } message: { Text("This replaces the current local history. A recovery copy of the current state is saved first. It does not roll back changes already made in Apple Health.") }
         .fileImporter(
             isPresented: $showFileImporter,
             allowedContentTypes: [.json],
@@ -173,16 +209,25 @@ struct ExportSettingsView: View {
         }
     }
 
+    private func recoveryLabel(for url: URL) -> String {
+        guard let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate else { return "Saved state before restore" }
+        return "Before restore · " + created.formatted(date: .abbreviated, time: .shortened)
+    }
+
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             
             // Security: Request access to the file
-            guard url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             
             do {
+                // Preserve a recovery copy before merging an older archive.
+                try modelContext.save()
+                let before = try SyncMigrationService.captureArchive(from: modelContext.container, storeKind: ModelContainerManager.shared.activeStoreKind)
+                _ = try SyncMigrationService.writeArchive(before, reason: "before-restore")
                 let data = try Data(contentsOf: url)
                 let backup = try JSONDecoder().decode(ExportService.BackupData.self, from: data)
 
@@ -192,6 +237,7 @@ struct ExportSettingsView: View {
                         into: ModelContainerManager.shared.container
                     )
                     importError = "Merge complete. Restored \(counts.totalTouched) records."
+                    recoveryArchives = try SyncMigrationService.recoveryArchives()
                     return
                 }
                 
@@ -245,6 +291,7 @@ struct ExportSettingsView: View {
                 try modelContext.save()
                 importError = "Merge complete. Added \(addedCount) new items."
             } catch {
+                modelContext.rollback()
                 importError = "Import failed: \(error.localizedDescription)"
             }
             

@@ -197,40 +197,32 @@
     </nav>
 
     <main class="content-panel">
-      <div class="eyebrow">Your Data, Your Control</div>
-      <h1>Privacy Policy</h1>
-      <p class="updated">Last updated: April 18, 2026</p>
-
-      <h2>Overview</h2>
-      <p>Nomva is a nutrition tracking app designed to help you log meals, monitor macros, and reach your health goals. Your privacy matters, and this policy explains what data we collect, how we use it, and the choices you have.</p>
-
-      <h2>Data We Collect</h2>
-      <p>Nomva stores your food log entries, daily goals, weight entries, and custom foods in protected local storage on your device. When you use AI-powered features such as meal parsing or chat, the text you type, along with limited recent AI context needed to answer correctly, is sent through Nomva's server to our AI provider for processing.</p>
-
-      <h2>Health & Fitness Data</h2>
-      <p>If you connect Apple Health, Nomva reads activity data (such as active calories burned) and, when you enable weight history import, body-weight samples on your device. If you enable weight export, Nomva writes weights you log in the app to Apple Health. Automatically imported weights, their notes, and personal goal summaries are excluded from AI requests. Weight history questions and measurements are handled locally. Apple Health data is not sent to Nomva's servers. Garmin data is handled separately through Nomva Cloud as described below.</p>
-
-      <h2>Garmin Connect</h2>
-      <p>If you choose to connect your Garmin account, Nomva receives daily activity summaries (active calories) through the Garmin Health API. Current versions import Garmin weigh-ins through Apple Health on the device. The earlier direct Garmin weight-import endpoint is retired. Legacy body-composition deliveries are discarded; Nomva does not maintain a server weight cache. We store the Garmin credentials needed to maintain your connection in encrypted form on our server. No Garmin data is sold, shared, or used for advertising.</p>
-
-      <h2>Third-Party Services</h2>
-      <p>Nomva uses OpenAI's API to power AI features. AI chat and meal-parsing text is relayed through Nomva's server and then sent to OpenAI for processing. We do not intentionally store the content of those AI conversations on our server after processing, and we avoid logging raw prompt and response text in production. Text sent for processing is also subject to OpenAI's data usage policies. Barcode lookups check the bundled food database and a device cache first. For missing products, the barcode is sent directly to Open Food Facts to request product nutrition. Open Food Facts data is attributed under its ODbL license. No chat or weight history is sent with that request.</p>
-
-      <h2>Weight Sync and Local Storage</h2>
-      <p>Nomva keeps its application history on this device. Weight sync uses Apple Health, including Garmin measurements shared to Apple Health by Garmin Connect. To exchange weights across Apple devices, enable Health in iCloud on those devices and grant Nomva Weight access. Nomva does not store a server-side weight-sync database. Existing on-device records are preserved. Copies synced by earlier Nomva versions to your private iCloud account are not deleted automatically; you can manage them in Apple Settings.</p>
-
-      <h2>Analytics & Advertising</h2>
-      <p>Nomva does not include third-party analytics SDKs, tracking pixels, or advertising frameworks, and we do not sell your data. Our service keeps limited operational metadata, such as hashed app identifiers, route, timing, status, model, and token counts, for up to 90 days. These diagnostics do not store raw chat text, photos, food names, barcodes, or weight values. You can remove linked diagnostics in Settings → AI &amp; Privacy → Delete Cloud Analytics.</p>
-
-      <h2>Data Retention</h2>
-      <p>Your food logs and weight history are stored locally; Nomva does not maintain a server-side copy for history sync. The service retains the authentication, subscription-verification, and request-limit state needed to protect AI access. If you enable the separate Garmin activity connection, its encrypted credentials and daily activity summaries are stored as described above. AI requests pass through our server for processing, but we do not intentionally retain full AI message content after the response is returned.</p>
-
-      <h2>Your Rights</h2>
-      <p>Removing the app deletes its local history. Use AI &amp; Privacy settings to delete linked cloud diagnostics. Disconnecting Garmin in Nomva removes the server connection and its cached activity summaries. Copies created by older iCloud-sync versions can be managed in Apple Settings. Apple Health data has separate controls in the Health app. To disconnect Garmin, visit the Garmin Connect app or website.</p>
-
-      <h2>Contact</h2>
-      <p>If you have questions about this privacy policy, contact us at <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>.</p>
-    </main>
+<h1>Privacy Policy for Nomva</h1>
+<p>Last updated: September 21, 2026</p>
+<h2>Overview</h2>
+<p>Nomva helps you track meals, hydration, activity-based calorie targets, and weight. This policy describes current Nomva data handling. We do not sell personal information or use health data for advertising.</p>
+<h2>Information stored on your device</h2>
+<p>Food logs, water entries, goals, weight history, custom foods, chat history, and related logging records are stored in the app&#x27;s protected local storage. Nomva uses iOS data protection; this is not a separate password-protected vault. Nomva does not currently mirror this application history through CloudKit or maintain a server copy for history recovery.</p>
+<h2>Apple Health and Garmin</h2>
+<p>With your permission, Nomva reads active energy and body weight from Apple Health. Activity totals are refreshed on the device to update the selected activity source&#x27;s calorie target. If you enable Save Nomva Weigh-ins, Nomva writes your Nomva-authored weights and their corrections to Apple Health. Removing one of those weights can also remove Nomva&#x27;s corresponding Health sample after the undo period. Removing an imported weight in Nomva hides it locally without deleting another app&#x27;s Health sample.</p>
+<p>Garmin weight synchronization uses Garmin Connect → Apple Health → Nomva. Nomva can save its own weigh-ins to Apple Health; it does not write them to Garmin. Apple&#x27;s Health synchronization is controlled separately by your Apple Account and Health settings. Nomva retains local sample identifiers, sync progress, and deletion preferences to avoid repeated imports.</p>
+<p>A separate optional Garmin activity connection uses Nomva&#x27;s server to receive daily activity summaries, including active calories and available steps/total calories. The server stores those summaries and the encrypted credentials needed to maintain the connection. Disconnecting Garmin in Nomva removes that connection and its cached activity summaries. The former direct Garmin weight import is retired; legacy body-composition deliveries are discarded.</p>
+<p>Automatically imported Apple Health measurements and local weight notes are not attached to cloud AI requests. Supported weight-history questions are answered locally. Information you explicitly include in an AI message or chosen photo may be processed as described below. You can change Health permissions in the Health app and stop import/export in Nomva&#x27;s Weight Sync settings.</p>
+<h2>AI processing and food lookup</h2>
+<p>When you use cloud AI, your request text, limited relevant conversation or food context, and photos you choose to analyze are sent through Nomva&#x27;s service to OpenAI for processing. Food and restaurant lookup may use online sources. Do not include information you do not want processed by these services. Provider processing is subject to that provider&#x27;s policies.</p>
+<p>Nomva does not intentionally retain full AI conversations or photos on its server after processing, and production diagnostics exclude raw request and response content. The service caches food names, lookup aliases, nutrition estimates, and published nutrition sources to improve future lookups; this cache is separate from your personal diary. Published lookup records normally expire after 180 days and estimates after 30 days.</p>
+<p>Barcode lookup first checks the bundled catalog and device cache. If needed, the barcode is sent directly to Open Food Facts. That request does not include your chat or weight history. Open Food Facts data is attributed under its ODbL license. Manual logging is available without cloud AI.</p>
+<h2>Diagnostics, access, and purchases</h2>
+<p>Nomva uses limited operational diagnostics such as hashed app identifiers, request route, response status, duration, model, and token counts. These records exclude raw chat text, photos, food names, barcodes, and weight values and are retained for up to 90 days. Remove linked diagnostics in Settings → AI &amp; Privacy → Delete Cloud Analytics.</p>
+<p>The service retains authentication, subscription-verification, and request-limit records needed to provide and protect access. Apple handles subscription payments. Nomva receives verified entitlement information; it does not receive your payment-card details. Nomva does not include advertising frameworks or third-party analytics SDKs.</p>
+<h2>Backups and recovery</h2>
+<p>Application history is excluded from automatic device backup. Export a JSON backup in Settings → Backup &amp; Export before replacing your device or reinstalling Nomva. Exported backups and CSV reports contain personal information and are not password encrypted by Nomva; you choose where to save or share them. Their protection and retention depend on that destination. Nomva keeps a protected local recovery copy before restoring an archive. That local copy cannot recover data after the app or device is lost.</p>
+<p>Older Nomva versions may have placed copies in your private iCloud account. The current app preserves existing local history and does not automatically delete those older cloud copies; manage them in Apple Settings. Apple Health maintains its own history and synchronization separately.</p>
+<h2>Deletion and your choices</h2>
+<p>You can delete entries in Nomva, stop Health sharing, disconnect the Garmin activity connection, delete linked cloud diagnostics, and export your data. Removing Nomva deletes its local app history and local recovery copies; it does not automatically delete separately exported files, Apple Health records, older iCloud copies, or server-side Garmin credentials. Disconnect Garmin before removing the app, or contact support for assistance with remaining service records.</p>
+<h2>Changes and contact</h2>
+<p>We update this page when our data practices change. For privacy requests, support, or questions about retained service records, contact <a href="mailto:jerry@nerdquad.com">jerry@nerdquad.com</a>.</p>
+</main>
 
     <footer class="footer">
       &copy; 2026 Nomva. Built and supported by Nerdquad.

@@ -62,7 +62,8 @@ struct CustomFoodCreateView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { saveCustomFood() }
                     .bold()
-                    .disabled(name.isEmpty || calories == 0)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                              ![calories, proteinG, carbsG, fatG, fiberG, servingGrams].allSatisfy { $0.isFinite && $0 >= 0 })
             }
         }
     }
@@ -82,7 +83,7 @@ struct CustomFoodCreateView: View {
             barcode: trimmedBarcode.isEmpty ? nil : trimmedBarcode
         )
         modelContext.insert(food)
-        try? modelContext.save()
+        guard NomvaPersistence.save(modelContext) else { return }
         dismiss()
     }
 }

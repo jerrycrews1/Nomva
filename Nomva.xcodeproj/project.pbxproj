@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        F46000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F46000000000000000000003 /* PrivacyInfo.xcprivacy */; };
+        F46000000000000000000002 /* Widget PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F46000000000000000000004 /* PrivacyInfo.xcprivacy */; };
 		FA4400000000000000000002 /* FoodPortionEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4400000000000000000001 /* FoodPortionEditing.swift */; };
 		08D4A9E3860044A4B91A07D9 /* NomvaUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74B6706705849459BCDB8C6 /* NomvaUI.swift */; };
 		114FCEC33E8606EFE21BEE00 /* GoalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D65D9E758F86DAD24CEABD4 /* GoalService.swift */; };
@@ -128,6 +130,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        F46000000000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+        F46000000000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		FA4400000000000000000001 /* FoodPortionEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodPortionEditing.swift; sourceTree = "<group>"; };
 		0153052C61D6303447B320A6 /* foods.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = foods.sqlite; sourceTree = "<group>"; };
 		04C165BFC61BB770D0529EA7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -291,6 +295,7 @@
 				F04A50622F930AF3004C3C56 /* Assets.xcassets */,
 				F04A50602F9306CA004C3C56 /* Preview Content */,
 				F048159C2F8B5FAD002835DB /* Nomva.entitlements */,
+                F46000000000000000000003 /* PrivacyInfo.xcprivacy */,
 				749A4925807BB5D8ED1432EE /* NomvaApp.swift */,
 				F1B100000000000000000006 /* NomvaAppShortcuts.swift */,
 				5CAD2D89E86F5A1758AC0660 /* ContentView.swift */,
@@ -475,6 +480,7 @@
 			isa = PBXGroup;
 			children = (
 				F1B10000000000000000000B /* NomvaWidgets.entitlements */,
+                F46000000000000000000004 /* PrivacyInfo.xcprivacy */,
 				F1B100000000000000000008 /* NomvaWidgetsBundle.swift */,
 				F1B100000000000000000009 /* NomvaWidgets.swift */,
 				F1B10000000000000000000A /* Info.plist */,
@@ -638,6 +644,7 @@
 			files = (
 				F04A50632F930AF3004C3C56 /* Assets.xcassets in Resources */,
 				2349DFFF2C4D893DC9322C09 /* foods.sqlite in Resources */,
+                F46000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -645,6 +652,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                F46000000000000000000002 /* Widget PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -860,7 +868,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -868,7 +876,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LE_SWIFT_VERSION = 6.0;
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -892,7 +900,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/Nomva.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -900,7 +908,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LE_SWIFT_VERSION = 6.0;
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -977,7 +985,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -989,7 +997,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1007,7 +1015,7 @@
 				CODE_SIGN_ENTITLEMENTS = Nomva/NomvaWidgets/NomvaWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 9UXM4W53T6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1019,7 +1027,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nomva.app.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

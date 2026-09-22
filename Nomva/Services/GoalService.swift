@@ -208,7 +208,7 @@ actor GoalService {
     ) -> Double {
         guard referenceActiveCalories > 0 else { return baseGoalCalories }
 
-        let rollingBaseline = rollingAverageActiveCalories.flatMap { $0 > 0 ? $0 : nil }
+        let rollingBaseline = rollingAverageActiveCalories.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
             ?? referenceActiveCalories
         let currentActivity = max(currentDayActiveCalories ?? 0, 0)
         let creditedActivity = rollingBaseline + sameDayActivityCredit(
@@ -230,7 +230,7 @@ actor GoalService {
         guard let currentDayActiveCalories,
               let rollingAverageActiveCalories,
               currentDayActiveCalories > 0,
-              rollingAverageActiveCalories > 0 else {
+              rollingAverageActiveCalories.isFinite, rollingAverageActiveCalories >= 0 else {
             return 0
         }
         return max(currentDayActiveCalories - rollingAverageActiveCalories, 0)
@@ -258,7 +258,7 @@ actor GoalService {
                 )
             } else {
                 let activityCalories = completedDayActiveCalories
-                    ?? averageActiveCalories.flatMap { $0 > 0 ? $0 : nil }
+                    ?? averageActiveCalories.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
                     ?? referenceActiveCalories
                 calories = dynamicallyAdjustedCalories(
                     baseGoalCalories: base.calories,

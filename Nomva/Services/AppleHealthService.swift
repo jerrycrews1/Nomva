@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import SwiftData
+import Combine
 
 /// HealthKit's legacy acknowledgement block is not annotated Sendable. Give it
 /// one synchronized owner and acknowledge only after the anchored import finishes.
@@ -77,6 +78,7 @@ enum AppleHealthServiceError: LocalizedError {
     case unavailable
     case unsupportedDataType
     case weightPermissionDenied
+    case stalledHistory
 
     var errorDescription: String? {
         switch self {
@@ -86,6 +88,8 @@ enum AppleHealthServiceError: LocalizedError {
             return "The requested Apple Health data is not supported on this device."
         case .weightPermissionDenied:
             return "Nomva does not have permission to save weight in Apple Health."
+        case .stalledHistory:
+            return "Apple Health history could not advance. Try Recheck All Health History in Weight Sync. Your saved weights are unchanged."
         }
     }
 }
@@ -94,6 +98,7 @@ enum AppleHealthService {
     private static let healthStore = HKHealthStore()
     private static let nomvaEntryMetadataKey = "com.nomva.weight.entry-id"
     @MainActor private static var weightObserver: HKObserverQuery?
+    @MainActor private static var activityObserver: HKObserverQuery?
 
     private static var activeEnergyType: HKQuantityType? {
         HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)
@@ -257,6 +262,14 @@ enum AppleHealthService {
 
     @MainActor
     static func startWeightObservation(onChange: @escaping @Sendable () async -> Void) async {
+        guard WeightSyncPreferences.appleHealthImportEnabled else {
+            if let observer = weightObserver {
+                healthStore.stop(observer)
+                weightObserver = nil
+                if let bodyMassType { try? await healthStore.disableBackgroundDelivery(for: bodyMassType) }
+            }
+            return
+        }
         guard weightObserver == nil, isAvailable(), let bodyMassType,
               WeightSyncPreferences.appleHealthImportEnabled else { return }
         let observer = HKObserverQuery(sampleType: bodyMassType, predicate: nil) { _, completion, error in
@@ -355,67 +368,110 @@ enum AppleHealthService {
     }
 
     static func fetchAverageActiveCalories(windowDays: Int = 28) async throws -> AppleHealthActivitySummary? {
-        guard isAvailable() else {
-            throw AppleHealthServiceError.unavailable
-        }
+        try await fetchActivitySnapshot(windowDays: windowDays).completedSummary()
+    }
 
-        guard let activeEnergyType else {
-            throw AppleHealthServiceError.unsupportedDataType
-        }
-
-        let calendar = Calendar.current
-        let endDate = calendar.startOfDay(for: Date())
-        let startDate = calendar.date(byAdding: .day, value: -windowDays, to: endDate) ?? endDate
-        let interval = DateComponents(day: 1)
-        let predicate = HKQuery.predicateForSamples(
-            withStart: startDate,
-            end: endDate,
-            options: .strictStartDate
-        )
-
+    static func fetchActivitySnapshot(windowDays: Int = 28, now: Date = .now,
+                                      calendar: Calendar = .current) async throws -> HealthActivitySnapshot {
+        guard isAvailable(), let activeEnergyType else { throw AppleHealthServiceError.unavailable }
+        let today = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -windowDays, to: today)!
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: now, options: .strictStartDate)
         return try await withCheckedThrowingContinuation { continuation in
-            let query = HKStatisticsCollectionQuery(
-                quantityType: activeEnergyType,
-                quantitySamplePredicate: predicate,
-                options: .cumulativeSum,
-                anchorDate: endDate,
-                intervalComponents: interval
-            )
-
+            let query = HKStatisticsCollectionQuery(quantityType: activeEnergyType,
+                quantitySamplePredicate: predicate, options: .cumulativeSum,
+                anchorDate: today, intervalComponents: DateComponents(day: 1))
             query.initialResultsHandler = { _, collection, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
+                if let error { continuation.resume(throwing: error); return }
+                var days: [HealthActivityDay] = []
+                collection?.enumerateStatistics(from: start, to: now) { statistics, _ in
+                    guard let value = statistics.sumQuantity()?.doubleValue(for: .kilocalorie()),
+                          value.isFinite, value >= 0 else { return }
+                    days.append(HealthActivityDay(date: statistics.startDate, activeCalories: value))
                 }
-
-                guard let collection else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                var dailyValues: [Double] = []
-                collection.enumerateStatistics(from: startDate, to: endDate) { statistics, _ in
-                    guard let quantity = statistics.sumQuantity() else { return }
-                    dailyValues.append(quantity.doubleValue(for: .kilocalorie()))
-                }
-
-                guard !dailyValues.isEmpty else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                let averageActiveCalories = dailyValues.reduce(0, +) / Double(dailyValues.count)
-                continuation.resume(returning: AppleHealthActivitySummary(
-                    averageActiveCalories: averageActiveCalories,
-                    sampledDays: dailyValues.count,
-                    windowDays: windowDays,
-                    startDate: startDate,
-                    endDate: endDate
-                ))
+                continuation.resume(returning: HealthActivitySnapshot(days: days, checkedAt: now, windowDays: windowDays))
             }
-
             healthStore.execute(query)
         }
+    }
+
+    @MainActor
+    static func observeActivity(enabled: Bool, onChange: @escaping @Sendable () async -> Void) async {
+        guard enabled else {
+            if let observer = activityObserver {
+                healthStore.stop(observer)
+                activityObserver = nil
+                if let activeEnergyType { try? await healthStore.disableBackgroundDelivery(for: activeEnergyType) }
+            }
+            return
+        }
+        guard activityObserver == nil, isAvailable(), let activeEnergyType else { return }
+        let observer = HKObserverQuery(sampleType: activeEnergyType, predicate: nil) { _, completion, error in
+            guard error == nil else { completion(); return }
+            let acknowledgement = HealthObserverAcknowledgement(completion)
+            Task { await onChange(); acknowledgement.complete() }
+        }
+        activityObserver = observer
+        healthStore.execute(observer)
+        do { try await healthStore.enableBackgroundDelivery(for: activeEnergyType, frequency: .immediate) }
+        catch { AppleHealthActivityManager.shared.lastError = error.localizedDescription }
+    }
+}
+
+struct HealthActivityDay: Equatable, Sendable {
+    var date: Date
+    var activeCalories: Double
+}
+
+struct HealthActivitySnapshot: Equatable, Sendable {
+    var days: [HealthActivityDay]
+    var checkedAt: Date
+    var windowDays: Int
+
+    func calories(on date: Date, calendar: Calendar = .current) -> Double? {
+        days.first { calendar.isDate($0.date, inSameDayAs: date) }?.activeCalories
+    }
+
+    func completedSummary(calendar: Calendar = .current) -> AppleHealthActivitySummary? {
+        let end = calendar.startOfDay(for: checkedAt)
+        let start = calendar.date(byAdding: .day, value: -windowDays, to: end)!
+        let completed = days.filter { $0.date >= start && $0.date < end && $0.activeCalories.isFinite && $0.activeCalories >= 0 }
+        guard !completed.isEmpty else { return nil }
+        return AppleHealthActivitySummary(averageActiveCalories: completed.reduce(0) { $0 + $1.activeCalories } / Double(completed.count),
+            sampledDays: completed.count, windowDays: windowDays, startDate: start, endDate: end)
+    }
+}
+
+@MainActor
+final class AppleHealthActivityManager: ObservableObject {
+    static let shared = AppleHealthActivityManager()
+    private let refreshGate = NomvaCloudAttestedRequestGate()
+    @Published private(set) var snapshot: HealthActivitySnapshot?
+    @Published private(set) var isRefreshing = false
+    @Published var lastError: String?
+
+    var averageActiveCalories: Double? { snapshot?.completedSummary()?.averageActiveCalories }
+    func calories(on date: Date) -> Double? { snapshot?.calories(on: date) }
+
+    func refresh(fetch: @escaping @Sendable () async throws -> HealthActivitySnapshot = { try await AppleHealthService.fetchActivitySnapshot() }) async {
+        do {
+            try await refreshGate.withExclusiveAccess { @MainActor in
+                self.isRefreshing = true
+                defer { self.isRefreshing = false }
+                do {
+                    self.snapshot = try await fetch()
+                    self.lastError = nil
+                } catch { self.lastError = error.localizedDescription }
+            }
+        } catch is CancellationError {} catch { lastError = error.localizedDescription }
+    }
+
+    func startAndRefresh(enabled: Bool) async {
+        guard !NomvaRuntime.isAutomatedTest else { return }
+        await AppleHealthService.observeActivity(enabled: enabled) { @MainActor in
+            await AppleHealthActivityManager.shared.refresh()
+        }
+        if enabled { await refresh() }
     }
 }
 
@@ -445,16 +501,22 @@ enum WeightSyncPreferences {
 @MainActor
 enum WeightSyncCoordinator {
     private static let gate = NomvaCloudAttestedRequestGate()
+    private static let cycleGate = NomvaCloudAttestedRequestGate()
     private static var deletionWake: Task<Void, Never>?
 
-    static func importAppleHealth(into modelContext: ModelContext, client: WeightHealthClient = .live) async throws -> WeightImportResult {
+    static func importAppleHealth(into modelContext: ModelContext, client: WeightHealthClient = .live, recheckHistory: Bool = false) async throws -> WeightImportResult {
         try await gate.withExclusiveAccess { @MainActor in
             let state = try modelContext.fetch(FetchDescriptor<WeightSyncState>()).first ?? WeightSyncState()
             if state.modelContext == nil { modelContext.insert(state) }
             var total = WeightImportResult()
+            var nextAnchor = recheckHistory ? nil : state.anchor
             while true {
                 try Task.checkCancellation()
-                let page = try await client.fetchChanges(state.anchor)
+                let page = try await client.fetchChanges(nextAnchor)
+                try Task.checkCancellation()
+                guard page.changeCount < 500 || (page.anchor != nil && page.anchor != nextAnchor) else {
+                    throw AppleHealthServiceError.stalledHistory
+                }
                 // Keep edits made in the UI during the read if importing this page fails.
                 try modelContext.save()
                 do {
@@ -465,6 +527,7 @@ enum WeightSyncCoordinator {
                     let result = try apply(candidates, to: modelContext, save: false)
                     try applyHealthDeletions(page.deletedIdentifiers, to: modelContext)
                     state.anchor = page.anchor
+                    nextAnchor = page.anchor
                     state.lastReadAt = .now
                     if let latest = page.samples.max(by: { $0.date < $1.date }), latest.date >= (state.lastSampleAt ?? .distantPast) {
                         state.lastSampleAt = latest.date
@@ -496,10 +559,12 @@ enum WeightSyncCoordinator {
         guard enabled else { return 0 }
         return try await gate.withExclusiveAccess { @MainActor in
             var exported = 0
-            let exportable = entries.filter { $0.modelContext != nil && $0.dataSource == .nomva && $0.healthExportedFingerprint != $0.healthFingerprint }
+            let exportable = entries.filter { $0.modelContext != nil && !$0.isDeleted && $0.dataSource == .nomva && $0.healthExportedFingerprint != $0.healthFingerprint }
             for start in stride(from: 0, to: exportable.count, by: 100) {
                 try Task.checkCancellation()
-                let chunk = Array(exportable[start..<min(start + 100, exportable.count)])
+                // The user can edit/delete later chunks while an earlier Health write is suspended.
+                let chunk = Array(exportable[start..<min(start + 100, exportable.count)]).filter { $0.modelContext != nil && !$0.isDeleted }
+                guard !chunk.isEmpty else { continue }
                 let writes = chunk.map { entry -> AppleHealthWeightWrite in
                     if entry.healthPendingFingerprint != entry.healthFingerprint {
                         entry.healthSyncVersion = nextHealthSyncVersion(after: entry.healthSyncVersion ?? 0)
@@ -511,7 +576,7 @@ enum WeightSyncCoordinator {
                 // Persist the same version before writing: a retry after process death is idempotent.
                 try modelContext.save()
                 _ = try await client.save(writes)
-                for (index, entry) in chunk.enumerated() where entry.modelContext != nil {
+                for (index, entry) in chunk.enumerated() where entry.modelContext != nil && !entry.isDeleted {
                     entry.healthExportedFingerprint = fingerprints[index]
                     if entry.healthPendingFingerprint == fingerprints[index] { entry.healthPendingFingerprint = nil }
                     // HealthKit may ignore a replayed version; its generated UUID is not proof of storage.
@@ -562,16 +627,36 @@ enum WeightSyncCoordinator {
 
     static func syncEnabledSources(in modelContext: ModelContext) async {
         guard !NomvaRuntime.isAutomatedTest else { return }
-        var failures: [String] = []
-        if WeightSyncPreferences.appleHealthImportEnabled {
-            do { _ = try await importAppleHealth(into: modelContext) }
-            catch { failures.append(error.localizedDescription) }
-        }
+        let report = await synchronize(in: modelContext)
+        UserDefaults.standard.set(report.errors.joined(separator: "\n"), forKey: WeightSyncPreferences.lastErrorKey)
+    }
+
+    /// A failure in one direction must not strand work in the other. All callers
+    /// use the same cycle, and successful pages/writes remain durable on partial failure.
+    static func synchronize(in context: ModelContext, client: WeightHealthClient = .live,
+                            importEnabled: Bool = WeightSyncPreferences.appleHealthImportEnabled,
+                            exportEnabled: Bool = WeightSyncPreferences.appleHealthExportEnabled,
+                            recheckHistory: Bool = false) async -> WeightSyncReport {
         do {
-            try await flushDeletions(in: modelContext)
-            _ = try await exportAllNomvaWeightsToAppleHealth(from: modelContext.fetch(FetchDescriptor<WeightEntry>()), in: modelContext)
-        } catch { failures.append(error.localizedDescription) }
-        UserDefaults.standard.set(failures.joined(separator: "\n"), forKey: WeightSyncPreferences.lastErrorKey)
+            return try await cycleGate.withExclusiveAccess { @MainActor in
+                var report = WeightSyncReport()
+                if importEnabled {
+                    do { report.imported = try await importAppleHealth(into: context, client: client, recheckHistory: recheckHistory) }
+                    catch { report.errors.append("Read: \(error.localizedDescription)") }
+                }
+                try Task.checkCancellation()
+                do { try await flushDeletions(in: context, client: client, enabled: exportEnabled) }
+                catch { report.errors.append("Delete: \(error.localizedDescription)") }
+                try Task.checkCancellation()
+                if exportEnabled {
+                    do {
+                        report.exported = try await exportAllNomvaWeightsToAppleHealth(
+                            from: context.fetch(FetchDescriptor<WeightEntry>()), in: context, client: client, enabled: true)
+                    } catch { report.errors.append("Save: \(error.localizedDescription)") }
+                }
+                return report
+            }
+        } catch { return WeightSyncReport(errors: [error.localizedDescription]) }
     }
 
     private static func applyHealthDeletions(_ identifiers: [String], to context: ModelContext) throws {
@@ -685,6 +770,16 @@ enum WeightSyncCoordinator {
         }
         if save { try modelContext.save() }
         return result
+    }
+}
+
+struct WeightSyncReport: Sendable {
+    var imported = WeightImportResult()
+    var exported = 0
+    var errors: [String] = []
+
+    var summary: String {
+        "\(imported.inserted) added, \(imported.updated) updated, \(exported) saved to Apple Health."
     }
 }
 

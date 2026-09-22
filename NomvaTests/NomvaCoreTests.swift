@@ -1107,6 +1107,191 @@ struct NomvaCoreTests {
         #expect(rows.first?.note == "Retained only on this device")
     }
 
+    @Test("Activity baseline excludes today, keeps real zeros, and respects local days")
+    func healthActivityWindow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 14)))
+        let today = calendar.startOfDay(for: now)
+        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: today))
+        let previous = try #require(calendar.date(byAdding: .day, value: -2, to: today))
+        let snapshot = HealthActivitySnapshot(days: [
+            .init(date: today, activeCalories: 900), .init(date: yesterday, activeCalories: 0),
+            .init(date: previous, activeCalories: 400),
+            .init(date: today.addingTimeInterval(-40 * 86400), activeCalories: 4000)
+        ], checkedAt: now, windowDays: 28)
+        let summary = try #require(snapshot.completedSummary(calendar: calendar))
+        #expect(summary.sampledDays == 2)
+        #expect(summary.averageActiveCalories == 200)
+        #expect(snapshot.calories(on: now, calendar: calendar) == 900)
+        #expect(snapshot.calories(on: yesterday, calendar: calendar) == 0)
+    }
+
+    @Test("Health activity refresh replaces lower corrections and exposes outages")
+    @MainActor
+    func healthActivityCorrections() async {
+        let manager = AppleHealthActivityManager()
+        let now = Date.now
+        await manager.refresh { HealthActivitySnapshot(days: [.init(date: now, activeCalories: 900)], checkedAt: now, windowDays: 28) }
+        await manager.refresh { HealthActivitySnapshot(days: [.init(date: now, activeCalories: 500)], checkedAt: now, windowDays: 28) }
+        #expect(manager.calories(on: now) == 500)
+        await manager.refresh { throw URLError(.notConnectedToInternet) }
+        #expect(manager.lastError != nil)
+        #expect(manager.calories(on: now) == 500)
+        await manager.refresh { HealthActivitySnapshot(days: [], checkedAt: now, windowDays: 28) }
+        #expect(manager.calories(on: now) == nil)
+        #expect(manager.lastError == nil)
+    }
+
+    @Test("Selected activity source changes the displayed target without double counting its baseline")
+    @MainActor
+    func liveActivityTargets() {
+        let base = DailyGoal(calories: 2000, protein: 100, carbs: 250, fat: 65)
+        for source in [GoalActivitySource.appleHealth, .garmin] {
+            let high = GoalService.displayGoal(base: base, selectedDate: .now, activitySource: source,
+                referenceActiveCalories: 400, averageActiveCalories: 400, currentDayActiveCalories: 700, completedDayActiveCalories: nil)
+            let corrected = GoalService.displayGoal(base: base, selectedDate: .now, activitySource: source,
+                referenceActiveCalories: 400, averageActiveCalories: 400, currentDayActiveCalories: 450, completedDayActiveCalories: nil)
+            #expect(high.calories == 2300)
+            #expect(corrected.calories == 2050)
+            #expect(base.calories == 2000)
+        }
+        #expect(GoalService.sameDayActivityCredit(currentDayActiveCalories: 100, rollingAverageActiveCalories: 0) == 100)
+    }
+
+    @Test("An activity notification arriving during refresh is fetched before acknowledgement")
+    @MainActor
+    func overlappingActivityRefresh() async {
+        let manager = AppleHealthActivityManager()
+        let first = Task { await manager.refresh {
+            try await Task.sleep(for: .milliseconds(50))
+            return HealthActivitySnapshot(days: [.init(date: .now, activeCalories: 100)], checkedAt: .now, windowDays: 28)
+        } }
+        while !manager.isRefreshing { await Task.yield() }
+        await manager.refresh { HealthActivitySnapshot(days: [.init(date: .now, activeCalories: 200)], checkedAt: .now, windowDays: 28) }
+        await first.value
+        #expect(manager.calories(on: .now) == 200)
+        #expect(!manager.isRefreshing)
+    }
+
+    @Test("A failed Health read does not prevent pending writes")
+    @MainActor
+    func healthPartialSyncFailure() async throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let entry = WeightEntry(weightLbs: 178)
+        context.insert(entry); try context.save()
+        let client = WeightHealthClient(fetchChanges: { _ in throw URLError(.timedOut) },
+            save: { Dictionary(uniqueKeysWithValues: $0.map { ($0.entryID, "stored") }) }, delete: { _ in })
+        let report = await WeightSyncCoordinator.synchronize(in: context, client: client, importEnabled: true, exportEnabled: true)
+        #expect(report.errors.count == 1)
+        #expect(report.exported == 1)
+        #expect(entry.healthExportedFingerprint == entry.healthFingerprint)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<WeightEntry>()).first?.healthPendingFingerprint == nil)
+    }
+
+    @Test("Rechecking Health history preserves removals and commits the new cursor only after a successful page")
+    @MainActor
+    func healthHistoryRecovery() async throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let entry = WeightEntry(weightLbs: 180, source: .appleHealth, externalIdentifier: "apple:removed")
+        context.insert(entry)
+        WeightSyncCoordinator.queueDeletion(entry, in: context)
+        let state = WeightSyncState(); state.anchor = Data([9]); context.insert(state); try context.save()
+        let failing = WeightHealthClient(fetchChanges: { anchor in
+            #expect(anchor == nil); throw URLError(.timedOut)
+        }, save: { _ in [:] }, delete: { _ in })
+        do { _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: failing, recheckHistory: true); Issue.record("Expected failure") } catch {}
+        #expect(state.anchor == Data([9]))
+        let client = WeightHealthClient(fetchChanges: { anchor in
+            #expect(anchor == nil)
+            return AppleHealthWeightChangePage(samples: [.init(externalIdentifier: "apple:removed", date: .now, weightLbs: 180, sourceName: "Garmin", nomvaEntryID: nil)], deletedIdentifiers: [], anchor: Data([10]), changeCount: 1)
+        }, save: { _ in [:] }, delete: { _ in })
+        _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: client, recheckHistory: true)
+        #expect(state.anchor == Data([10]))
+        #expect(try context.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+    }
+
+    @Test("A stalled full Health page cannot loop forever or advance persisted data")
+    @MainActor
+    func healthStalledPage() async throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let client = WeightHealthClient(fetchChanges: { _ in
+            AppleHealthWeightChangePage(samples: [], deletedIdentifiers: [], anchor: nil, changeCount: 500)
+        }, save: { _ in [:] }, delete: { _ in })
+        do { _ = try await WeightSyncCoordinator.importAppleHealth(into: context, client: client); Issue.record("Expected stalled-history error") }
+        catch AppleHealthServiceError.stalledHistory {} catch { Issue.record("Wrong error: \(error)") }
+    }
+
+    @Test("A backup retains Health deletion suppression through restore and re-import")
+    @MainActor
+    func backupRetainsHealthSuppression() throws {
+        let source = try inMemoryContainer(), destination = try inMemoryContainer()
+        let context = source.mainContext
+        let entry = WeightEntry(weightLbs: 182, source: .appleHealth, externalIdentifier: "apple:backup-removed")
+        context.insert(entry); WeightSyncCoordinator.queueDeletion(entry, in: context); try context.save()
+        let archive = try SyncMigrationService.captureArchive(from: source, storeKind: .local)
+        let encoded = try JSONEncoder().encode(archive)
+        let decoded = try JSONDecoder().decode(SyncMigrationService.Archive.self, from: encoded)
+        _ = try SyncMigrationService.merge(archive: decoded, into: destination)
+        let restored = destination.mainContext
+        _ = try WeightSyncCoordinator.apply([.init(source: .appleHealth, externalIdentifier: "apple:backup-removed", date: .now, weightLbs: 182, sourceName: "Garmin", nomvaEntryID: nil)], to: restored)
+        #expect(try restored.fetchCount(FetchDescriptor<WeightEntry>()) == 0)
+        #expect(try restored.fetchCount(FetchDescriptor<WeightSyncTombstone>()) == 1)
+    }
+
+    @Test("Widget water survives a failed save and replay adds each event exactly once")
+    @MainActor
+    func widgetWaterRetry() throws {
+        let container = try inMemoryContainer(), context = container.mainContext
+        let events = [NomvaPendingHydrationEvent(amountOz: 8), NomvaPendingHydrationEvent(amountOz: 12)]
+        do { try NomvaHydrationImporter.persist(events, in: context, save: { throw CocoaError(.fileWriteOutOfSpace) }); Issue.record("Expected failure") } catch {}
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<WaterEntry>()) == 0)
+        try NomvaHydrationImporter.persist(events, in: context)
+        try NomvaHydrationImporter.persist(events + [events[0]], in: ModelContext(container))
+        let saved = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
+        #expect(saved.count == 2)
+        #expect(saved.reduce(0) { $0 + $1.amountOz } == 20)
+    }
+
+    @Test("Replacing history restores records exactly once and removes superseded rows")
+    @MainActor
+    func backupReplacement() throws {
+        let container = try inMemoryContainer()
+        let water = WaterEntry(amountOz: 8)
+        container.mainContext.insert(water); try container.mainContext.save()
+        var archive = try SyncMigrationService.captureArchive(from: container, storeKind: .local)
+        archive.waterEntries.append(archive.waterEntries[0])
+        container.mainContext.insert(WaterEntry(amountOz: 40)); try container.mainContext.save()
+        _ = try SyncMigrationService.replaceStore(with: archive, in: container)
+        let restored = try ModelContext(container).fetch(FetchDescriptor<WaterEntry>())
+        #expect(restored.count == 1)
+        #expect(restored.first?.id == water.id)
+        #expect(restored.first?.amountOz == 8)
+    }
+
+    @Test("A meal-planning outage stays a recoverable failure rather than losing portions in fallback")
+    @MainActor
+    func plannerOutage() async throws {
+        let provider = BatchFoodTestProvider(plan: applePlan(count: 2), candidates: [learnedAppleCandidate()], planningUnavailable: true)
+        let result = await FoodLoggingService(provider: provider, canUseAI: true).process(
+            userMessage: "For lunch I ate an apple and another apple", recentMessages: [],
+            goals: GoalService.defaultGoal(), targetDate: .now, targetEntries: [], recentEntries: [], customFoods: [], defaultMeal: "lunch")
+        #expect(result.isRecoverableFailure)
+        if case .logFood = result.action { Issue.record("An unavailable planner must not save a fallback interpretation") }
+    }
+
+    @Test("A replayable request retries a transient disconnect once; mutations and cancellation do not retry")
+    func requestRecoveryPolicy() async throws {
+        let probe = RetryRequestProbe()
+        let value = try await NomvaRequestRecovery.run(replayable: true, sleep: { _ in }) { try await probe.execute() }
+        #expect(value == 2)
+        let mutation = RetryRequestProbe()
+        do { _ = try await NomvaRequestRecovery.run(replayable: false, sleep: { _ in }) { try await mutation.execute() }; Issue.record("Expected failure") } catch {}
+        #expect(await mutation.calls == 1)
+        #expect(!NomvaRequestRecovery.isTransient(CancellationError()))
+        #expect(!NomvaRequestRecovery.isTransient(URLError(.timedOut)))
+    }
+
     @MainActor
     private func inMemoryContainer() throws -> ModelContainer {
         let schema = Schema([
@@ -1145,8 +1330,12 @@ private struct BatchFoodTestProvider: BatchFoodResolvingProvider {
     let candidates: [ResolvedFoodCandidate?]
     var editResolution: EditResolution? = nil
     var resolutionUnavailable = false
+    var planningUnavailable = false
 
-    func planFoodLog(userMessage _: String) async throws -> FoodLogPlan { plan }
+    func planFoodLog(userMessage _: String) async throws -> FoodLogPlan {
+        if planningUnavailable { throw URLError(.timedOut) }
+        return plan
+    }
 
     func resolveFoodCandidates(
         userMessage _: String,
@@ -1355,5 +1544,14 @@ private actor CrossDeviceHealthProbe {
         let pending = changes.dropFirst(start)
         return AppleHealthWeightChangePage(samples: pending.flatMap(\.samples), deletedIdentifiers: pending.flatMap(\.deletedIdentifiers),
             anchor: try JSONEncoder().encode(changes.count), changeCount: pending.count)
+    }
+}
+
+private actor RetryRequestProbe {
+    var calls = 0
+    func execute() throws -> Int {
+        calls += 1
+        if calls == 1 { throw URLError(.networkConnectionLost) }
+        return calls
     }
 }

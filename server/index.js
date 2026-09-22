@@ -50,6 +50,7 @@ const { sanitizeFoodMentions } = require("./foodMentionGuard");
 const { hasExplicitPortion } = require("./portionGuard");
 const {
   computeGarminAverages,
+  mergeGarminSummary,
 } = require("./garminMetrics");
 const {
   entitlementIsActive,
@@ -974,7 +975,7 @@ function normalizedGarminSummary(record) {
     record.active_calories
   );
 
-  if (activeCalories === null) {
+  if (activeCalories === null || !Number.isFinite(activeCalories) || activeCalories < 0) {
     return null;
   }
 
@@ -991,10 +992,12 @@ function normalizedGarminSummary(record) {
     activeCalories,
     steps: steps === null ? null : Math.round(steps),
     totalCalories,
+    summaryId: record.summaryId == null ? null : String(record.summaryId),
+    durationInSeconds: parseNumber(record.durationInSeconds),
   };
 }
 
-function storeGarminSummary(nomvaUserId, summary) {
+function storeGarminSummary(nomvaUserId, summary, options) {
   const user = garminStore.users[nomvaUserId];
   if (!user) {
     return false;
@@ -1003,23 +1006,11 @@ function storeGarminSummary(nomvaUserId, summary) {
   user.summaries = user.summaries || {};
   const existing = user.summaries[summary.date];
 
-  // If we already have a summary for this day, only update it if the new one
-  // seems more complete (has more calories or steps). This prevents a segmented
-  // upload from overwriting a previously stored full-day snapshot.
-  if (existing) {
-    const isNewer = (summary.activeCalories || 0) > (existing.activeCalories || 0) ||
-                    (summary.steps || 0) > (existing.steps || 0);
-    
-    if (!isNewer) {
-      return false; // Keep existing data
-    }
-  }
+  const merged = mergeGarminSummary(existing, summary, options);
+  if (merged === existing) return false;
 
   user.summaries[summary.date] = {
-    date: summary.date,
-    activeCalories: summary.activeCalories,
-    steps: summary.steps,
-    totalCalories: summary.totalCalories,
+    ...merged,
     updatedAt: new Date().toISOString(),
   };
   user.lastWebhookAt = new Date().toISOString();
@@ -1755,6 +1746,7 @@ async function askStructured(systemPrompt, userMessage, schemaName, schema, opts
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       maxRetries: opts.maxRetries,
+      recoveryAttempts: opts.recoveryAttempts,
       safetyIdentifier: opts.userHash,
       cacheKey: opts.cacheKey || `nomva_${llmTask}_v1`,
     });
@@ -1821,7 +1813,9 @@ function respondLLMFailure(res, err, code) {
     || err?.status === 429
     || (typeof err?.status === "number" && err.status >= 500)
     || err?.name === "APIConnectionTimeoutError"
-    || err?.name === "APIConnectionError";
+    || err?.name === "APIConnectionError"
+    || err?.name === "TimeoutError"
+    || err?.name === "APIUserAbortError";
   if (upstreamUnavailable) {
     return res.status(503).json({ error: "llm_unavailable", source: code });
   }
@@ -2216,7 +2210,7 @@ app.post("/v1/garmin/sync", async (req, res) => {
     let stored = 0;
     for (const candidate of candidates) {
       const summary = normalizedGarminSummary(candidate);
-      if (summary && storeGarminSummary(identity.nomvaUserId, summary)) {
+      if (summary && storeGarminSummary(identity.nomvaUserId, summary, { authoritative: true })) {
         stored += 1;
       }
     }
@@ -2335,6 +2329,8 @@ app.post("/v1/plan-food-log", async (req, res) => {
         reasoningEffort: "low",
         timeoutMs: Number(process.env.NOMVA_FOOD_PLANNING_TIMEOUT_MS || 8_000),
         maxRetries: 0,
+        recoveryAttempts: 1,
+        signal: requestAbortSignal(res),
         maxAttempts: 1,
       })
     );
@@ -2562,6 +2558,7 @@ async function resolveFoodCandidateRequest(req, payload, signal) {
           signal,
           timeoutMs: Number(process.env.NOMVA_FOOD_SELECTION_TIMEOUT_MS || 7_000),
           maxRetries: 0,
+          recoveryAttempts: 1,
           maxAttempts: 1,
         })
       ),

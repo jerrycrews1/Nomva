@@ -258,7 +258,7 @@
 
       <div class="faq-item">
         <strong>Can I scan barcodes?</strong>
-        <p>Yes. Tap the barcode icon next to the chat input to open the scanner. Nomva checks its built-in local food database directly on your device.</p>
+        <p>Yes. Tap the barcode icon next to the chat input to open the scanner. Nomva checks its local food catalog and cache, then may query Open Food Facts for a missing product.</p>
       </div>
 
       <div class="faq-item">
@@ -268,22 +268,39 @@
 
       <div class="faq-item">
         <strong>Does Nomva work with Garmin?</strong>
-        <p>Yes. Connect your Garmin account in Settings to have active calories adjust your daily calorie target and, if you choose, import Garmin body-weight history into Nomva. Garmin's public API does not allow third-party apps to write weights back to Garmin.</p>
+        <p>Yes. For activity, choose either Garmin or Apple Health in Settings &gt; Goals; the two sources are never added together. Direct Garmin activity uses your optional Garmin account connection. Garmin weight history follows Garmin Connect → Apple Health → Nomva. Nomva weigh-ins can go back to Apple Health, but are not written to Garmin.</p>
       </div>
 
       <div class="faq-item">
         <strong>Is my data private?</strong>
-        <p>Your food logs stay on your device (and your private iCloud if sync is enabled). Apple Health activity and weight access stay on-device as well. Garmin activity and optional weight-history imports pass through Nomva Cloud so the app can receive them; imported Garmin weights are not retained by Nomva Cloud. AI chat and meal parsing also pass through our server and then to our AI provider so those features can work. See our <a href="/privacy.html">Privacy Policy</a> for details.</p>
+        <p>Your food logs stay in protected local storage. Application history is not currently synced through iCloud and is excluded from automatic device backup. Apple Health measurements are read on-device. The optional direct Garmin activity connection passes through Nomva Cloud; Garmin weights are imported through Apple Health. AI chat and meal parsing also pass through our server and then to our AI provider so those features can work. See our <a href="/privacy.html">Privacy Policy</a> for details.</p>
       </div>
 
       <div class="faq-item">
         <strong>How do I restore my purchase?</strong>
-        <p>Go to Settings &gt; Membership and tap "Restore Purchases." This will re-activate any previous Nomva Pro subscription tied to your Apple ID.</p>
+        <p>Go to Settings &gt; Membership and tap "Restore Purchases." This checks for an active Nomva Pro subscription tied to your Apple Account. An expired subscription is not renewed by restoring. If access does not return, check the account used for the purchase and your subscription status in Apple Settings.</p>
       </div>
 
       <div class="faq-item">
         <strong>How do I export my data?</strong>
         <p>Go to Settings &gt; Backup &amp; Export. You can export a CSV report for your coach or a full JSON backup of all your data.</p>
+      </div>
+
+      <div class="faq-item">
+        <strong>Why does my calorie target differ from calories burned today?</strong>
+        <p>Your starting goal already includes an activity baseline from completed days. Today's partial activity does not lower that baseline. Only activity above the baseline earns extra calories, so the same activity is not counted twice. Corrected activity totals can reduce a previously shown bonus. Missing days are not treated as zero. Select one source in Settings &gt; Goals and pull down in the Log tab to refresh it.</p>
+      </div>
+      <div class="faq-item">
+        <strong>Activity or weight is missing or delayed</strong>
+        <p>First verify the measurement in its source app. For Garmin → Apple Health, open Garmin Connect and complete a device sync, then confirm sharing is enabled in Apple Health. Allow Nomva to read Active Energy and/or Weight in Health. Return to Nomva and refresh the Log tab or use Weight Sync &gt; Sync Now. For older weights after a permission change, use Recheck All Health History. No result can mean no readable data or denied read permission; Nomva cannot distinguish those cases. Upstream delivery is controlled by Garmin and Apple.</p>
+      </div>
+      <div class="faq-item">
+        <strong>Chat is slow or a request failed</strong>
+        <p>Nomva retries a transient connection failure once for food-processing requests. A request that exceeds its time limit stops with recovery options. Retry or use Search locally after a failure. If Nomva closed while saving a request, review your log before sending it again. When reporting a problem, include the app version, approximate time, what you expected, and whether you changed networks or backgrounded the app. Do not send private health records or account credentials.</p>
+      </div>
+      <div class="faq-item">
+        <strong>Will my history survive reinstalling or changing phones?</strong>
+        <p>Export a JSON backup first using Settings &gt; Backup &amp; Export, and keep the file outside Nomva. Local app history is excluded from automatic device backup. A CSV report is for reading, not restoring. JSON restore merges records; a protected local recovery copy is created before the merge. Apple Health history is separate from food and chat history. Exported files contain personal information, so choose a destination you trust.</p>
       </div>
     </main>
 

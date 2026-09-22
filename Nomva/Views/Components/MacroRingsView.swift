@@ -9,6 +9,8 @@ struct ActivityGoalSnapshot {
     let isToday: Bool
     let isSyncing: Bool
     let affectsGoal: Bool
+    var syncError: String? = nil
+    var lastCheckedAt: Date? = nil
 
     var activeText: String {
         if let activeCalories {
@@ -24,8 +26,10 @@ struct ActivityGoalSnapshot {
     }
 
     var sourceDetailText: String {
+        if syncError != nil { return "\(sourceName) update failed • showing last available activity" }
+        let checked = lastCheckedAt.map { " • checked \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
         if let baselineCalories {
-            return "\(sourceName) active-calorie estimate • \(baselineCalories.safeRoundedInt)-kcal recent baseline"
+            return "\(sourceName) active-calorie estimate • \(baselineCalories.safeRoundedInt)-kcal recent baseline\(checked)"
         }
         return "\(sourceName) active-calorie estimate"
     }
@@ -107,7 +111,7 @@ struct MacroRingsView: View {
     private var accessibilitySummary: String {
         var summary = "Nutrition summary: \(consumed.calories.safeRoundedInt) of \(goal.calories.safeRoundedInt) calories"
         if let activity {
-            summary += ", \(activity.activeText), \(activity.targetImpactText)"
+            summary += ", \(activity.activeText), \(activity.sourceDetailText), \(activity.targetImpactText)"
         }
         return summary
     }
@@ -165,6 +169,7 @@ struct MacroRingsView: View {
                         : "Food and synced activity update your daily target.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer()
@@ -264,9 +269,6 @@ struct MacroRingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activity.isToday ? "Activity today" : "Activity")
                         .font(.subheadline.weight(.semibold))
-                    Text(activity.sourceDetailText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 8)
@@ -276,6 +278,11 @@ struct MacroRingsView: View {
                     .monospacedDigit()
                     .multilineTextAlignment(.trailing)
             }
+
+            Text(activity.sourceDetailText)
+                .font(.caption)
+                .foregroundStyle(activity.syncError == nil ? Color.secondary : NomvaTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text(activity.targetImpactText)
                 .font(.caption)

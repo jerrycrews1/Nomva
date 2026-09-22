@@ -1,18 +1,10 @@
-# Copy Audit
+# Release 1.6 copy review
 
-## Keep as-is
-- Core navigation labels such as `AI Chat`, `Log`, `Weight`, and `Settings`
-- Primary actions such as `Add Food`, `Log Weight`, `Restore Purchases`, `Connect Garmin`, and `Refresh Apple Health Data`
-- Product names such as `Nomva Pro`, `Nomva Cloud`, `Apple Health`, and `Garmin Connect`
+- Privacy policy and public support describe current local storage, manual backups, recovery copies, Health permissions, and separate Garmin activity and Health weight paths.
+- Removed public claims that application history automatically syncs through iCloud.
+- Activity source descriptions explain the completed-day baseline and current-day adjustment; Apple Health and Garmin totals are not added together.
+- Chat recovery messages distinguish interrupted inference from potentially saved changes.
+- Subscription UI links Apple’s Standard EULA. The custom terms draft remains unpublished.
+- Camera and barcode feature expansion is outside this release.
 
-## Rewrite lightly
-- Onboarding basics, goals, and iCloud helper text
-- Settings section descriptions and the Nomva Cloud overview card
-- Apple Health, Garmin, and iCloud sync helper text
-- Empty states on Chat, Log, and Weight
-
-## Rewrite completely
-- Onboarding welcome hero copy
-- Onboarding completion hero/supporting copy
-- Paywall hero and feature descriptions
-- Chat empty-state support line
+Public URL content must be verified after deployment, and the App Store privacy answers must match the policy before submission.

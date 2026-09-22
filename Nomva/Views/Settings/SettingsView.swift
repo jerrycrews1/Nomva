@@ -201,7 +201,7 @@ struct SettingsView: View {
                             VStack(spacing: 12) {
                                 SettingsValueRow(
                                     title: "Version",
-                                    value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+                                    value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"))"
                                 )
 
                                 Link(destination: URL(string: "https://nomva.nerdquad.com/privacy.html")!) {
@@ -210,6 +210,11 @@ struct SettingsView: View {
                                         title: "Privacy Policy",
                                         subtitle: "How your data is handled"
                                     )
+                                }
+                                .buttonStyle(.plain)
+
+                                Link(destination: URL(string: "https://nomva.nerdquad.com/support.html")!) {
+                                    SettingsLinkRow(icon: "questionmark.circle", title: "Support", subtitle: "Sync, chat, backups, and purchases")
                                 }
                                 .buttonStyle(.plain)
 
@@ -768,7 +773,8 @@ private struct GarminSettingsDetailView: View {
 
 private struct AppleHealthSettingsDetailView: View {
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
-    @State private var summary: AppleHealthActivitySummary?
+    @ObservedObject private var healthActivity = AppleHealthActivityManager.shared
+    private var summary: AppleHealthActivitySummary? { healthActivity.snapshot?.completedSummary() }
     @State private var isLoading = true
     @State private var isConnected = false
     @State private var errorMessage: String?
@@ -948,16 +954,12 @@ private struct AppleHealthSettingsDetailView: View {
     }
 
     private func refreshData() async {
-        do {
-            summary = try await AppleHealthService.fetchAverageActiveCalories()
-            withAnimation {
-                showSuccess = true
-            }
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            withAnimation { showSuccess = false }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await healthActivity.refresh()
+        errorMessage = healthActivity.lastError
+        guard errorMessage == nil else { return }
+        withAnimation { showSuccess = true }
+        try? await Task.sleep(for: .seconds(3))
+        withAnimation { showSuccess = false }
     }
 }
 

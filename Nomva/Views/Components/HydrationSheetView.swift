@@ -42,7 +42,7 @@ struct HydrationSheetView: View {
                             Spacer()
                             Button("Undo") {
                                 undoManager?.undo()
-                                try? modelContext.save()
+                                NomvaPersistence.save(modelContext)
                                 self.undoNotice = nil
                             }
                             .font(.caption.weight(.semibold))
@@ -238,7 +238,7 @@ struct HydrationSheetView: View {
 
                         Button(role: .destructive) {
                             modelContext.delete(entry)
-                            try? modelContext.save()
+                            NomvaPersistence.save(modelContext)
                             presentUndo("\(entry.amountOz.safeRoundedInt) oz removed")
                         } label: {
                             Image(systemName: "minus.circle.fill")
@@ -269,7 +269,7 @@ struct HydrationSheetView: View {
             entry.date = cal.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date
         }
         modelContext.insert(entry)
-        try? modelContext.save()
+        guard NomvaPersistence.save(modelContext) else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 

@@ -959,7 +959,8 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
         let identity = NomvaCloudIdentity.current()
         let (data, response) = try await sendNomvaCloudRequest(
             baseURL: baseURL,
-            identity: identity
+            identity: identity,
+            replayable: true
         ) {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -972,6 +973,11 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
 
         if http.statusCode == 401 {
             throw errorForAuthResponse(http.statusCode, data: data)
+        }
+        if path == "/v1/plan-food-log", http.statusCode == 422,
+           let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           body["error"] as? String == "structured_plan_not_needed" {
+            throw RemoteError.structuredPlanNotNeeded
         }
         guard (200...299).contains(http.statusCode) else {
             throw RemoteError.serverError(http.statusCode)
@@ -987,7 +993,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
     // MARK: - Errors
 
     enum RemoteError: LocalizedError {
-        case badURL, invalidResponse, unauthorized, serverError(Int)
+        case badURL, invalidResponse, unauthorized, serverError(Int), structuredPlanNotNeeded
 
         var errorDescription: String? {
             switch self {
@@ -995,6 +1001,7 @@ struct RemoteAPIProvider: LLMProvider, BatchFoodResolvingProvider {
             case .invalidResponse:     return "The server returned an unexpected response."
             case .unauthorized:        return "API authentication failed."
             case .serverError(let c):  return "Server error (HTTP \(c))."
+            case .structuredPlanNotNeeded: return "This food can use the standard food lookup."
             }
         }
     }
@@ -1659,6 +1666,41 @@ actor NomvaCloudAttestedRequestGate {
     }
 }
 
+/// Retries only explicitly replayable work. Food API responses are proposals;
+/// the app commits their mutations once after the request finishes.
+enum NomvaRequestRecovery {
+    static func run<T: Sendable>(replayable: Bool,
+                                sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+                                operation: @Sendable () async throws -> T) async throws -> T {
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
+            do { return try await operation() }
+            catch {
+                guard replayable, attempt == 0, isTransient(error), !Task.isCancelled else { throw error }
+                attempt += 1
+                try await sleep(.milliseconds(350))
+            }
+        }
+    }
+
+    static func isTransient(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        return [.networkConnectionLost, .cannotConnectToHost, .dnsLookupFailed,
+                .cannotFindHost, .resourceUnavailable].contains(error.code)
+    }
+}
+
+private enum NomvaHTTPTransport {
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = 40
+        configuration.waitsForConnectivity = false
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }()
+}
+
 // MARK: - Nomva Cloud Network Analytics
 
 private struct NomvaNetworkAnalyticsEvent: Encodable, Sendable {
@@ -1742,7 +1784,7 @@ private actor NomvaNetworkAnalytics {
 
         do {
             let body = try encoder.encode(NomvaNetworkAnalyticsEnvelope(events: batch))
-            let (_, response) = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess {
+            let (_, response) = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess(priority: -1) {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1846,6 +1888,7 @@ private func sendNomvaCloudRequest(
     baseURL: String,
     identity: NomvaCloudIdentity,
     retryOnUnauthorized: Bool = true,
+    replayable: Bool = false,
     buildRequest: @Sendable @escaping () throws -> URLRequest
 ) async throws -> (Data, URLResponse) {
     let startedAt = Date()
@@ -1855,7 +1898,8 @@ private func sendNomvaCloudRequest(
         let template = try buildRequest()
         let path = template.url?.path ?? ""
         let priority = path.contains("analytics") || path.contains("/garmin/") ? -1 : 0
-        let final = try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess(priority: priority) {
+        let final = try await NomvaRequestRecovery.run(replayable: replayable) {
+          try await NomvaCloudAttestedRequestGate.shared.withExclusiveAccess(priority: priority) {
             func perform(
                 forceSessionRefresh: Bool,
                 forceAttestationRefresh: Bool
@@ -1873,7 +1917,7 @@ private func sendNomvaCloudRequest(
                     forceReattestation: forceAttestationRefresh
                 )
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await NomvaHTTPTransport.session.data(for: request)
                 return (data, response, request)
             }
 
@@ -1916,6 +1960,7 @@ private func sendNomvaCloudRequest(
             }
         }
 
+        }
         analyticsRequest = final.2
         enqueueNomvaNetworkAnalytics(
             baseURL: baseURL,
@@ -2365,10 +2410,12 @@ final class GarminManager: NSObject, ObservableObject {
                 let shouldSync = forceSync || timeSinceLastSync > cooldown
 
                 if shouldSync {
+                    // Preserve readable cached activity if the fresh pull fails,
+                    // but surface the failure and allow the next refresh to retry.
+                    status = fetched
+                    hasResolvedStatus = true
+                    fetched = try await service.sync()
                     lastSyncAttempt = Date()
-                    if let synced = try? await service.sync() {
-                        fetched = synced
-                    }
                 }
             }
 

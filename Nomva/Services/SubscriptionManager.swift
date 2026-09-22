@@ -130,6 +130,7 @@ final class SubscriptionManager: ObservableObject {
 
     /// Purchase the monthly subscription.
     func purchase() async {
+        guard !purchaseState.isBusy else { return }
         guard !hasTestFlightAccess else {
             purchaseState = .notice("Nomva Pro is already unlocked for this TestFlight build.")
             return
@@ -180,6 +181,7 @@ final class SubscriptionManager: ObservableObject {
 
     /// Restore purchases — checks all current entitlements.
     func restore() async {
+        guard !purchaseState.isBusy else { return }
         guard !hasTestFlightAccess else {
             purchaseState = .notice("Nomva Pro is already unlocked for this TestFlight build.")
             return
@@ -219,7 +221,9 @@ final class SubscriptionManager: ObservableObject {
 
         for await result in Transaction.currentEntitlements {
             if let transaction = try? checkVerified(result) {
-                if transaction.productID == NomvaProduct.proMonthly {
+                if transaction.productID == NomvaProduct.proMonthly,
+                   transaction.revocationDate == nil, !transaction.isUpgraded,
+                   transaction.expirationDate.map({ $0 > Date() }) ?? true {
                     foundActive = true
                     expirationDate = transaction.expirationDate
                 }
@@ -261,13 +265,11 @@ final class SubscriptionManager: ObservableObject {
 
     private func refreshDistributionAccess() async {
         guard !hasResolvedDistribution else { return }
-        defer {
-            hasResolvedDistribution = true
-            if hasTestFlightAccess { hasResolvedAccess = true }
-        }
 
         guard !debugPowerTestAccess else {
             hasTestFlightAccess = true
+            hasResolvedDistribution = true
+            hasResolvedAccess = true
             return
         }
 
@@ -278,6 +280,8 @@ final class SubscriptionManager: ObservableObject {
                 return
             }
             hasTestFlightAccess = appTransaction.environment == .sandbox
+            hasResolvedDistribution = true
+            if hasTestFlightAccess { hasResolvedAccess = true }
         } catch {
             hasTestFlightAccess = false
         }

@@ -21,6 +21,7 @@ struct ChatView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @EnvironmentObject private var garminManager: GarminManager
+    @ObservedObject private var healthActivity = AppleHealthActivityManager.shared
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @AppStorage("goal_activity_reference_active_calories") private var activityReferenceActiveCalories = 0.0
 
@@ -38,6 +39,9 @@ struct ChatView: View {
     @State private var showCustomFoodCreate = false
     @State private var processingStage = "Understanding your request"
     @State private var activeRequestTask: Task<Void, Never>? = nil
+    @State private var requestDeadline: Task<Void, Never>?
+    @State private var activeMessageID: UUID?
+    @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @State private var failedQuery: String? = nil
     @State private var showManualSearch = false
     @State private var manualSearchQuery = ""
@@ -94,40 +98,31 @@ struct ChatView: View {
             referenceActiveCalories: activityReferenceActiveCalories,
             averageActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.averageActiveCalories
-                : nil,
+                : (selectedActivitySource == .appleHealth ? healthActivity.averageActiveCalories : nil),
             currentDayActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.summary(for: selectedDate)?.activeCalories
-                : nil,
+                : (selectedActivitySource == .appleHealth ? healthActivity.calories(on: selectedDate) : nil),
             completedDayActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.summary(for: selectedDate)?.activeCalories
-                : nil
+                : (selectedActivitySource == .appleHealth ? healthActivity.calories(on: selectedDate) : nil)
         )
     }
 
     private var activityGoalSnapshot: ActivityGoalSnapshot? {
-        guard garminManager.isConnected else { return nil }
-
-        let activeCalories = garminManager.summary(for: selectedDate)?.activeCalories
-        let baselineCalories = garminManager.averageActiveCalories
+        let isHealth = selectedActivitySource == .appleHealth
+        guard isHealth || garminManager.isConnected else { return nil }
+        let activeCalories = isHealth ? healthActivity.calories(on: selectedDate) : garminManager.summary(for: selectedDate)?.activeCalories
+        let baselineCalories = (isHealth ? healthActivity.averageActiveCalories : garminManager.averageActiveCalories)
             ?? (activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil)
-        let affectsGoal = selectedActivitySource == .garmin
+        let affectsGoal = selectedActivitySource != .manual
         let earnedCalories = affectsGoal && isToday
-            ? GoalService.sameDayActivityCredit(
-                currentDayActiveCalories: activeCalories,
-                rollingAverageActiveCalories: baselineCalories
-            )
-            : 0
-
-        return ActivityGoalSnapshot(
-            sourceName: "Garmin",
-            activeCalories: activeCalories,
-            baselineCalories: baselineCalories,
-            earnedCalories: earnedCalories,
+            ? GoalService.sameDayActivityCredit(currentDayActiveCalories: activeCalories, rollingAverageActiveCalories: baselineCalories) : 0
+        return ActivityGoalSnapshot(sourceName: isHealth ? "Apple Health" : "Garmin",
+            activeCalories: activeCalories, baselineCalories: baselineCalories, earnedCalories: earnedCalories,
             goalAdjustmentCalories: affectsGoal ? displayGoal.calories - currentGoal.calories : 0,
-            isToday: isToday,
-            isSyncing: garminManager.isSyncing,
-            affectsGoal: affectsGoal
-        )
+            isToday: isToday, isSyncing: isHealth ? healthActivity.isRefreshing : garminManager.isSyncing,
+            affectsGoal: affectsGoal, syncError: isHealth ? healthActivity.lastError : garminManager.lastErrorMessage,
+            lastCheckedAt: isHealth ? healthActivity.snapshot?.checkedAt : nil)
     }
 
     private var activeLoggingSession: LoggingSession? {
@@ -370,6 +365,7 @@ struct ChatView: View {
             showDebugScannerErrorIfRequested()
         }
         .onDisappear { barcodeLookupTask?.cancel(); isLookingUpBarcode = false }
+        .task { recoverInterruptedMessages() }
         .overlay(alignment: .top) {
             if isLookingUpBarcode { ProgressView("Looking up barcode…").padding().background(.regularMaterial, in: Capsule()).padding() }
         }
@@ -479,6 +475,7 @@ struct ChatView: View {
     }
 
     private func scrollToLatestMessage(using proxy: ScrollViewProxy, animated: Bool = true) {
+        guard !messages.isEmpty || isProcessing else { return }
         let scroll = {
             proxy.scrollTo(chatBottomID, anchor: .bottom)
         }
@@ -570,7 +567,7 @@ struct ChatView: View {
                         } else {
                             undoManager?.undo()
                         }
-                        try? modelContext.save()
+                        NomvaPersistence.save(modelContext)
                         self.undoNotice = nil
                         self.customUndoAction = nil
                     }
@@ -694,7 +691,7 @@ struct ChatView: View {
 
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !isProcessing else { return }
 
         let conversationDayStart = dayStart
         let sessionSnapshot = activeLoggingSession?.decodedState
@@ -726,8 +723,8 @@ struct ChatView: View {
             dayDate: conversationDayStart
         )
         modelContext.insert(userMsg)
-        do { try modelContext.save() } catch {
-            modelContext.rollback()
+        userMsg.deliveryStateRaw = "processing"
+        guard NomvaPersistence.save(modelContext) else {
             inputText = text
             isProcessing = false
             failedQuery = text
@@ -742,6 +739,15 @@ struct ChatView: View {
         let waterSnapshot  = allWaterEntries
         let goalSnapshot   = displayGoal
 
+        activeMessageID = userMsg.id
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "Finish food request") {
+            Task { @MainActor in cancelActiveRequest(reason: "The request was interrupted while Nomva was in the background. Nothing was changed. You can retry.") }
+        }
+        requestDeadline = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(45)) } catch { return }
+            guard activeMessageID == userMsg.id else { return }
+            cancelActiveRequest(reason: "This request took too long. Nothing was changed. Try again or search locally.")
+        }
         activeRequestTask = Task { @MainActor in
             let stageTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
@@ -764,13 +770,16 @@ struct ChatView: View {
                 referenceEntryIDs: referenceIDs
             )
             stageTask.cancel()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, activeMessageID == userMsg.id else { return }
 
             switch result.action {
             case .reply, .askClarification: processingStage = "Preparing your answer"
             default: processingStage = "Saving changes"
             }
             if result.sessionState?.targetDate == nil { result.sessionState?.targetDate = targetDate }
+            // Saved atomically with the first mutation. If the app terminates
+            // during a compound operation, never offer a blind replay of it.
+            userMsg.deliveryStateRaw = "applying"
             syncLoggingSession(with: result, dayStart: conversationDayStart)
             let assistantReply = applyAction(
                 result,
@@ -793,20 +802,57 @@ struct ChatView: View {
             )
             assistantMsg.affectedFoodEntryIDs = FoodMutationPolicy.affectedFoodIDs(result)
             modelContext.insert(assistantMsg)
-            try? modelContext.save()
+            userMsg.deliveryStateRaw = result.isRecoverableFailure ? "failed" : "complete"
+            NomvaPersistence.save(modelContext)
 
             failedQuery = result.isRecoverableFailure ? text : nil
             isProcessing = false
             activeRequestTask = nil
+            finishRequestLifetime()
         }
     }
 
     private func cancelActiveRequest() {
+        cancelActiveRequest(reason: "Request stopped. Nothing was changed.")
+    }
+
+    private func cancelActiveRequest(reason: String) {
+        guard let id = activeMessageID else { return }
+        if let message = allMessages.first(where: { $0.id == id }) {
+            message.deliveryStateRaw = "failed"
+            failedQuery = message.content
+            modelContext.insert(ChatMessage(role: "assistant", content: reason, dayDate: message.dayDate))
+            NomvaPersistence.save(modelContext)
+        }
         if inputText.isEmpty, let last = messages.last(where: { $0.role == "user" }) { inputText = last.content }
         activeRequestTask?.cancel()
         activeRequestTask = nil
         isProcessing = false
         processingStage = "Understanding your request"
+        finishRequestLifetime()
+    }
+
+    private func finishRequestLifetime() {
+        activeMessageID = nil
+        requestDeadline?.cancel()
+        requestDeadline = nil
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+    }
+
+    private func recoverInterruptedMessages() {
+        guard activeMessageID == nil else { return }
+        for message in allMessages where message.role == "user" && ["processing", "applying"].contains(message.deliveryStateRaw ?? "") {
+            let wasApplying = message.deliveryStateRaw == "applying"
+            message.deliveryStateRaw = "interrupted"
+            modelContext.insert(ChatMessage(role: "assistant", content: wasApplying
+                ? "Nomva closed while saving this request. Review your log before repeating it; some changes may already be saved."
+                : "This request was interrupted before saving changes. You can send it again.", dayDate: message.dayDate))
+            if !wasApplying { failedQuery = message.content }
+        }
+        if modelContext.hasChanges { NomvaPersistence.save(modelContext) }
     }
 
     private func syncLoggingSession(with result: FoodLoggingService.LoggingResult, dayStart: Date) {
@@ -1213,7 +1259,7 @@ struct ChatView: View {
                 goal.fiber = oldGoal.fiber
                 restoreOptionalDefault(oldStoredWater, forKey: "water_goal_oz")
                 restoreOptionalDefault(oldStoredTargetWeight, forKey: "target_weight_lbs")
-                try? modelContext.save()
+                NomvaPersistence.save(modelContext)
             }
             return "Goals updated: \(parts.joined(separator: ", "))."
 
@@ -1331,7 +1377,7 @@ struct ChatView: View {
 
             guard verified else {
                 undoManager?.undo()
-                try? modelContext.save()
+                NomvaPersistence.save(modelContext)
                 return false
             }
             return true
@@ -1386,7 +1432,7 @@ struct ChatView: View {
                 dayDate: dayStart
             )
             modelContext.insert(message)
-            try? modelContext.save()
+            NomvaPersistence.save(modelContext)
         } else {
             let message = ChatMessage(
                 role: "assistant",
@@ -1395,7 +1441,7 @@ struct ChatView: View {
                 dayDate: dayStart
             )
             modelContext.insert(message)
-            try? modelContext.save()
+            NomvaPersistence.save(modelContext)
         }
     }
 

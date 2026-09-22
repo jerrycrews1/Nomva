@@ -34,8 +34,8 @@ function computeGarminAverages(
       typeof summary.date === "string" &&
       summary.date >= windowStart &&
       summary.date < today &&
-      Number.isFinite(Number(summary.activeCalories)) &&
-      Number(summary.activeCalories) >= 0
+      summary.activeCalories !== null && summary.activeCalories !== "" &&
+      Number.isFinite(Number(summary.activeCalories)) && Number(summary.activeCalories) >= 0
     ))
     .sort((a, b) => b.date.localeCompare(a.date));
 
@@ -58,6 +58,24 @@ function computeGarminAverages(
     sampledDays: completedDays.length,
     windowDays: safeWindowDays,
     averageThroughDate: completedDays[0].date,
+  };
+}
+
+// Use interval coverage, not monotonically increasing calories, to distinguish
+// partial uploads from corrected daily totals. A fresh pull is authoritative
+// when older stored records lack interval metadata.
+function mergeGarminSummary(existing, incoming, { authoritative = false } = {}) {
+  if (!incoming || !Number.isFinite(incoming.activeCalories) || incoming.activeCalories < 0) return existing;
+  if (!existing) return incoming;
+  const oldDuration = existing.durationInSeconds;
+  const newDuration = incoming.durationInSeconds;
+  const hasCoverage = Number.isFinite(oldDuration) && Number.isFinite(newDuration);
+  if (hasCoverage && newDuration < oldDuration) return existing;
+  const sameSummary = typeof incoming.summaryId === "string" && incoming.summaryId.length > 0 && incoming.summaryId === existing.summaryId;
+  if (!hasCoverage && !authoritative && incoming.activeCalories < existing.activeCalories && !sameSummary) return existing;
+  return { ...incoming,
+    steps: incoming.steps ?? existing.steps ?? null,
+    totalCalories: incoming.totalCalories ?? existing.totalCalories ?? null,
   };
 }
 
@@ -153,6 +171,7 @@ function buildGarminUploadWindows({ lookbackDays, nowSeconds = Math.floor(Date.n
 }
 
 module.exports = {
+  mergeGarminSummary,
   buildGarminUploadWindows,
   computeGarminAverages,
   normalizedGarminWeight,

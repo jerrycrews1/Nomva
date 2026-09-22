@@ -6,6 +6,18 @@ import subprocess
 from pathlib import Path
 
 REQUIRED_TESTS = {
+    "NomvaCoreTests/overlappingActivityRefresh()",
+    "NomvaCoreTests/backupReplacement()",
+    "NomvaCoreTests/plannerOutage()",
+    "NomvaCoreTests/healthActivityCorrections()",
+    "NomvaCoreTests/liveActivityTargets()",
+    "NomvaCoreTests/healthPartialSyncFailure()",
+    "NomvaCoreTests/healthHistoryRecovery()",
+    "NomvaCoreTests/backupRetainsHealthSuppression()",
+    "NomvaCoreTests/widgetWaterRetry()",
+    "NomvaCoreTests/requestRecoveryPolicy()",
+    "NomvaReliabilityUITests/testAppleHealthActivityReachesLogAndChatTargets()",
+    "NomvaReliabilityUITests/testLiveFoodRequestCanStopThenRetryWithoutDuplicates()",
     "NomvaCoreTests/reportedDinnerPersists()",
     "NomvaCoreTests/bundledCatalogThroughAliasedPath()",
     "NomvaCoreTests/unavailableFoodLookupIsRecoverable()",

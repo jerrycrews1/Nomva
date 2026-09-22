@@ -9,6 +9,7 @@ struct DailyLogView: View {
     @Environment(\.undoManager)   private var undoManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var garminManager: GarminManager
+    @ObservedObject private var healthActivity = AppleHealthActivityManager.shared
     @EnvironmentObject private var routeCenter: NomvaRouteCenter
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @AppStorage("goal_activity_reference_active_calories") private var activityReferenceActiveCalories = 0.0
@@ -57,40 +58,32 @@ struct DailyLogView: View {
             referenceActiveCalories: activityReferenceActiveCalories,
             averageActiveCalories: selectedActivitySource == .garmin
                 ? garminManager.averageActiveCalories
-                : nil,
+                : (selectedActivitySource == .appleHealth ? healthActivity.averageActiveCalories : nil),
             currentDayActiveCalories: selectedActivitySource == .garmin
                 ? garminSummaryForSelectedDate?.activeCalories
-                : nil,
+                : (selectedActivitySource == .appleHealth ? healthActivity.calories(on: selectedDate) : nil),
             completedDayActiveCalories: selectedActivitySource == .garmin
                 ? garminSummaryForSelectedDate?.activeCalories
-                : nil
+                : (selectedActivitySource == .appleHealth ? healthActivity.calories(on: selectedDate) : nil)
         )
     }
     private var activityGoalSnapshot: ActivityGoalSnapshot? {
-        guard garminManager.isConnected else { return nil }
-
-        let activeCalories = garminSummaryForSelectedDate?.activeCalories
-        let baselineCalories = garminManager.averageActiveCalories
+        let isHealth = selectedActivitySource == .appleHealth
+        guard isHealth || garminManager.isConnected else { return nil }
+        let activeCalories = isHealth ? healthActivity.calories(on: selectedDate) : garminManager.summary(for: selectedDate)?.activeCalories
+        let baselineCalories = (isHealth ? healthActivity.averageActiveCalories : garminManager.averageActiveCalories)
             ?? (activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil)
-        let affectsGoal = selectedActivitySource == .garmin
+        let affectsGoal = selectedActivitySource != .manual
         let earnedCalories = affectsGoal && isToday
-            ? GoalService.sameDayActivityCredit(
-                currentDayActiveCalories: activeCalories,
-                rollingAverageActiveCalories: baselineCalories
-            )
-            : 0
-
-        return ActivityGoalSnapshot(
-            sourceName: "Garmin",
-            activeCalories: activeCalories,
-            baselineCalories: baselineCalories,
-            earnedCalories: earnedCalories,
+            ? GoalService.sameDayActivityCredit(currentDayActiveCalories: activeCalories, rollingAverageActiveCalories: baselineCalories) : 0
+        return ActivityGoalSnapshot(sourceName: isHealth ? "Apple Health" : "Garmin",
+            activeCalories: activeCalories, baselineCalories: baselineCalories, earnedCalories: earnedCalories,
             goalAdjustmentCalories: affectsGoal ? displayGoal.calories - currentGoal.calories : 0,
-            isToday: isToday,
-            isSyncing: garminManager.isSyncing,
-            affectsGoal: affectsGoal
-        )
+            isToday: isToday, isSyncing: isHealth ? healthActivity.isRefreshing : garminManager.isSyncing,
+            affectsGoal: affectsGoal, syncError: isHealth ? healthActivity.lastError : garminManager.lastErrorMessage,
+            lastCheckedAt: isHealth ? healthActivity.snapshot?.checkedAt : nil)
     }
+
     private var dayTotals: NutritionTotals { NutritionTotals.from(entries: selectedDayEntries) }
 
     private var mealSections: [(MealCategory, [FoodEntry])] {
@@ -199,6 +192,7 @@ struct DailyLogView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .refreshable {
+                    if selectedActivitySource == .appleHealth { await healthActivity.refresh() }
                     await garminManager.refresh(forceSync: true)
                 }
             }
@@ -360,7 +354,7 @@ struct DailyLogView: View {
                             Spacer()
                             Button("Undo") {
                                 undoManager?.undo()
-                                try? modelContext.save()
+                                NomvaPersistence.save(modelContext)
                                 self.undoNotice = nil
                             }
                             .font(.caption.weight(.semibold))

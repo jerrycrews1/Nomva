@@ -10,6 +10,25 @@ const path = require("node:path");
 const Database = require("better-sqlite3");
 const { loadServerState } = require("../stateStore");
 
+test("migrates legacy Garmin summaries and retains coverage through restart", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nomva-coverage-"));
+  const dbPath = path.join(directory, "state.sqlite");
+  const legacy = new Database(dbPath);
+  legacy.exec(`CREATE TABLE garmin_summaries (nomva_user_id TEXT NOT NULL, summary_date TEXT NOT NULL,
+    active_calories REAL, steps INTEGER, total_calories REAL, updated_at TEXT,
+    PRIMARY KEY (nomva_user_id, summary_date));`);
+  legacy.close();
+  const state = loadServerState({ dbPath });
+  state.garminStore.users.test = { summaries: { "2026-09-20": {
+    activeCalories: 480, steps: 4200, summaryId: "daily-1", durationInSeconds: 86400,
+  } } };
+  state.persist(state.garminStore, state.appSessionStore, state.appAttestStore);
+  const loaded = loadServerState({ dbPath }).garminStore.users.test.summaries["2026-09-20"];
+  assert.equal(loaded.activeCalories, 480);
+  assert.equal(loaded.durationInSeconds, 86400);
+  assert.equal(loaded.summaryId, "daily-1");
+});
+
 test("migrates legacy auth tables and round-trips trust metadata", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nomva-state-"));
   const dbPath = path.join(directory, "state.sqlite");

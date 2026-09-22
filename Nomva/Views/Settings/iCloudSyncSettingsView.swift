@@ -17,6 +17,8 @@ struct iCloudSyncSettingsView: View {
             }
             Section("Existing Data") {
                 Text("This update keeps your existing local history in place, including the store used by earlier iCloud versions. Previous iCloud copies are not deleted automatically; they can be managed in Apple Settings.")
+                Text("Local history is excluded from automatic device backup. Export a backup before reinstalling Nomva or replacing your device.")
+                NavigationLink("Backup & Export") { ExportSettingsView() }
                 if let error = syncManager.lastErrorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(NomvaTheme.warning)

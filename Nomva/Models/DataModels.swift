@@ -271,6 +271,8 @@ class WeightSyncTombstone {
     var localNote: String?
     var notBefore: Date = Date.now
 
+    init() {}
+
     init(entry: WeightEntry, now: Date = .now) {
         entryID = entry.id
         localNote = entry.note
@@ -287,6 +289,7 @@ class WeightSyncTombstone {
 class ChatMessage {
     var id: UUID = UUID()
     var role: String = "user"
+    var deliveryStateRaw: String?
     var content: String = ""
     var affectedFoodEntryIDs: [UUID]?
     var timestamp: Date = Date.now

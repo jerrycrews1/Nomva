@@ -81,6 +81,7 @@ This approach follows [OpenAI's task-specific evaluation guidance](https://devel
 | Food delete | One, pronouns, grouped items, all/day/meal, already deleted, ambiguous target | Server target guards; client exact-entry allowlist; conversation eval |
 | Food discovery | Local search, branded foods, recent/favorite foods, barcode, nutrition-label photo, world-food fallback | Resolver tests plus device checklist |
 | Water | Add/set/delete/clear, oz/cups/ml, today/yesterday, ambiguous quantity | Server CRUD and adversarial eval |
+| Activity | Selected-source totals reach Log, Chat, and widgets; lower corrections, zero/missing days, calendar boundaries, overlapping refreshes | Core activity regressions; UI target fixture; Garmin merge and restart tests |
 | Weight | Add/update/delete, lb/kg, date, import/dedup/export, Apple Health and Garmin | iOS sync and archive tests plus device checklist |
 | Goals | Calories/macros, partial update, activity adjustment, macro reconciliation | Server exact-metric eval; iOS goal math tests |
 | Persistence | Every planned food saved exactly once; archive round trip; concurrent request serialization | iOS SwiftData and concurrency tests |
@@ -113,6 +114,7 @@ state. Before release, verify on a physical device:
 - Scan a known and unknown barcode in light and dark mode.
 - Photograph a readable and unreadable nutrition label; cancel midway.
 - Deny, partially allow, then allow HealthKit; import history twice without duplicates.
+- Compare today’s active energy and completed-day baseline between the selected source and Nomva; test a correction, foreground refresh, permission denial, and overnight rollover. Confirm Log, Chat, and widget agree.
 - Verify Garmin → Apple Health → Nomva and Nomva → Apple Health with real weights;
   repeat import/export without duplicates. Do not treat direct Garmin weight sync
   as the supported path.

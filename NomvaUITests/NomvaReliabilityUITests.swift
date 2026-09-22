@@ -2,6 +2,53 @@ import XCTest
 
 final class NomvaReliabilityUITests: XCTestCase {
     @MainActor
+    func testAppleHealthActivityReachesLogAndChatTargets() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-NomvaUITesting", "-NomvaPowerTestAccess", "-onboarding_complete", "YES", "-NomvaStartLog",
+            "-NomvaHealthActivityFixture", "-goal_activity_source", "appleHealth", "-goal_activity_reference_active_calories", "400"]
+        app.launch()
+        let target = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "0 of 2300 calories")).firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 10), app.debugDescription)
+        let activity = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "700 active kcal")).firstMatch
+        XCTAssertTrue(activity.exists)
+        app.tabBars.buttons["AI Chat"].tap()
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "Chat must use the same current activity target")
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "Apple Health activity target in chat"
+        capture.lifetime = .keepAlways
+        add(capture)
+    }
+
+    @MainActor
+    func testLiveFoodRequestCanStopThenRetryWithoutDuplicates() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-NomvaUITesting", "-NomvaPowerTestAccess", "-onboarding_complete", "YES", "-NomvaStartChat"]
+        app.launchEnvironment["NOMVA_LIVE_API_URL"] = ProcessInfo.processInfo.environment["NOMVA_LIVE_API_URL"] ?? "http://127.0.0.1:18445"
+        app.launch()
+        let input = app.descendants(matching: .any)["chat.input"].firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap(); input.typeText("For a snack I had 30 g almonds and 170 g plain Greek yogurt")
+        app.buttons["Send message"].tap()
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 3)); cancel.tap()
+        XCTAssertTrue(app.staticTexts["Request stopped. Nothing was changed."].waitForExistence(timeout: 5))
+        app.buttons["Retry"].tap()
+        // Exercise a real background/foreground transition while the request is active.
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        let receipt = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[cd] %@ AND label CONTAINS[cd] %@ AND label CONTAINS %@", "almond", "yogurt", "✓")).firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 20), app.debugDescription)
+        app.tabBars.buttons["Log"].tap()
+        for food in ["Almond", "Yogurt"] {
+            let rows = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH[cd] %@", food))
+            XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 5))
+            XCTAssertEqual(rows.count, 1)
+        }
+    }
+
+    @MainActor
     func testReportedDinnerThroughLiveChatAndSavedLog() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

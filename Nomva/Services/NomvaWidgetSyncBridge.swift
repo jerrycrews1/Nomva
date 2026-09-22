@@ -10,6 +10,7 @@ struct NomvaWidgetSyncBridge: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var garminManager: GarminManager
+    @ObservedObject private var healthActivity = AppleHealthActivityManager.shared
 
     @AppStorage("goal_activity_source") private var activitySourceRaw = GoalActivitySource.manual.rawValue
     @AppStorage("goal_activity_reference_active_calories") private var activityReferenceActiveCalories = 0.0
@@ -24,7 +25,8 @@ struct NomvaWidgetSyncBridge: View {
             waterSignature,
             goalSignature,
             weightSignature,
-            garminSignature
+            garminSignature,
+            String(describing: healthActivity.snapshot)
         ].joined(separator: "|")
     }
 
@@ -107,16 +109,14 @@ struct NomvaWidgetSyncBridge: View {
 
     @MainActor
     private func processPendingHydrationIfNeeded() {
-        let pending = NomvaPendingHydrationStore.drain()
-        guard !pending.isEmpty else { return }
-
-        for event in pending {
-            let entry = WaterEntry(amountOz: event.amountOz)
-            entry.date = event.loggedAt
-            modelContext.insert(entry)
+        do {
+            let pending = try NomvaPendingHydrationStore.read()
+            guard !pending.isEmpty else { return }
+            try NomvaHydrationImporter.persist(pending, in: modelContext)
+            try NomvaPendingHydrationStore.acknowledge(Set(pending.map(\.id)))
+        } catch {
+            NomvaPersistence.shared.errorMessage = "Water added from the widget is still waiting to be saved. Reopen Nomva to retry."
         }
-
-        try? modelContext.save()
     }
 
     @MainActor
@@ -133,7 +133,7 @@ struct NomvaWidgetSyncBridge: View {
             measuredActiveCalories = nil
             activityState = .manual
         case .appleHealth:
-            measuredActiveCalories = activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil
+            measuredActiveCalories = healthActivity.calories(on: .now)
             activityState = measuredActiveCalories == nil ? .waiting : .ready
         case .garmin:
             measuredActiveCalories = garminManager.summary(for: .now)?.activeCalories
@@ -158,10 +158,10 @@ struct NomvaWidgetSyncBridge: View {
             referenceActiveCalories: activityReferenceActiveCalories,
             averageActiveCalories: activitySource == .garmin
                 ? garminManager.averageActiveCalories
-                : measuredActiveCalories,
+                : (activitySource == .appleHealth ? healthActivity.averageActiveCalories : nil),
             currentDayActiveCalories: activitySource == .garmin
                 ? garminManager.summary(for: .now)?.activeCalories
-                : nil,
+                : (activitySource == .appleHealth ? healthActivity.calories(on: .now) : nil),
             completedDayActiveCalories: nil
         )
         let adjustedGoalCalories = adjustedGoal.calories
@@ -222,11 +222,11 @@ struct NomvaWidgetSyncBridge: View {
             activity: NomvaActivitySnapshot(
                 source: activitySource,
                 state: activityState,
-                activeCalories: measuredActiveCalories,
+                activeCalories: (activitySource == .appleHealth ? healthActivity.averageActiveCalories : nil),
                 averageActiveCalories: activitySource == .garmin
                     ? garminManager.averageActiveCalories
-                    : (activitySource == .appleHealth && activityReferenceActiveCalories > 0 ? activityReferenceActiveCalories : nil),
-                steps: garminManager.summary(for: .now)?.steps,
+                    : (activitySource == .appleHealth ? healthActivity.averageActiveCalories : nil),
+                steps: activitySource == .garmin ? garminManager.summary(for: .now)?.steps : nil,
                 goalAdjustmentCalories: adjustedGoalCalories - currentGoal.calories,
                 isConfigured: garminManager.isConfigured,
                 isConnected: garminManager.isConnected
@@ -243,5 +243,24 @@ struct NomvaWidgetSyncBridge: View {
         )
 
         NomvaWidgetSnapshotStore.writeSnapshot(snapshot)
+    }
+}
+
+
+@MainActor
+enum NomvaHydrationImporter {
+    static func persist(_ events: [NomvaPendingHydrationEvent], in context: ModelContext,
+                        save: (() throws -> Void)? = nil) throws {
+        var existing = Set(try context.fetch(FetchDescriptor<WaterEntry>()).map(\.id))
+        do {
+            for event in events where existing.insert(event.id).inserted {
+                guard event.amountOz.isFinite, event.amountOz > 0 else { continue }
+                let entry = WaterEntry(amountOz: event.amountOz)
+                entry.id = event.id
+                entry.date = event.loggedAt
+                context.insert(entry)
+            }
+            if let save { try save() } else { try context.save() }
+        } catch { context.rollback(); throw error }
     }
 }

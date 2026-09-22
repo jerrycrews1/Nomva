@@ -9,6 +9,7 @@ struct NomvaApp: App {
     @StateObject private var subscriptionManager = SubscriptionManager.shared
     @StateObject private var garminManager = GarminManager.shared
     @StateObject private var routeCenter = NomvaRouteCenter.shared
+    @StateObject private var persistence = NomvaPersistence.shared
 
     var body: some Scene {
         WindowGroup {
@@ -28,12 +29,27 @@ struct NomvaApp: App {
                 .environmentObject(garminManager)
                 .environmentObject(routeCenter)
                 .task {
+                    #if DEBUG && targetEnvironment(simulator)
+                    if NomvaRuntime.isAutomatedTest && ProcessInfo.processInfo.arguments.contains("-NomvaHealthActivityFixture") {
+                        let now = Date.now
+                        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+                        await AppleHealthActivityManager.shared.refresh {
+                            HealthActivitySnapshot(days: [.init(date: yesterday, activeCalories: 400), .init(date: now, activeCalories: 700)], checkedAt: now, windowDays: 28)
+                        }
+                    }
+                    #endif
                     guard !NomvaRuntime.isAutomatedTest, !containerManager.recoveryRequired else { return }
                     await garminManager.refreshIfNeeded()
                 }
                 .onOpenURL { url in
                     routeCenter.handle(url: url)
                 }
+                .alert("Change could not be saved", isPresented: Binding(
+                    get: { persistence.errorMessage != nil },
+                    set: { if !$0 { persistence.errorMessage = nil } }
+                )) {
+                    Button("OK", role: .cancel) { persistence.errorMessage = nil }
+                } message: { Text(persistence.errorMessage ?? "") }
         }
         .modelContainer(containerManager.container)
     }

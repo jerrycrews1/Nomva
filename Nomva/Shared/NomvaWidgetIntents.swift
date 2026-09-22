@@ -19,7 +19,7 @@ struct AddWaterIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let sanitizedAmount = max(1, amountOz.rounded())
-        NomvaPendingHydrationStore.enqueue(amountOz: sanitizedAmount)
+        try NomvaPendingHydrationStore.enqueue(amountOz: sanitizedAmount)
         NomvaWidgetSnapshotStore.incrementHydration(by: sanitizedAmount)
         return .result(dialog: IntentDialog("Logged \(Int(sanitizedAmount)) oz of water."))
     }

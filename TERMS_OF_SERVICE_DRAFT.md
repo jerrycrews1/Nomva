@@ -1,4 +1,6 @@
-# Nomva Terms of Service
+# Nomva Terms of Service — unpublished draft
+
+Release 1.6 uses Apple’s Standard EULA, linked from Settings and the paywall. This draft is not the operative agreement; unresolved legal-entity placeholders remain intentionally unpublished.
 
 Effective Date: [Month Day, Year]
 
@@ -23,7 +25,8 @@ Nomva is a nutrition and wellness app that may allow you to:
 - chat with an AI assistant about food logging and nutrition tracking
 - scan barcodes to look up food information
 - log and visualize body weight entries
-- sync certain data through iCloud if you enable that feature
+- read activity and weight from Apple Health with permission, save Nomva weigh-ins to Health, and optionally connect Garmin activity
+- export and restore manual backups of local history
 - access premium or subscription-only features, including AI usage beyond free limits
 
 The specific features available to you may change over time and may vary by device, operating system, geography, subscription status, or third-party service availability.
@@ -95,11 +98,11 @@ Food names, brands, serving sizes, calorie counts, macro values, and barcode res
 
 You are responsible for verifying ingredients, allergens, portions, labels, and nutritional values before relying on them, especially if you have allergies, dietary restrictions, medical conditions, or specific nutrition targets.
 
-## 9. iCloud and Third-Party Services
+## 9. Storage and Third-Party Services
 
 Some features may depend on third-party platforms or services, including Apple, iCloud, App Store billing, analytics providers, and AI service providers.
 
-If you enable iCloud sync, your data may be stored or synchronized through Apple's services and will also be subject to Apple's terms and privacy practices.
+Application history currently stays on the device and is excluded from automatic device backup. Export a manual backup before replacing a device or reinstalling. Apple Health synchronization and previously created cloud copies are controlled separately by Apple settings.
 
 We are not responsible for third-party services, including their availability, accuracy, security, or acts or omissions. Your use of third-party services may be subject to separate terms from those providers.
 
@@ -144,7 +147,7 @@ Upon termination, the rights granted to you under these Terms will end immediate
 
 ## 14. Privacy
 
-Your use of the Service is also subject to our Privacy Policy, available at [Privacy Policy URL]. Please read it carefully.
+Your use of the Service is also subject to our Privacy Policy, available at https://nomva.nerdquad.com/privacy. Please read it carefully.
 
 ## 15. Disclaimers
 

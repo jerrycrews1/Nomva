@@ -191,28 +191,47 @@ enum NomvaWidgetRouteStore {
 enum NomvaPendingHydrationStore {
     private static let pendingKey = "widget.pendingHydration"
 
-    static func enqueue(amountOz: Double, loggedAt: Date = .now) {
-        var all = read()
-        all.append(NomvaPendingHydrationEvent(amountOz: amountOz, loggedAt: loggedAt))
-        write(all)
-    }
-
-    static func read() -> [NomvaPendingHydrationEvent] {
-        guard let data = NomvaWidgetSuite.defaults.data(forKey: pendingKey) else {
-            return []
+    private static func directory() throws -> URL {
+        guard var url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: NomvaAppGroup.identifier)?.appendingPathComponent("PendingWater", isDirectory: true) else {
+            throw CocoaError(.fileNoSuchFile)
         }
-        return (try? JSONDecoder().decode([NomvaPendingHydrationEvent].self, from: data)) ?? []
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
+        return url
     }
 
-    static func drain() -> [NomvaPendingHydrationEvent] {
-        let all = read()
-        NomvaWidgetSuite.defaults.removeObject(forKey: pendingKey)
-        return all
+    static func enqueue(amountOz: Double, loggedAt: Date = .now) throws {
+        guard amountOz.isFinite, amountOz > 0 else { throw CocoaError(.fileWriteUnknown) }
+        let event = NomvaPendingHydrationEvent(amountOz: amountOz, loggedAt: loggedAt)
+        let url = try directory().appendingPathComponent(event.id.uuidString + ".json")
+        try JSONEncoder().encode(event).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
-    private static func write(_ value: [NomvaPendingHydrationEvent]) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        NomvaWidgetSuite.defaults.set(data, forKey: pendingKey)
+    static func read() throws -> [NomvaPendingHydrationEvent] {
+        // Keep the old queue readable during upgrade. New events each get their
+        // own atomic file so widget/app read-modify-write races cannot lose taps.
+        var events = try NomvaWidgetSuite.defaults.data(forKey: pendingKey).map {
+            try JSONDecoder().decode([NomvaPendingHydrationEvent].self, from: $0)
+        } ?? []
+        for url in try FileManager.default.contentsOfDirectory(at: directory(), includingPropertiesForKeys: nil) where url.pathExtension == "json" {
+            events.append(try JSONDecoder().decode(NomvaPendingHydrationEvent.self, from: Data(contentsOf: url)))
+        }
+        return events
+    }
+
+    static func acknowledge(_ ids: Set<UUID>) throws {
+        let directory = try directory()
+        for id in ids {
+            let url = directory.appendingPathComponent(id.uuidString + ".json")
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        }
+        if let data = NomvaWidgetSuite.defaults.data(forKey: pendingKey) {
+            let remaining = try JSONDecoder().decode([NomvaPendingHydrationEvent].self, from: data).filter { !ids.contains($0.id) }
+            NomvaWidgetSuite.defaults.set(try JSONEncoder().encode(remaining), forKey: pendingKey)
+        }
     }
 }
 
