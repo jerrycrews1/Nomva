@@ -1,6 +1,6 @@
 # Nomva 1.6 (46) release evidence
 
-Status: source, regression checks, production deployment, public documentation, and signed archive complete. Apple processing is complete and the internal Testers group has build access. Public App Store submission and physical-device acceptance remain open.
+Status: source, regression checks, production deployment, public documentation, and signed archive complete. Apple processing is complete and the internal Testers group has build access. Public version 1.6 (46) was submitted and is Waiting for Review, with automatic release to all users after approval. Physical-device acceptance remains unverified.
 
 ## What changed
 
@@ -39,7 +39,7 @@ A first live dinner run exposed an upstream planner timeout; that failure drove 
 - Previous live source and a consistent SQLite snapshot are retained at `/home/ubuntu/nomva-api/deploy-backups/release-46-20260922/`. Existing production data was preserved; the Garmin coverage column is additive.
 - Deployment receipts: `reports/release-46/deploy.log`, `production-health.json`, `production-source.sha256`, `server-promote-hashes.json`, `public-page-verification.json`.
 - App Store Connect app **6762495287**, Nomva, bundle **com.nomva.app**, team **9UXM4W53T6**. Version **1.6 (46)**, widget **com.nomva.app.widgets**.
-- Version 1.6 draft created with build 46 selected; revised description and What’s New saved. Existing support/privacy URLs point to the updated pages. No public review submission made.
+- Version 1.6 draft created with build 46 selected; revised description and What’s New saved. Existing support/privacy URLs point to the updated pages. Public review submission accepted on September 21, 2026; version status is Waiting for Review.
 - Replaced obsolete “Data Not Collected” declarations. Nine data categories are published: Health, Fitness, Photos or Videos, Other User Content, User ID, Device ID, Purchase History, Performance Data, Other Diagnostic Data. Each is for app functionality, linked to identity, and not used for tracking. No incomplete category setup remains.
 - The terms document remains an unpublished draft; Apple’s Standard EULA is still operative.
 
@@ -57,6 +57,7 @@ The earlier `Nomva 1.6-46.xcarchive` predates the empty-chat scroll correction a
 - [x] Apple processing complete. App Store Connect shows version 1.6 build 46 upload Complete, with the internal Testers group (one tester) assigned. Build status is Ready to Submit for external review. Focused What to Test instructions are saved.
 - [x] Final archive installed in place and launched on the physical iPhone 17 Pro. The first attempt using a cached CoreDevice identifier timed out; the current device UDID succeeded. Evidence: `reports/release-46/device-install-2.log`, `device-launch.log`. Existing record contents have not yet been visually compared.
 - [ ] Physical acceptance: compare Garmin/Health activity with Nomva’s selected-source total; foreground refresh, background delivery, permission changes, and day rollover; import/export/deletion of an intentionally entered weight; interrupted chat recovery; StoreKit restore/subscriber/expired access.
-- [ ] Public App Store review submission after device acceptance.
+- [x] Public App Store review submission accepted following the user’s request to push the next public release. Submission ID: `06334d7a-8601-47f3-ba2e-d0e4ab885ee0`. Status: Waiting for Review. Automatic release after approval is enabled, with immediate availability to all users. The physical acceptance items above remain unverified.
+- [ ] Apple review approved and public App Store availability verified.
 
 The build mirror `/Users/jerrycrews/Developer/NomvaRelease46` avoids macOS FileProvider metadata stalls in Documents. Final source bytes were copied from the canonical repository and verified by SHA-256; the mirror is not a separate source of truth.
