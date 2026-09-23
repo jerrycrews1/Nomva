@@ -440,7 +440,7 @@ struct NutritionDetailView: View {
     private var dataQualityCard: some View {
         DetailCard(
             title: "Data Coverage",
-            subtitle: "Nomva should be honest when food data is incomplete."
+            subtitle: "Nutrient totals depend on the information available for each logged food."
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 CoverageRow(title: "Calories + macros", detail: "Available for logged foods", isAvailable: true)

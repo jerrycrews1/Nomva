@@ -1,6 +1,6 @@
 # Nomva 1.6 launch copy
 
-Prepared September 22, 2026. Replace `[APP_LINK]` with the plain [App Store URL](https://apps.apple.com/us/app/nomva/id6762495287) or the exact App Store Connect campaign link for that channel. Replace any personal details with Jerry's own words before posting. Attach only newly captured 1.6 media. These are drafts, not sent posts.
+Prepared September 22, 2026. Replace `[APP_LINK]` with the plain [App Store URL](https://apps.apple.com/us/app/nomva/id6762495287) or the exact App Store Connect campaign link for that channel. Use the dedicated Instagram URL in `CAMPAIGN_LINKS_2026-09.md` for the Nomva account bio once created. Replace any personal details with Jerry's own words before posting. Attach only newly captured 1.6 media. These are drafts, not sent posts.
 
 ## One-sentence description
 
@@ -48,6 +48,8 @@ Post caption: “A faster way to record an everyday meal. I still review the est
 “You can start in Nomva without a subscription: search for a food or scan its barcode, check the serving, and add it to your day. The AI chat and photo features are in Pro. [APP_LINK]”
 
 Record a real item that the current catalog resolves correctly; do not imply every barcode is covered.
+
+Captured manual clip: `current/nomva-1.6-manual-log-demo.mp4`. It shows a bundled catalog match for banana, a half-cup serving, the Log It action, and the updated day total. Use this specific caption with it: “Food logging can start free in Nomva. Search a food, check the serving, and see your day update. This demo uses sample meals. AI chat and photo logging are in Pro. App link in bio.” Do not call this an AI or barcode demo.
 
 ## Educational post: reviewing an AI estimate
 
