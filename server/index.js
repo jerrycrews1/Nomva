@@ -9,6 +9,7 @@ const rateLimit = require("express-rate-limit");
 const OpenAI = require("openai");
 const { verifyAttestation, verifyAssertion } = require("node-app-attest");
 const prompts = require("./prompts");
+const { highRiskReply } = require("./nutritionSafety");
 const { loadServerState } = require("./stateStore");
 const { loadAnalyticsStore } = require("./analyticsStore");
 const { createFoodSearchStore, isAuthoritativeReferenceSource } = require("./foodSearchStore");
@@ -3126,6 +3127,8 @@ app.post("/v1/parse-data-query", async (req, res) => {
 app.post("/v1/general-reply", async (req, res) => {
   try {
     const { userMessage, context = "", recentMessages = [] } = req.body;
+    const safetyReply = highRiskReply(userMessage);
+    if (safetyReply) return res.json({ text: safetyReply });
     const history = recentMessages
       .slice(-12)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)

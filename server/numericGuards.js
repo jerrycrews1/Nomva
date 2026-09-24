@@ -14,7 +14,7 @@ const BOUNDS = {
   macroGrams: { min: 0, max: 1000 },
   waterOz: { min: 1, max: 300 },
   weightLbs: { min: 50, max: 1000 },
-  goalCalories: { min: 500, max: 20000 },
+  goalCalories: { min: 1500, max: 5000 },
   goalMacroGrams: { min: 1, max: 2000 },
   goalWaterOz: { min: 8, max: 300 },
   goalWeightLbs: { min: 50, max: 1000 },

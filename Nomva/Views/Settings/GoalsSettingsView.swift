@@ -59,12 +59,17 @@ struct GoalsSettingsView: View {
                 GoalSliderRow(
                     label: "Calories",
                     value: binding(\.calories),
-                    range: 1000...5000,
+                    range: 1500...5000,
                     unit: "kcal",
                     step: 50
                 )
+                if let currentGoal, currentGoal.calories < GoalService.minimumSuggestedCalories {
+                    Label("Your saved target is below Nomva's current product floor. Review it with a qualified clinician before using it for nutrition decisions.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(NomvaTheme.warning)
+                }
             } footer: {
-                Text("Your daily calorie target. Most adults need 1,600–2,500 depending on size and activity.")
+                Text("This is a self-selected target, not a medical recommendation. Ask a clinician if you have special nutritional needs.")
             }
 
             Section {
@@ -291,7 +296,7 @@ struct RecalculateGoalsView: View {
         GoalService.calculateProjection(
             weightLbs: weightLbs,
             heightInches: totalHeightInches,
-            age: max(currentAge, 18),
+            age: currentAge,
             sex: biologicalSex,
             activityProfile: selectedActivityProfile,
             goal: weightGoal
@@ -308,6 +313,7 @@ struct RecalculateGoalsView: View {
 
     private var applyDisabled: Bool {
         isSaving
+            || currentAge < 19
             || weightLbs <= 0
             || (activitySource == .appleHealth && appleHealthSummary == nil)
             || (activitySource == .garmin && garminManager.averageActiveCalories == nil)
@@ -367,7 +373,7 @@ struct RecalculateGoalsView: View {
     private var goalAdjustmentDetail: String {
         switch weightGoal {
         case .loseWeight:
-            return "A conventional starting deficit. Roughly 1 lb/week at first is possible, but real change varies."
+            return "A modest 300 kcal adjustment to an estimated maintenance level. This does not predict weight change."
         case .maintain:
             return "No calorie adjustment is applied to estimated maintenance."
         case .gainMuscle:
@@ -376,7 +382,7 @@ struct RecalculateGoalsView: View {
     }
 
     private var estimateDisclaimer: String {
-        "This is a starting estimate, not a promise. Garmin and Apple Health active calories are wearable estimates, not direct measurements of total energy expenditure. Compare your 2-3 week weight trend and adjust the target if your real result differs."
+        "For adults only. These are general estimates, not medical advice or a safe target for everyone. If you are pregnant, breastfeeding, recovering from an eating disorder, or have a medical condition, ask a qualified clinician. Garmin and Apple Health active calories are estimates."
     }
 
     private var appleHealthRowSubtitle: String {
@@ -445,6 +451,26 @@ struct RecalculateGoalsView: View {
 
     var body: some View {
         NavigationStack {
+            Group {
+            if currentAge < 19 {
+                VStack(spacing: 20) {
+                    ContentUnavailableView(
+                        "Adult Calculator Only",
+                        systemImage: "person.crop.circle.badge.exclamationmark",
+                        description: Text("Nomva cannot calculate a personal calorie target from a birth year that does not establish adult age. You can keep your existing log and ask a qualified clinician for individualized guidance.")
+                    )
+                    Picker("Correct birth year", selection: $birthYear) {
+                        ForEach((1930...Calendar.current.component(.year, from: Date()) - 19), id: \.self) {
+                            Text(String($0)).tag($0)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Text("If your saved birth year was incorrect, select the correct adult year above to review the calculator.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(20)
+            } else {
             ScrollView {
                 VStack(spacing: 0) {
                     VStack(spacing: 16) {
@@ -533,7 +559,7 @@ struct RecalculateGoalsView: View {
                                     title: "Daily calorie target",
                                     value: projection.targetCalories,
                                     detail: projection.minimumCaloriesApplied
-                                        ? "Nomva applied its 1,000 kcal minimum estimate."
+                                        ? "Nomva applied its 1,500 kcal product floor; this is not a personal safety threshold."
                                         : "The calorie target used to calculate the macros below.",
                                     emphasized: true
                                 )
@@ -632,7 +658,7 @@ struct RecalculateGoalsView: View {
 
                                 inlinePickerRow(label: "Age") {
                                     Picker("Age", selection: $birthYear) {
-                                        ForEach((1930...2010), id: \.self) {
+                                        ForEach((1930...Calendar.current.component(.year, from: Date()) - 19), id: \.self) {
                                             Text(String($0)).tag($0)
                                         }
                                     }
@@ -708,6 +734,8 @@ struct RecalculateGoalsView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 40)
                 }
+            }
+            }
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Recalculate Goals")

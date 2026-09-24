@@ -58,6 +58,14 @@ struct WeightLoggingView: View {
         var id: Date { date }
     }
 
+    private struct WeightChartSnapshot {
+        let points: [WeightChartPoint]
+        let averages: [(date: Date, value: Double)]
+        let xDomain: ClosedRange<Date>
+        let yDomain: ClosedRange<Double>?
+        let summary: String
+    }
+
     @Query(sort: \WeightEntry.date, order: .reverse) private var entries: [WeightEntry]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager)  private var undoManager
@@ -118,11 +126,11 @@ struct WeightLoggingView: View {
         }
     }
 
-    private var chartSummary: String {
-        let loggedDayCount = chartData.count
+    private func chartSummary(for points: [WeightChartPoint]) -> String {
+        let loggedDayCount = points.count
         let loggedDayLabel = loggedDayCount == 1 ? "1 logged day" : "\(loggedDayCount) logged days"
 
-        guard let first = chartData.first, let last = chartData.last, chartData.count > 1 else {
+        guard let first = points.first, let last = points.last, points.count > 1 else {
             return loggedDayLabel
         }
 
@@ -137,6 +145,8 @@ struct WeightLoggingView: View {
     }
 
     var body: some View {
+        let chart = makeChartSnapshot()
+        let insight = subManager.isPremium ? weightInsight : nil
         NavigationStack {
             ZStack {
                 NomvaScreenBackground()
@@ -159,9 +169,9 @@ struct WeightLoggingView: View {
                         .listSectionSeparator(.hidden)
                     }
 
-                    if !chartData.isEmpty {
+                    if !chart.points.isEmpty {
                         Section {
-                            weightChartCard
+                            weightChartCard(chart)
                                 .nomvaCard(.subtle, padding: NomvaTheme.standardCardPadding)
                                 .listRowInsets(
                                     EdgeInsets(
@@ -178,14 +188,14 @@ struct WeightLoggingView: View {
 
                     Section {
                         Group {
-                            if subManager.isPremium {
-                                if weightInsight.signal == .insufficient {
+                            if let insight {
+                                if insight.signal == .insufficient {
                                     WeightInsightsInsufficientCard(
                                         entryCount: entries.count,
                                         minimumRequired: analytics.minimumEntries
                                     )
                                 } else {
-                                    WeightInsightsSection(insight: weightInsight, unit: unit)
+                                    WeightInsightsSection(insight: insight, unit: unit)
                                 }
                             } else {
                                 WeightInsightsTeaser {
@@ -435,7 +445,7 @@ struct WeightLoggingView: View {
             Text(formatted(avg))
                 .font(.system(size: 36, weight: .bold, design: .rounded))
 
-            Text("Daily weight fluctuates 1–3 lbs from water, food, and timing. The 7-day average shows your true trend.")
+            Text("Daily weight can vary with water, food, and timing. The 7-day average smooths recent readings; it is still an estimate.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -444,87 +454,76 @@ struct WeightLoggingView: View {
     }
 
     @ViewBuilder
-    private var weightChartCard: some View {
+    private func weightChartCard(_ chart: WeightChartSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(selectedChartWindow.title)
                     .font(.headline)
-                Text(chartSummary)
+                Text(chart.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             chartWindowPicker
 
-            weightChart
+            weightChart(chart)
         }
     }
 
     /// Trailing 7-day average at each logged day: the stable trend line the
     /// hero card tells users to trust.
-    private var rollingAverageSeries: [(date: Date, value: Double)] {
-        guard chartData.count >= 3 else { return [] }
+    private func rollingAverageSeries(for points: [WeightChartPoint]) -> [(date: Date, value: Double)] {
+        guard points.count >= 3 else { return [] }
         let calendar = Calendar.current
-        return chartData.map { point in
+        var series: [(date: Date, value: Double)] = []
+        series.reserveCapacity(points.count)
+        var firstInWindow = 0
+        var windowTotal = 0.0
+
+        for point in points {
+            windowTotal += point.weightLbs
             let windowStart = calendar.date(byAdding: .day, value: -6, to: point.date) ?? point.date
-            let window = chartData.filter { $0.date >= windowStart && $0.date <= point.date }
-            let average = window.reduce(0.0) { $0 + $1.weightLbs } / Double(max(window.count, 1))
-            return (point.date, average)
+            while points[firstInWindow].date < windowStart {
+                windowTotal -= points[firstInWindow].weightLbs
+                firstInWindow += 1
+            }
+            series.append((point.date, windowTotal / Double(series.count + 1 - firstInWindow)))
         }
+        return series
     }
 
-    /// How far past today each window projects the trend. The 7-day view is
-    /// too short for a meaningful extrapolation.
-    private var projectionHorizonDays: Int? {
-        switch selectedChartWindow {
-        case .days7: return nil
-        case .days30: return 14
-        case .days90: return 30
-        case .year: return 30
-        }
-    }
+    /// Build the data used by every chart mark once for this view update.
+    private func makeChartSnapshot() -> WeightChartSnapshot {
+        let points = chartData
+        let averages = rollingAverageSeries(for: points)
 
-    /// Regression-based "on track for" projection, gated by WeightAnalytics
-    /// (needs ≥5 logged days spanning ≥10 days and a sane slope).
-    private var activeProjection: WeightAnalytics.Projection? {
-        guard let horizon = projectionHorizonDays, chartData.count >= 2 else { return nil }
-        return analytics.projection(
-            entries: entries.map { (date: $0.date, weightLbs: $0.weightLbs) },
-            daysAhead: horizon
+        var values = points.map { displayedWeight(for: $0.weightLbs) }
+        values += averages.map { displayedWeight(for: $0.value) }
+        let yDomain: ClosedRange<Double>?
+        if let low = values.min(), let high = values.max() {
+            let padding = max(1.0, (high - low) * 0.25)
+            yDomain = (low - padding) ... (high + padding)
+        } else {
+            yDomain = nil
+        }
+
+        let base = chartDateRange ?? Date() ... Date()
+        return WeightChartSnapshot(
+            points: points,
+            averages: averages,
+            xDomain: base,
+            yDomain: yDomain,
+            summary: chartSummary(for: points)
         )
     }
 
-    private var projectionAnchorLbs: Double? {
-        guard let projection = activeProjection else { return nil }
-        return projection.projectedWeightLbs - projection.slopeLbsPerDay * Double(projection.daysAhead)
-    }
-
-    private var chartYDomain: ClosedRange<Double>? {
-        var values = chartData.map { displayedWeight(for: $0.weightLbs) }
-        values += rollingAverageSeries.map { displayedWeight(for: $0.value) }
-        if let projection = activeProjection {
-            values.append(displayedWeight(for: projection.projectedWeightLbs))
-        }
-        guard let low = values.min(), let high = values.max() else { return nil }
-        let padding = max(1.0, (high - low) * 0.25)
-        return (low - padding) ... (high + padding)
-    }
-
-    private var chartXDomain: ClosedRange<Date> {
-        let base = chartDateRange ?? Date() ... Date()
-        if let projection = activeProjection, projection.targetDate > base.upperBound {
-            return base.lowerBound ... projection.targetDate
-        }
-        return base
-    }
-
     @ViewBuilder
-    private var weightChart: some View {
+    private func weightChart(_ chart: WeightChartSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Chart {
                 // Soft gradient under the daily line
-                if chartData.count > 1, let domain = chartYDomain {
-                    ForEach(chartData) { point in
+                if chart.points.count > 1, let domain = chart.yDomain {
+                    ForEach(chart.points) { point in
                         AreaMark(
                             x: .value("Date", point.date),
                             yStart: .value("Base", domain.lowerBound),
@@ -542,8 +541,8 @@ struct WeightLoggingView: View {
                 }
 
                 // 7-day average trend line
-                if rollingAverageSeries.count >= 3 {
-                    ForEach(rollingAverageSeries, id: \.date) { point in
+                if chart.averages.count >= 3 {
+                    ForEach(chart.averages, id: \.date) { point in
                         LineMark(
                             x: .value("Date", point.date),
                             y: .value("Average", displayedWeight(for: point.value)),
@@ -556,8 +555,8 @@ struct WeightLoggingView: View {
                 }
 
                 // Daily weights
-                if chartData.count > 1 {
-                    ForEach(chartData) { point in
+                if chart.points.count > 1 {
+                    ForEach(chart.points) { point in
                         LineMark(
                             x: .value("Date", point.date),
                             y: .value("Weight", displayedWeight(for: point.weightLbs)),
@@ -569,43 +568,8 @@ struct WeightLoggingView: View {
                     }
                 }
 
-                // On-track projection from the last logged day
-                if let projection = activeProjection,
-                   let anchor = projectionAnchorLbs,
-                   let lastDate = chartData.last?.date {
-                    LineMark(
-                        x: .value("Date", lastDate),
-                        y: .value("Weight", displayedWeight(for: anchor)),
-                        series: .value("Series", "Projection")
-                    )
-                    .foregroundStyle(NomvaTheme.accent.opacity(0.55))
-                    .interpolationMethod(.linear)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 5]))
-
-                    LineMark(
-                        x: .value("Date", projection.targetDate),
-                        y: .value("Weight", displayedWeight(for: projection.projectedWeightLbs)),
-                        series: .value("Series", "Projection")
-                    )
-                    .foregroundStyle(NomvaTheme.accent.opacity(0.55))
-                    .interpolationMethod(.linear)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 5]))
-
-                    PointMark(
-                        x: .value("Date", projection.targetDate),
-                        y: .value("Weight", displayedWeight(for: projection.projectedWeightLbs))
-                    )
-                    .foregroundStyle(NomvaTheme.accent.opacity(0.55))
-                    .symbolSize(40)
-                    .annotation(position: .topLeading, spacing: 4) {
-                        Text(formatted(projection.projectedWeightLbs))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 // Logged-day markers: white ring + accent core
-                ForEach(chartData) { point in
+                ForEach(chart.points) { point in
                     PointMark(
                         x: .value("Date", point.date),
                         y: .value("Weight", displayedWeight(for: point.weightLbs))
@@ -622,7 +586,7 @@ struct WeightLoggingView: View {
                 }
 
                 // Latest weigh-in callout
-                if let last = chartData.last {
+                if let last = chart.points.last {
                     PointMark(
                         x: .value("Date", last.date),
                         y: .value("Weight", displayedWeight(for: last.weightLbs))
@@ -641,10 +605,10 @@ struct WeightLoggingView: View {
             }
             .frame(height: 200)
             .frame(maxWidth: .infinity)
-            .chartXScale(domain: chartXDomain)
-            .chartYScale(domain: chartYDomain ?? 100 ... 250)
+            .chartXScale(domain: chart.xDomain)
+            .chartYScale(domain: chart.yDomain ?? 100 ... 250)
 
-            chartCaption
+            chartCaption(chart)
         }
         .chartXAxis {
             switch selectedChartWindow {
@@ -716,11 +680,11 @@ struct WeightLoggingView: View {
         .animation(reduceMotion ? .none : .easeInOut(duration: 0.2), value: selectedChartWindow)
     }
 
-    /// Legend + on-track summary under the chart.
+    /// Legend under the chart.
     @ViewBuilder
-    private var chartCaption: some View {
+    private func chartCaption(_ chart: WeightChartSnapshot) -> some View {
         HStack(spacing: 12) {
-            if rollingAverageSeries.count >= 3 {
+            if chart.averages.count >= 3 {
                 HStack(spacing: 5) {
                     Rectangle()
                         .fill(Color.secondary.opacity(0.55))
@@ -728,25 +692,10 @@ struct WeightLoggingView: View {
                     Text("7-day avg")
                 }
             }
-            if let projection = activeProjection {
-                HStack(spacing: 5) {
-                    Image(systemName: "scope")
-                        .font(.caption2)
-                        .foregroundStyle(NomvaTheme.accent)
-                    Text("On track for \(formatted(projection.projectedWeightLbs)) by \(projection.targetDate.formatted(.dateTime.month(.abbreviated).day())) (\(weeklyRateLabel(projection.slopeLbsPerDay)))")
-                }
-            }
             Spacer(minLength: 0)
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
-    }
-
-    private func weeklyRateLabel(_ slopeLbsPerDay: Double) -> String {
-        let weekly = displayedWeight(for: abs(slopeLbsPerDay) * 7)
-        let direction = slopeLbsPerDay <= 0 ? "−" : "+"
-        let unitLabel = unit == .lbs ? "lbs" : "kg"
-        return "\(direction)\(weekly.formatted(.number.precision(.fractionLength(1)))) \(unitLabel)/week"
     }
 
     private var chartWindowPicker: some View {

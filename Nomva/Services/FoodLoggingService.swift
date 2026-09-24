@@ -167,6 +167,30 @@ private let fillerWords: Set<String> = [
 
 private let mealWords: Set<String> = ["breakfast", "lunch", "dinner", "snack"]
 
+private enum NutritionSafety {
+    static func reply(for message: String) -> String? {
+        func mentions(_ pattern: String) -> Bool {
+            message.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        if mentions(#"\b(anorexia|bulimia|eating disorder|purging|purge|starv(e|ing|ation)|make myself throw up|vomit after eating)\b"#) {
+            return "I'm sorry you're dealing with this. I can't help with purging, starvation, or restrictive weight-loss plans. A qualified clinician or eating-disorder specialist can help you make a safe plan. If you feel in immediate danger, seek urgent local help now."
+        }
+        if mentions(#"\b(pregnan(t|cy)|breastfeed(ing)?|nurs(e|ing))\b"#)
+            && mentions(#"\b(calori(e|es)|weight|diet|fast(ing)?|nutrition|eat(ing)?)\b"#) {
+            return "Pregnancy and breastfeeding change nutritional needs. Nomva's calorie estimates are for adults without those needs; please ask your prenatal or other qualified clinician for an individualized target."
+        }
+        if mentions(#"\b(allerg(y|ic|ies)|anaphylaxis)\b"#)
+            && mentions(#"\b(safe|eat|ingredient|contains|avoid|reaction)\b"#) {
+            return "I can't verify that a food is safe for an allergy. Check the current package label and contact the maker or your clinician if uncertain. If you may be having a severe reaction, use your emergency plan and seek urgent medical help."
+        }
+        if mentions(#"\b(insulin|diabetes|diabetic|medication|dose|dosage)\b"#)
+            && mentions(#"\b(adjust|change|stop|start|take|how much|treat|dose|dosage)\b"#) {
+            return "I can't advise on medication, insulin, or treatment changes. Please use your clinician's plan or contact a qualified health professional; seek urgent care for severe symptoms."
+        }
+        return nil
+    }
+}
+
 private let countWords: Set<String> = [
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "couple", "pair", "double"
 ]
@@ -356,6 +380,10 @@ final class FoodLoggingService {
         sessionState: AgentTaskState? = nil,
         referenceEntryIDs: [UUID] = []
     ) async -> LoggingResult {
+
+        if let safetyReply = NutritionSafety.reply(for: userMessage) {
+            return .reply(safetyReply)
+        }
 
         let clauses = ChatTurnSplitter.clauses(userMessage)
         if clauses.count > 1 && clauses.contains(where: WeightInputParser.concernsBodyWeight) {

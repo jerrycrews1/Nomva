@@ -18,7 +18,10 @@ struct GoalProjection: Equatable {
 
 actor GoalService {
 
-    static let minimumSuggestedCalories = 1_000.0
+    // A conservative product floor for automatic targets, not a statement that
+    // this intake is appropriate for every adult. People with special medical
+    // or nutritional needs need individualized advice.
+    static let minimumSuggestedCalories = 1_500.0
     static let fatCalorieFraction = 0.28
 
     static func currentGoal(from goals: [DailyGoal]) -> DailyGoal {
@@ -182,7 +185,7 @@ actor GoalService {
 
     static func requestedCalorieAdjustment(for goal: WeightGoal) -> Double {
         switch goal {
-        case .loseWeight: -500
+        case .loseWeight: -300
         case .maintain: 0
         case .gainMuscle: 300
         }
@@ -195,7 +198,7 @@ actor GoalService {
     ) -> Double {
         guard referenceActiveCalories > 0 else { return baseGoalCalories }
         let adjusted = baseGoalCalories + (dailyActiveCalories - referenceActiveCalories)
-        return max(adjusted, 1_000)
+        return max(adjusted, minimumSuggestedCalories)
     }
 
     /// Keeps a partial day from lowering the goal while still crediting activity

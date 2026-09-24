@@ -1,6 +1,6 @@
 # Privacy Policy for Nomva
 
-Last updated: September 21, 2026
+Last updated: September 23, 2026
 
 ## Overview
 Nomva helps you track meals, hydration, activity-based calorie targets, and weight. This policy describes current Nomva data handling. We do not sell personal information or use health data for advertising.
@@ -22,7 +22,7 @@ When you use cloud AI, your request text, limited relevant conversation or food 
 
 Nomva does not intentionally retain full AI conversations or photos on its server after processing, and production diagnostics exclude raw request and response content. The service caches food names, lookup aliases, nutrition estimates, and published nutrition sources to improve future lookups; this cache is separate from your personal diary. Published lookup records normally expire after 180 days and estimates after 30 days.
 
-Barcode lookup first checks the bundled catalog and device cache. If needed, the barcode is sent directly to Open Food Facts. That request does not include your chat or weight history. Open Food Facts data is attributed under its ODbL license. Manual logging is available without cloud AI.
+The bundled food catalog combines USDA FoodData Central and Open Food Facts records, including Open Food Facts fields merged into some USDA rows. The complete combined catalog is available under the Open Database License; see [food data sources and license](https://nomva.nerdquad.com/data-sources.html) for attribution and a machine-readable download. Barcode lookup first checks that catalog and device cache. If needed, the barcode is sent directly to Open Food Facts without your chat or weight history. Manual logging is available without cloud AI.
 
 ## Diagnostics, access, and purchases
 Nomva uses limited operational diagnostics such as hashed app identifiers, request route, response status, duration, model, and token counts. These records exclude raw chat text, photos, food names, barcodes, and weight values and are retained for up to 90 days. Remove linked diagnostics in Settings → AI & Privacy → Delete Cloud Analytics.

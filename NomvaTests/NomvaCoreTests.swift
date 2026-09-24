@@ -267,6 +267,25 @@ struct NomvaCoreTests {
         ) == 2_000)
     }
 
+    @Test("Automatic loss target and activity adjustment respect the product floor")
+    func calorieProductFloor() {
+        let projection = GoalService.calculateProjection(
+            weightLbs: 100,
+            heightInches: 60,
+            age: 40,
+            sex: .female,
+            activityProfile: .manual(.sedentary),
+            goal: .loseWeight
+        )
+        #expect(projection.targetCalories >= GoalService.minimumSuggestedCalories)
+        #expect(projection.minimumCaloriesApplied)
+        #expect(GoalService.dynamicallyAdjustedCalories(
+            baseGoalCalories: 1_500,
+            dailyActiveCalories: 0,
+            referenceActiveCalories: 600
+        ) == 1_500)
+    }
+
     @Test("Suggested macros reconcile to the calorie target")
     func macroReconciliation() {
         let target = 2_100.0

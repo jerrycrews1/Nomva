@@ -68,7 +68,7 @@ struct OnboardingBasicsView: View {
                         measurementRow(title: "Birth year", detail: "Age \(age)") {
                             controlChrome {
                                 Picker("Birth Year", selection: $birthYear) {
-                                    ForEach((1930...2010).reversed(), id: \.self) { year in
+                                    ForEach((1930...(currentYear - 19)).reversed(), id: \.self) { year in
                                         Text(String(year)).tag(year)
                                     }
                                 }
@@ -76,6 +76,10 @@ struct OnboardingBasicsView: View {
                                 .pickerStyle(.menu)
                             }
                         }
+
+                        Text("Nomva's personalized calorie planner is for adults. Birth year is used conservatively because Nomva does not collect your full birth date.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
                         Divider()
 

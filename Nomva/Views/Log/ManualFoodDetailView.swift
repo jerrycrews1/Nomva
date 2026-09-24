@@ -76,6 +76,11 @@ struct ManualFoodDetailView: View {
                             Link("Open Food Facts · ODbL", destination: url)
                                 .font(.caption)
                         }
+                        if let source = food.source,
+                           ["branded", "foundation", "sr_legacy", "survey_fndds", "open_food_facts", "open_food_facts_online"].contains(source) {
+                            Link("Catalog sources & license", destination: URL(string: "https://nomva.nerdquad.com/data-sources.html")!)
+                                .font(.caption)
+                        }
                         if let missing = food.missingNutrients, !missing.isEmpty {
                             Text("Label data missing: \(missing.joined(separator: ", ")). These nutrients are excluded from totals.")
                                 .font(.caption).foregroundStyle(.secondary)

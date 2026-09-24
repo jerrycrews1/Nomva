@@ -7,7 +7,7 @@ import Foundation
 //   2. Exponentially Weighted Moving Average (EWMA) smoothing
 //   3. First derivative (velocity) — rate of weight change
 //   4. Second derivative (acceleration) — rate of change of velocity
-//   5. Plateau prediction — early warning when loss is decelerating
+//   5. Historical change in the recent rate of weight change
 
 struct WeightDataPoint: Identifiable {
     let id = UUID()
@@ -40,12 +40,11 @@ struct WeightInsight {
 
 struct PlateauWarning {
     let message: String
-    let daysUntilPlateau: ClosedRange<Int>
     let severity: Severity
 
     enum Severity {
         case mild    // 1-2 days of deceleration
-        case warning // 3+ days — the "one week warning"
+        case warning // 3+ days of observed deceleration
     }
 }
 
@@ -66,7 +65,7 @@ struct WeightAnalytics {
     let decelerationWarningDays: Int
 
     /// Trailing window (days) for the regression slope that drives the
-    /// headline signal, weekly rate, and projection. Tuned by simulation:
+    /// headline signal and weekly rate. Tuned by simulation:
     /// 14 days balances responsiveness against daily water-weight noise.
     private let regressionWindowDays = 14
 
@@ -160,7 +159,7 @@ struct WeightAnalytics {
         // Step 6: Determine trend signal from the regression slopes
         let signal = classifySignal(slope: recentSlope, slopeAcceleration: slopeAcceleration)
 
-        // Step 7: Check for plateau warning
+        // Step 7: Describe observed slowing; do not predict a future plateau.
         let warning = plateauWarning(
             signal: signal,
             velocity: recentSlope,
@@ -177,52 +176,6 @@ struct WeightAnalytics {
             dataPoints: dataPoints,
             plateauWarning: warning,
             consecutiveDecelerationDays: consecDays
-        )
-    }
-
-    // MARK: - Projection
-
-    struct Projection {
-        let slopeLbsPerDay: Double
-        let daysAhead: Int
-        let projectedWeightLbs: Double
-        let targetDate: Date
-    }
-
-    /// Where the user is on track to be in `daysAhead` days, extending the
-    /// regression trend of the smoothed series. Returns nil until there is
-    /// enough real data for the extrapolation to mean something: at least 5
-    /// logged days spanning at least 10 calendar days, and a sane slope.
-    func projection(
-        entries: [(date: Date, weightLbs: Double)],
-        daysAhead: Int
-    ) -> Projection? {
-        let cal = Calendar.current
-        let loggedDays = Set(entries.map { cal.startOfDay(for: $0.date) })
-        guard loggedDays.count >= 5,
-              let firstDay = loggedDays.min(),
-              let lastDay = loggedDays.max(),
-              let span = cal.dateComponents([.day], from: firstDay, to: lastDay).day,
-              span >= 10
-        else { return nil }
-
-        let sorted = entries.sorted { $0.date < $1.date }
-        let daily = interpolateDailySeries(from: sorted)
-        let smoothed = ewmaSmooth(daily.map(\.weightLbs))
-        guard smoothed.count >= 2, let lastValue = smoothed.last else { return nil }
-
-        let window = min(regressionWindowDays, smoothed.count)
-        let slope = Self.olsSlope(Array(smoothed.suffix(window)))
-        // A slope beyond half a pound per day sustained is either bad data or
-        // a medical situation — either way, extrapolating it is irresponsible.
-        guard abs(slope) <= 0.5 else { return nil }
-
-        let target = cal.date(byAdding: .day, value: daysAhead, to: lastDay) ?? lastDay
-        return Projection(
-            slopeLbsPerDay: slope,
-            daysAhead: daysAhead,
-            projectedWeightLbs: lastValue + slope * Double(daysAhead),
-            targetDate: target
         )
     }
 
@@ -381,7 +334,7 @@ struct WeightAnalytics {
         return count
     }
 
-    // MARK: - Plateau Warning
+    // MARK: - Observed Trend Change
 
     private func plateauWarning(
         signal: TrendSignal,
@@ -400,15 +353,13 @@ struct WeightAnalytics {
         if consecutiveDays >= decelerationWarningDays {
             let verb = signal == .losingSlowing ? "weight loss" : "weight gain"
             return PlateauWarning(
-                message: "Your \(verb) is slowing down. Based on current trends, you may hit a plateau within 7 to 10 days.",
-                daysUntilPlateau: 7...10,
+                message: "Your recent \(verb) trend has slowed. Daily readings vary, so keep logging to see whether this pattern continues.",
                 severity: .warning
             )
         } else {
             let verb = signal == .losingSlowing ? "loss" : "gain"
             return PlateauWarning(
-                message: "Your rate of \(verb) has started to slow over the last \(consecutiveDays) day\(consecutiveDays == 1 ? "" : "s"). This is normal — keep it up.",
-                daysUntilPlateau: 10...14,
+                message: "Your recent rate of \(verb) has slowed over the last \(consecutiveDays) day\(consecutiveDays == 1 ? "" : "s"). Short-term changes may reflect normal fluctuations.",
                 severity: .mild
             )
         }
@@ -462,15 +413,15 @@ extension WeightInsight {
     var headline: String {
         switch signal {
         case .insufficient:
-            return "Log at least 14 days of weight data to unlock trend predictions."
+            return "Log at least 14 days of weight data to see recent trends."
         case .losing:
-            return "You're losing about \(formattedWeekly) per week — steady progress."
+            return "Recent average change: about \(formattedWeekly) down per week."
         case .losingSlowing:
             return "Still losing, but the pace is easing up."
         case .plateau:
             return "Your weight has been holding steady."
         case .gaining:
-            return "You're gaining about \(formattedWeekly) per week."
+            return "Recent average change: about \(formattedWeekly) up per week."
         case .gainingSlowing:
             return "Still gaining, but the pace is tapering off."
         }

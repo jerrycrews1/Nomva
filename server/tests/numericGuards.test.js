@@ -40,6 +40,7 @@ test("grams refuse a million metric tons", () => {
 
 test("goal values are bounded per metric", () => {
   assert.equal(boundedGoalValue("calories", 2100), 2100);
+  assert.equal(boundedGoalValue("calories", 1000), null);
   assert.equal(boundedGoalValue("calories", 99999999), null);
   assert.equal(boundedGoalValue("protein", 175), 175);
   assert.equal(boundedGoalValue("protein", 1e20), null);

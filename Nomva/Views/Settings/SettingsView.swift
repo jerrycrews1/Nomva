@@ -195,6 +195,10 @@ struct SettingsView: View {
                                     value: dbMetadata.buildDate
                                 )
                             }
+                            Link(destination: URL(string: "https://nomva.nerdquad.com/data-sources.html")!) {
+                                SettingsLinkRow(icon: "doc.text", title: "Food Data Sources & License", subtitle: "Open Food Facts, USDA, and database download")
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         SettingsSectionCard("About", detail: "Legal links and app info.") {

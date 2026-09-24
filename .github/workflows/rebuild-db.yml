@@ -27,27 +27,43 @@ jobs:
 
       - name: Download USDA SR Legacy dataset
         run: |
-          curl -L -o sr_legacy.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2019-04-02.zip"
+          curl --fail --location --retry 3 -o sr_legacy.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip"
           unzip -q sr_legacy.zip -d sr_legacy/
+          rm sr_legacy.zip
+
+      - name: Download USDA Foundation and FNDDS datasets
+        run: |
+          mkdir -p _build_data/foundation _build_data/fndds
+          curl --fail --location --retry 3 -o foundation.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2026-04-30.zip"
+          curl --fail --location --retry 3 -o fndds.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip"
+          unzip -q foundation.zip -d _build_data/foundation/
+          unzip -q fndds.zip -d _build_data/fndds/
+          rm foundation.zip fndds.zip
 
       - name: Download USDA Branded Foods dataset
         run: |
           # Check https://fdc.nal.usda.gov/download-foods.html for the current filename
-          curl -L -o branded.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2024-10-31.zip"
+          curl --fail --location --retry 3 -o branded.zip \
+            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2026-04-30.zip"
           unzip -q branded.zip -d branded/
-
-      - name: Download Open Food Facts export
-        run: |
-          mkdir -p open_food_facts
-          curl -L -o open_food_facts/openfoodfacts-products.jsonl.gz \
-            "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz"
+          rm branded.zip
 
       - name: Build SQLite database
-        env:
-          OPEN_FOOD_FACTS_PATH: open_food_facts/openfoodfacts-products.jsonl.gz
-        run: python scripts/build_db.py
+        run: |
+          # Stream the large gzip through a FIFO so it does not exhaust runner disk.
+          mkdir -p open_food_facts
+          mkfifo open_food_facts/openfoodfacts-products.jsonl.gz
+          curl --fail --location --show-error --silent \
+            "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz" \
+            > open_food_facts/openfoodfacts-products.jsonl.gz &
+          off_download_pid=$!
+          trap 'kill "$off_download_pid" 2>/dev/null || true' EXIT
+          OPEN_FOOD_FACTS_PATH=open_food_facts/openfoodfacts-products.jsonl.gz python scripts/build_db.py
+          wait "$off_download_pid"
+          trap - EXIT
 
       - name: Package and publish database
         env:
@@ -62,11 +78,12 @@ jobs:
 
           if gh release view "$release_tag" >/dev/null 2>&1; then
             gh release upload "$release_tag" /tmp/foods.sqlite.gz --clobber
+            gh release edit "$release_tag" --notes-file ci_scripts/food-database-release-notes.md
           else
             gh release create "$release_tag" /tmp/foods.sqlite.gz \
               --target "$GITHUB_SHA" \
               --title "Nomva food database ${database_sha:0:8}" \
-              --notes "Production food database restored by Xcode Cloud during post-clone."
+              --notes-file ci_scripts/food-database-release-notes.md
           fi
 
           mkdir -p ci_scripts

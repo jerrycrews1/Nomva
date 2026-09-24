@@ -42,7 +42,7 @@ struct OnboardingWelcomeView: View {
                     OnboardingFeatureRow(
                         icon: "slider.horizontal.3",
                         title: "Personalized targets",
-                        detail: "Start with calorie and macro targets that fit you better."
+                        detail: "Adults can review general calorie and macro estimates. These are not medical advice."
                     )
                     OnboardingFeatureRow(
                         icon: "icloud",
@@ -50,6 +50,9 @@ struct OnboardingWelcomeView: View {
                         detail: "Keep your history on this device. Sync weigh-ins through Apple Health."
                     )
                 }
+                Text("If you are under 18 or have special nutritional needs, skip the calorie planner and ask a qualified clinician before choosing a target.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         } footer: {
             Button("Get Started") {

@@ -44,6 +44,7 @@ FILES=(
   foodMentionGuard.js
   portionGuard.js
   numericGuards.js
+  nutritionSafety.js
   recentFoodSuggestionGuard.js
   garminMetrics.js
   authPolicy.js
@@ -62,6 +63,7 @@ PUBLIC_FILES=(
   public/index.html
   public/privacy.html
   public/support.html
+  public/data-sources.html
 )
 
 # ── Local sanity: never ship with a red unit suite or a stale local DB ──────
@@ -238,6 +240,9 @@ sleep 2
 HEALTH=$(curl -sS -m 10 https://nomva.nerdquad.com/health)
 echo "  $HEALTH"
 echo "$HEALTH" | grep -q '"available":true' || { echo "✗ /health reports the food DB unavailable — investigate before considering this deploy done"; exit 1; }
+DATA_NOTICE=$(curl --fail --silent --show-error -m 10 https://nomva.nerdquad.com/data-sources.html)
+echo "$DATA_NOTICE" | grep -q 'Open Database License (ODbL) 1.0' || { echo "✗ Food database license notice is not live"; exit 1; }
+echo "$DATA_NOTICE" | grep -q "$EXPECTED_DB_SHA" || { echo "✗ Food database download notice has the wrong database hash"; exit 1; }
 
 DEPLOY_COMMITTED=1
 trap - EXIT

@@ -15,6 +15,7 @@ struct ChatView: View {
     @Query(sort: \LoggingSession.updatedAt, order: .reverse) private var loggingSessions: [LoggingSession]
     @Query(sort: \WaterEntry.date)        private var allWaterEntries: [WaterEntry]
     @Query                                private var goals: [DailyGoal]
+    @Query                                private var profiles: [UserProfile]
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager)  private var undoManager
@@ -148,24 +149,7 @@ struct ChatView: View {
             ZStack {
                 NomvaScreenBackground()
 
-                VStack(spacing: NomvaTheme.sectionGap) {
-                    Button {
-                        showNutritionDetail = true
-                    } label: {
-                        MacroRingsView(
-                            consumed: selectedDayTotals,
-                            goal: displayGoal,
-                            isCompact: isInputFocused || !messages.isEmpty,
-                            showsDetailCue: true,
-                            activity: activityGoalSnapshot
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, contentInset)
-                    .padding(.top, NomvaTheme.topCardGap)
-                    .animation(reduceMotion ? .none : .spring(), value: isInputFocused || !messages.isEmpty)
-                    .accessibilityHint("Shows detailed nutrition, Daily Value context, and trends")
-
+                VStack(spacing: 0) {
                     messageList
 
                     chatInputBar
@@ -422,6 +406,22 @@ struct ChatView: View {
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        showNutritionDetail = true
+                    } label: {
+                        MacroRingsView(
+                            consumed: selectedDayTotals,
+                            goal: displayGoal,
+                            isCompact: true,
+                            showsDetailCue: true,
+                            activity: activityGoalSnapshot
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, NomvaTheme.topCardGap)
+                    .accessibilityIdentifier("chat.nutritionSummary")
+                    .accessibilityHint("Shows detailed nutrition, Daily Value context, and trends")
+
                     if dayMessages.isEmpty {
                         emptyChatPrompt
                     }
@@ -1185,6 +1185,20 @@ struct ChatView: View {
             return "Set \(targetDateLabel.lowercased()) water total to \(formatGoalNumber(oz)) oz."
 
         case .setGoal(let changes):
+            if changes.contains(where: { $0.metric == "calories" || $0.metric == "target_weight_lbs" }) {
+                guard let birthYear = profiles.first?.birthYear,
+                      Calendar.current.component(.year, from: Date()) - birthYear >= 19 else {
+                    return "Personal calorie and weight targets require an adult profile. Review your birth year in Goals, or ask a qualified clinician for individualized guidance. Nothing was changed."
+                }
+            }
+            for change in changes where change.metric == "calories" {
+                let current = currentGoal.calories
+                let proposed = change.operation == "increase" ? current + change.value
+                    : (change.operation == "decrease" ? current - change.value : change.value)
+                if proposed < GoalService.minimumSuggestedCalories {
+                    return "Nomva cannot set a calorie target below 1,500 kcal/day. That product floor is not an individualized medical recommendation. No goals were changed."
+                }
+            }
             let goal = currentGoal
             let oldGoal = (
                 calories: goal.calories,
@@ -1201,7 +1215,7 @@ struct ChatView: View {
                     switch change.metric {
                     case "calories":
                         let old = goal.calories
-                        let new = boundedGoalValue(apply: change, to: old, range: 1_000...10_000)
+                        let new = boundedGoalValue(apply: change, to: old, range: 1_500...5_000)
                         goal.calories = new
                         parts.append("calories \(old.safeRoundedInt) → \(new.safeRoundedInt)")
                     case "protein":

@@ -17,7 +17,7 @@ struct WeightInsightsSection: View {
                 velocityChart
             }
 
-            // Plateau warning banner
+            // Observed trend change
             if let warning = insight.plateauWarning {
                 plateauBanner(warning)
             }
@@ -172,7 +172,7 @@ struct WeightInsightsSection: View {
                 .foregroundStyle(NomvaTheme.warning)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(warning.severity == .warning ? "Plateau Prediction" : "Heads Up")
+                Text(warning.severity == .warning ? "Recent Trend Slowing" : "Recent Trend")
                     .font(.subheadline.weight(.semibold))
                 Text(warning.message)
                     .font(.caption)
@@ -266,7 +266,7 @@ struct WeightInsightsInsufficientCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("Nomva needs at least \(minimumRequired) days of weight data to calculate trends, velocity, and plateau predictions. Keep logging daily!")
+            Text("Nomva needs at least \(minimumRequired) days of weight data to summarize recent weight trends. Daily changes can vary.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -288,7 +288,7 @@ struct WeightInsightsTeaser: View {
                             .font(.headline)
                         NomvaTag(text: "PRO", tint: NomvaTheme.accent)
                     }
-                    Text("Predict plateaus before they happen")
+                    Text("Understand your recent weight trend")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -302,9 +302,9 @@ struct WeightInsightsTeaser: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                featureRow(icon: "chart.line.uptrend.xyaxis", text: "Weight velocity chart — see the real trend behind daily noise")
-                featureRow(icon: "exclamationmark.triangle", text: "Plateau early warnings — know 7–10 days before the scale stalls")
-                featureRow(icon: "gauge.with.needle", text: "EWMA smoothing — scientifically filter out water weight swings")
+                featureRow(icon: "chart.line.uptrend.xyaxis", text: "Weight change chart — compare recent readings")
+                featureRow(icon: "exclamationmark.triangle", text: "Trend change notices when recent weight change slows")
+                featureRow(icon: "gauge.with.needle", text: "Smoothed averages to make daily fluctuations easier to see")
             }
 
             Button(action: onUpgrade) {

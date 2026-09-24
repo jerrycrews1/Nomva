@@ -26,6 +26,86 @@ final class NomvaUITests: XCTestCase {
     }
 
     @MainActor
+    func testWeightScreenShowsObservedTrendWithoutForecastClaims() throws {
+        let app = launch(
+            startingAt: "-NomvaStartWeight",
+            appearance: "Light",
+            additionalArguments: ["-NomvaPerformanceFixture"]
+        )
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 15))
+        let saveAlert = app.alerts["Change could not be saved"]
+        if saveAlert.exists { saveAlert.buttons["OK"].tap() }
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'still an estimate'")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'true trend'")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'On track for'")).firstMatch.exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "weight-observed-trend-2026-09-23"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testNavigationPerformanceWithHistory() throws {
+        let app = launch(
+            startingAt: "-NomvaStartLog",
+            appearance: "Light",
+            additionalArguments: ["-NomvaPerformanceFixture"]
+        )
+        XCTAssertTrue(app.navigationBars["Today's Log"].waitForExistence(timeout: 15))
+
+        for iteration in 0..<4 {
+            recordNavigation(app, tab: "Weight", destination: app.navigationBars["Weight"], iteration: iteration)
+            recordNavigation(app, tab: "Settings", destination: app.navigationBars["Settings"], iteration: iteration)
+            recordNavigation(app, tab: "AI Chat", destination: app.descendants(matching: .any)["chat.input"].firstMatch, iteration: iteration)
+            recordNavigation(app, tab: "Log", destination: app.navigationBars["Today's Log"], iteration: iteration)
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        app.buttons["Add Food"].tap()
+        XCTAssertTrue(app.navigationBars["Add Food"].waitForExistence(timeout: 10))
+        print("NOMVA_PERF,Add Food,0,\(Int((CFAbsoluteTimeGetCurrent() - start) * 1000))")
+
+        app.navigationBars["Add Food"].buttons["Cancel"].tap()
+        app.tabBars.buttons["Weight"].tap()
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 10))
+
+        let yearStart = CFAbsoluteTimeGetCurrent()
+        app.buttons["1Y"].tap()
+        XCTAssertTrue(app.staticTexts["Last Year"].waitForExistence(timeout: 10))
+        print("NOMVA_PERF,Weight 1Y,0,\(Int((CFAbsoluteTimeGetCurrent() - yearStart) * 1000))")
+
+        let monthStart = CFAbsoluteTimeGetCurrent()
+        app.buttons["30D"].tap()
+        XCTAssertTrue(app.staticTexts["Last 30 Days"].waitForExistence(timeout: 10))
+        print("NOMVA_PERF,Weight 30D,0,\(Int((CFAbsoluteTimeGetCurrent() - monthStart) * 1000))")
+
+        let weightStart = CFAbsoluteTimeGetCurrent()
+        app.buttons["Log Weight"].tap()
+        XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: 10))
+        print("NOMVA_PERF,Log Weight,0,\(Int((CFAbsoluteTimeGetCurrent() - weightStart) * 1000))")
+        app.buttons["Cancel"].tap()
+
+        app.tabBars.buttons["Settings"].tap()
+        let goalsStart = CFAbsoluteTimeGetCurrent()
+        app.descendants(matching: .any)["settings.goals"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Goals"].waitForExistence(timeout: 10))
+        print("NOMVA_PERF,Settings Goals,0,\(Int((CFAbsoluteTimeGetCurrent() - goalsStart) * 1000))")
+    }
+
+    @MainActor
+    private func recordNavigation(_ app: XCUIApplication, tab: String, destination: XCUIElement, iteration: Int) {
+        let alert = app.alerts["Change could not be saved"]
+        if alert.exists {
+            print("NOMVA_PERF,save alert,\(iteration),1")
+            alert.buttons["OK"].tap()
+        }
+        let start = CFAbsoluteTimeGetCurrent()
+        app.tabBars.buttons[tab].tap()
+        XCTAssertTrue(destination.waitForExistence(timeout: 10), "\(tab) did not open")
+        print("NOMVA_PERF,\(tab),\(iteration),\(Int((CFAbsoluteTimeGetCurrent() - start) * 1000))")
+    }
+
+    @MainActor
     func testGoalsRowHasAFullReliableTapTargetInDarkMode() throws {
         let app = launch(startingAt: "-NomvaStartSettings", appearance: "Dark")
 

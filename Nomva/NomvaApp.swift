@@ -142,6 +142,9 @@ final class ModelContainerManager: ObservableObject {
         if NomvaRuntime.isAutomatedTest {
             let container = createInMemoryContainer(schema: schema)
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-NomvaPerformanceFixture") {
+                seedPerformanceFixture(in: container.mainContext)
+            }
             if ProcessInfo.processInfo.arguments.contains("-NomvaBeverageRegression") {
                 let context = container.mainContext
                 context.insert(FoodEntry(name: "Gatorade Cool Blue — 12 fl oz (28 oz bottle)", brand: "Gatorade", meal: "dinner",
@@ -250,6 +253,44 @@ final class ModelContainerManager: ObservableObject {
             fatalError("Could not create fallback in-memory ModelContainer: \(error)")
         }
     }
+
+    #if DEBUG
+    /// A realistic, isolated history for repeatable navigation measurements.
+    private static func seedPerformanceFixture(in context: ModelContext) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        for dayOffset in 0..<365 {
+            guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
+            for mealIndex in 0..<3 {
+                let date = day.addingTimeInterval(TimeInterval(8 + mealIndex * 5) * 3600)
+                context.insert(FoodEntry(
+                    name: "Performance meal \(mealIndex + 1)",
+                    meal: ["breakfast", "lunch", "dinner"][mealIndex],
+                    date: date,
+                    portionGrams: 150,
+                    portionDescription: "1 serving",
+                    calories: 300,
+                    proteinG: 25,
+                    carbsG: 35,
+                    fatG: 8,
+                    fiberG: 4,
+                    saturatedFatG: 2,
+                    addedSugarG: 0,
+                    vitaminDMcg: 0,
+                    calciumMg: 0,
+                    ironMg: 0,
+                    potassiumMg: 0,
+                    rawUserInput: "Performance fixture"
+                ))
+            }
+            context.insert(WeightEntry(date: day.addingTimeInterval(7 * 3600), weightLbs: 170 + Double(dayOffset) * 0.02))
+            context.insert(ChatMessage(role: "user", content: "Log my meals", timestamp: day.addingTimeInterval(8 * 3600)))
+            context.insert(ChatMessage(role: "assistant", content: "Your meals were logged.", timestamp: day.addingTimeInterval(8 * 3600 + 1)))
+        }
+        do { try context.save() }
+        catch { assertionFailure("Could not seed performance fixture: \(error)") }
+    }
+    #endif
 }
 
 struct RootView: View {

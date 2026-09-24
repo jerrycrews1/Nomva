@@ -1,6 +1,6 @@
 # Nomva Terms of Service — unpublished draft
 
-Release 1.6 uses Apple’s Standard EULA, linked from Settings and the paywall. This draft is not the operative agreement; unresolved legal-entity placeholders remain intentionally unpublished.
+Release 1.6 uses Apple’s Standard EULA, linked from Settings and the paywall. This draft is not the operative agreement; unresolved legal-entity and governing-law placeholders remain intentionally unpublished. Trademark clearance and counsel review are also required before publication.
 
 Effective Date: [Month Day, Year]
 
@@ -70,7 +70,7 @@ We may suspend or terminate access if we believe your use violates these Terms, 
 
 You may provide us with information such as food logs, body weight entries, goals, notes, messages, profile details, barcode scans, and other content or data you submit through the Service ("User Content").
 
-You retain ownership of your User Content. However, you grant us a worldwide, non-exclusive, royalty-free license to host, store, reproduce, process, transmit, sync, format, analyze, and otherwise use your User Content as necessary to operate, improve, secure, support, and provide the Service, including AI-powered features and syncing functionality.
+You retain ownership of your User Content. You permit us and the providers described in the Privacy Policy to process the information you choose to submit as necessary to provide, secure, and support the features you use. This clause must be reconciled with the current local-storage and AI data practices before publication.
 
 You represent and warrant that:
 
@@ -126,7 +126,7 @@ The Service, including its software, design, branding, trademarks, text, graphic
 
 Except for the limited license granted in these Terms, we reserve all rights, title, and interest in and to the Service.
 
-Nomva and related names, logos, and product marks are our trademarks or the trademarks of our licensors. You may not use them without prior written permission.
+The ownership and clearance of the Nomva name and app icon have not been established in this draft. Any final intellectual-property clause must be checked against the completed trademark and artwork review and the separately licensed food database.
 
 ## 12. Feedback
 
@@ -147,7 +147,7 @@ Upon termination, the rights granted to you under these Terms will end immediate
 
 ## 14. Privacy
 
-Your use of the Service is also subject to our Privacy Policy, available at https://nomva.nerdquad.com/privacy. Please read it carefully.
+Your use of the Service is also subject to our Privacy Policy, available at https://nomva.nerdquad.com/privacy.html. Please read it carefully.
 
 ## 15. Disclaimers
 

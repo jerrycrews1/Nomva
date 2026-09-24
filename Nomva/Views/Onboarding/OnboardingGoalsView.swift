@@ -16,6 +16,13 @@ struct OnboardingGoalsView: View {
     @State private var carbGoal: Double = 250
     @State private var fatGoal: Double = 65
 
+    private var goalsAreValid: Bool {
+        calorieGoal.isFinite && (1500...5000).contains(calorieGoal)
+            && proteinGoal.isFinite && (40...400).contains(proteinGoal)
+            && carbGoal.isFinite && (50...600).contains(carbGoal)
+            && fatGoal.isFinite && (20...200).contains(fatGoal)
+    }
+
     var body: some View {
         OnboardingShell {
             OnboardingSectionCard(
@@ -46,10 +53,14 @@ struct OnboardingGoalsView: View {
                         label: "Calories",
                         value: $calorieGoal,
                         unit: "kcal",
-                        range: 1000...5000,
+                        range: 1500...5000,
                         step: 10,
                         tint: NomvaTheme.accent
                     )
+
+                    Text("These are general estimates for adults, not medical advice. If you are pregnant, breastfeeding, recovering from an eating disorder, or managing a medical condition, ask a qualified clinician before using a calorie target.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Divider()
 
@@ -84,6 +95,7 @@ struct OnboardingGoalsView: View {
             }
         } footer: {
             Button("Continue") {
+                guard goalsAreValid else { return }
                 let goal = DailyGoal(
                     calories: calorieGoal,
                     protein: proteinGoal,
@@ -93,6 +105,13 @@ struct OnboardingGoalsView: View {
                 onContinue(goal)
             }
             .buttonStyle(NomvaPrimaryButtonStyle())
+            .disabled(!goalsAreValid)
+
+            if !goalsAreValid {
+                Text("Check the entered targets. Calories must be 1,500–5,000 kcal/day; other targets must stay within their displayed ranges.")
+                    .font(.caption)
+                    .foregroundStyle(NomvaTheme.warning)
+            }
 
             Button("Use Defaults") {
                 onSkip()
@@ -181,7 +200,7 @@ struct OnboardingGoalsView: View {
         let cal = GoalService.calculateSuggestedCalories(
             weightLbs: weightLbs,
             heightInches: heightInches,
-            age: max(age, 18),
+            age: age,
             sex: sex,
             activity: activity,
             goal: weightGoal
