@@ -142,6 +142,10 @@ final class ModelContainerManager: ObservableObject {
         if NomvaRuntime.isAutomatedTest {
             let container = createInMemoryContainer(schema: schema)
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-NomvaWeightWriteDeniedFixture") ||
+                ProcessInfo.processInfo.arguments.contains("-NomvaWeightWriteRetryFixture") {
+                UserDefaults.standard.set(true, forKey: WeightSyncPreferences.appleHealthExportKey)
+            }
             if ProcessInfo.processInfo.arguments.contains("-NomvaPerformanceFixture") {
                 seedPerformanceFixture(in: container.mainContext)
             }

@@ -157,6 +157,14 @@ enum AppleHealthService {
     }
 
     static func weightWriteAuthorizationStatus() -> HKAuthorizationStatus {
+        #if DEBUG
+        if NomvaRuntime.isAutomatedTest && ProcessInfo.processInfo.arguments.contains("-NomvaWeightWriteDeniedFixture") {
+            return .sharingDenied
+        }
+        if NomvaRuntime.isAutomatedTest && ProcessInfo.processInfo.arguments.contains("-NomvaWeightWriteRetryFixture") {
+            return .sharingAuthorized
+        }
+        #endif
         guard let bodyMassType else { return .sharingDenied }
         return healthStore.authorizationStatus(for: bodyMassType)
     }
@@ -503,6 +511,9 @@ enum WeightSyncCoordinator {
     private static let gate = NomvaCloudAttestedRequestGate()
     private static let cycleGate = NomvaCloudAttestedRequestGate()
     private static var deletionWake: Task<Void, Never>?
+    #if DEBUG
+    private static var retryFixtureAttempts = 0
+    #endif
 
     static func importAppleHealth(into modelContext: ModelContext, client: WeightHealthClient = .live, recheckHistory: Bool = false) async throws -> WeightImportResult {
         try await gate.withExclusiveAccess { @MainActor in
@@ -548,6 +559,16 @@ enum WeightSyncCoordinator {
     }
 
     static func exportToAppleHealth(_ entry: WeightEntry, in modelContext: ModelContext, client: WeightHealthClient = .live) async throws {
+        #if DEBUG
+        if NomvaRuntime.isAutomatedTest && ProcessInfo.processInfo.arguments.contains("-NomvaWeightWriteRetryFixture") {
+            retryFixtureAttempts += 1
+            if retryFixtureAttempts == 1 {
+                throw NSError(domain: "NomvaWeightWriteRetryFixture", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Temporary Apple Health failure."])
+            }
+            return
+        }
+        #endif
         _ = try await exportAllNomvaWeightsToAppleHealth(from: [entry], in: modelContext, client: client)
     }
 

@@ -1,13 +1,40 @@
 import SwiftUI
 import SwiftData
+import HealthKit
 
 struct WeightLogEntryView: View {
+    private enum SaveAlert {
+        case importedWeight(String)
+        case localSaveFailed(String)
+        case healthPermissionDenied
+        case healthSaveFailed(String)
+
+        var title: String {
+            switch self {
+            case .importedWeight: "Edit in the Source App"
+            case .localSaveFailed: "Weight Not Saved"
+            case .healthPermissionDenied, .healthSaveFailed: "Saved in Nomva"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .importedWeight(let message), .localSaveFailed(let message): message
+            case .healthPermissionDenied:
+                "Apple Health Weight write access is off, so saving to Health is paused. In the Health app, open your profile > Apps > Nomva and allow Weight under Write. Then turn on Save Nomva Weigh-ins in Weight Sync to send pending weigh-ins."
+            case .healthSaveFailed(let message):
+                "This weigh-in is stored in Nomva, but Apple Health could not be updated. \(message) You can retry now or later from Weight Sync."
+            }
+        }
+    }
+
     var existingEntry: WeightEntry? = nil
 
     @Query(sort: \WeightEntry.date, order: .reverse) private var allEntries: [WeightEntry]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss)      private var dismiss
     @AppStorage("weight_unit")   private var unitRaw = WeightUnit.lbs.rawValue
+    @AppStorage(WeightSyncPreferences.appleHealthExportKey) private var appleHealthExportEnabled = false
 
     /// Source of truth: display string (e.g. "174.5")
     @State private var weightText: String
@@ -16,7 +43,7 @@ struct WeightLogEntryView: View {
     @State private var didApplyDefault = false
     @State private var isSaving = false
     @State private var savedNewEntry: WeightEntry?
-    @State private var saveMessage: String?
+    @State private var saveAlert: SaveAlert?
     @FocusState private var isWeightFocused: Bool
 
     init(existingEntry: WeightEntry? = nil) {
@@ -134,16 +161,23 @@ struct WeightLogEntryView: View {
                         .disabled(parsedLbs == nil || isSaving)
                 }
             }
-            .alert("Weight Saved", isPresented: Binding(
-                get: { saveMessage != nil },
-                set: { if !$0 { saveMessage = nil } }
+            .alert(saveAlert?.title ?? "Weight", isPresented: Binding(
+                get: { saveAlert != nil },
+                set: { if !$0 { saveAlert = nil } }
             )) {
-                Button("Done") { dismiss() }
-                Button("Try Apple Health Again") {
-                    saveMessage = nil
+                switch saveAlert {
+                case .healthSaveFailed:
+                    Button("Done") { dismiss() }
+                    Button("Try Apple Health Again") {
+                        Task { await retryHealthExport() }
+                    }
+                case .healthPermissionDenied:
+                    Button("Done") { dismiss() }
+                case .importedWeight, .localSaveFailed, nil:
+                    Button("OK", role: .cancel) { saveAlert = nil }
                 }
             } message: {
-                Text(saveMessage ?? "")
+                Text(saveAlert?.message ?? "")
             }
             .onAppear {
                 // For new entries, pre-fill with the most recent weight
@@ -191,7 +225,7 @@ struct WeightLogEntryView: View {
     private func save() async {
         guard let lbs = parsedLbs else { return }
         if let existingEntry, existingEntry.dataSource != .nomva {
-            saveMessage = "Correct this weigh-in in \(existingEntry.resolvedSourceName) so it syncs back to Nomva, or add a separate Nomva weigh-in."
+            saveAlert = .importedWeight("Correct this weigh-in in \(existingEntry.resolvedSourceName) so it syncs back to Nomva, or add a separate Nomva weigh-in.")
             return
         }
         isSaving = true
@@ -222,14 +256,41 @@ struct WeightLogEntryView: View {
         do {
             try modelContext.save()
         } catch {
-            saveMessage = "Nomva couldn't save this weigh-in: \(error.localizedDescription)"
+            saveAlert = .localSaveFailed("Nomva couldn't save this weigh-in: \(error.localizedDescription)")
             return
         }
 
+        await exportSavedEntry(entry)
+    }
+
+    @MainActor
+    private func retryHealthExport() async {
+        guard !isSaving, let entry = existingEntry ?? savedNewEntry else { return }
+        isSaving = true
+        defer { isSaving = false }
+        await exportSavedEntry(entry)
+    }
+
+    @MainActor
+    private func exportSavedEntry(_ entry: WeightEntry) async {
+        guard appleHealthExportEnabled else { dismiss(); return }
         do {
+            if AppleHealthService.weightWriteAuthorizationStatus() == .notDetermined {
+                try await AppleHealthService.requestWeightWriteAuthorization()
+            }
+            guard AppleHealthService.weightWriteAuthorizationStatus() == .sharingAuthorized else {
+                appleHealthExportEnabled = false
+                saveAlert = .healthPermissionDenied
+                return
+            }
             try await WeightSyncCoordinator.exportToAppleHealth(entry, in: modelContext)
         } catch {
-            saveMessage = "The weigh-in is safely stored in Nomva, but Apple Health could not be updated. \(error.localizedDescription)"
+            if AppleHealthService.weightWriteAuthorizationStatus() == .sharingDenied {
+                appleHealthExportEnabled = false
+                saveAlert = .healthPermissionDenied
+            } else {
+                saveAlert = .healthSaveFailed(error.localizedDescription)
+            }
             return
         }
         dismiss()

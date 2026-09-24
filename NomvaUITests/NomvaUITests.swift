@@ -45,6 +45,64 @@ final class NomvaUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeniedHealthWriteSavesLocallyWithoutRepeatedAlert() throws {
+        let app = launch(
+            startingAt: "-NomvaStartWeight",
+            appearance: "Dark",
+            additionalArguments: ["-NomvaWeightWriteDeniedFixture"]
+        )
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 15))
+        let persistenceAlert = app.alerts["Change could not be saved"]
+        if persistenceAlert.exists { persistenceAlert.buttons["OK"].tap() }
+
+        app.buttons["Log Weight"].tap()
+        let weightField = app.textFields["lbs"]
+        XCTAssertTrue(weightField.waitForExistence(timeout: 5))
+        weightField.tap()
+        weightField.typeText("183.5")
+        app.buttons["Save"].tap()
+
+        let permissionAlert = app.alerts["Saved in Nomva"]
+        XCTAssertTrue(permissionAlert.waitForExistence(timeout: 10))
+        XCTAssertFalse(permissionAlert.buttons["Try Apple Health Again"].exists)
+        XCTAssertTrue(permissionAlert.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'saving to Health is paused'")).firstMatch.exists)
+        permissionAlert.buttons["Done"].tap()
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 5))
+
+        app.buttons["Log Weight"].tap()
+        XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.alerts["Saved in Nomva"].exists)
+    }
+
+    @MainActor
+    func testHealthWriteRetryRetriesTheSavedEntry() throws {
+        let app = launch(
+            startingAt: "-NomvaStartWeight",
+            appearance: "Light",
+            additionalArguments: ["-NomvaWeightWriteRetryFixture"]
+        )
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 15))
+        let persistenceAlert = app.alerts["Change could not be saved"]
+        if persistenceAlert.exists { persistenceAlert.buttons["OK"].tap() }
+
+        app.buttons["Log Weight"].tap()
+        let weightField = app.textFields["lbs"]
+        XCTAssertTrue(weightField.waitForExistence(timeout: 5))
+        weightField.tap()
+        weightField.typeText("183.5")
+        app.buttons["Save"].tap()
+
+        let retryAlert = app.alerts["Saved in Nomva"]
+        XCTAssertTrue(retryAlert.waitForExistence(timeout: 10))
+        XCTAssertTrue(retryAlert.buttons["Try Apple Health Again"].exists)
+        retryAlert.buttons["Try Apple Health Again"].tap()
+        XCTAssertTrue(app.navigationBars["Weight"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.alerts["Saved in Nomva"].exists)
+    }
+
+    @MainActor
     func testNavigationPerformanceWithHistory() throws {
         let app = launch(
             startingAt: "-NomvaStartLog",
