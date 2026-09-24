@@ -1084,6 +1084,12 @@ function garminUserForRequest(req) {
 }
 
 // ── Static files (privacy, support, logo) ────────────────────────────────────
+// Keep the public Instagram URL readable while preserving Apple's campaign token.
+app.get("/ig", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.redirect(302, "https://apps.apple.com/app/apple-store/id6762495287?pt=123122604&ct=launch_ig_sep26&mt=8");
+});
+
 app.get(["/", "/index.html"], (_req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
