@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } = require("openai/error");
 
 const {
   EmptyStructuredResponseError,
@@ -47,8 +48,20 @@ test("upstream failures stop after two attempts and respect long retry hints", a
   }
 });
 
+test("SDK connection failures are recovered even though their error name is generic", async () => {
+  for (const error of [new APIConnectionError({ message: "connection reset" }), new APIConnectionTimeoutError()]) {
+    let calls = 0;
+    const result = await recoverableRequest(async () => {
+      if (++calls === 1) throw error;
+      return { output_text: '{"ok":true}' };
+    });
+    assert.deepEqual(result.value, { ok: true });
+    assert.equal(calls, 2);
+  }
+});
+
 test("cancellation, authentication, and billing failures never replay inference", async () => {
-  for (const error of [Object.assign(new Error("auth"), { status: 401 }), Object.assign(new Error("quota"), { status: 429, code: "insufficient_quota" })]) {
+  for (const error of [new APIUserAbortError(), Object.assign(new Error("auth"), { status: 401 }), Object.assign(new Error("quota"), { status: 429, code: "insufficient_quota" })]) {
     let calls = 0;
     await assert.rejects(recoverableRequest(async () => { calls++; throw error; }));
     assert.equal(calls, 1);

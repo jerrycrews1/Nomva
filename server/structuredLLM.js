@@ -1,3 +1,5 @@
+const { APIConnectionError } = require("openai/error");
+
 class EmptyStructuredResponseError extends Error {
   constructor(model, response = null) {
     const reason = response?.incomplete_details?.reason || response?.status || "empty_output";
@@ -95,7 +97,8 @@ async function requestWithinDeadline(openai, request, options, recoveryAttempts)
       return await openai.responses.create(request, { ...options, signal, timeout: allowance, maxRetries: 0 });
     } catch (error) {
       if (parent.aborted || attempt >= recoveryAttempts) throw error;
-      const transient = signal.aborted || ["APIConnectionError", "APIConnectionTimeoutError"].includes(error.name)
+      // SDK connection errors (including timeouts) inherit name="Error".
+      const transient = signal.aborted || error instanceof APIConnectionError
         || [408, 409].includes(error.status) || error.status >= 500
         || (error.status === 429 && ["rate_limit_exceeded", "slow_down"].includes(error.code));
       if (!transient) throw error;
