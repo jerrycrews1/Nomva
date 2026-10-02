@@ -11,22 +11,32 @@ USDA remains the source of truth. Open Food Facts only:
   - backfills missing barcode / brand / serving metadata on matched USDA rows
   - inserts OFF-only foods as new searchable rows when no USDA match exists
 
+This is the single builder: CI runs it directly, and rebuild_full_db.py
+downloads the sources on a Mac and then calls build().
+
 Environment overrides:
   NOMVA_FOOD_DB_PATH
   USDA_SR_LEGACY_DIR
+  USDA_FOUNDATION_DIR
+  USDA_FNDDS_DIR
   USDA_BRANDED_DIR
   OPEN_FOOD_FACTS_PATH
+  NOMVA_USDA_DATASETS   (recorded as metadata.reference_data_version)
+  NOMVA_PREVIOUS_FOOD_DB  catalog being replaced; its row ids are kept
 """
 
+from contextlib import closing
 import glob
 import gzip
 import json
 import math
 import os
+from pathlib import Path
 import re
 import sqlite3
+import tempfile
 
-from usda_reference_data import discover_single_json, insert_reference_foods, rebuild_search_index
+from usda_reference_data import discover_single_json, insert_reference_foods, iter_usda_foods, rebuild_search_index
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -83,6 +93,10 @@ OFF_ACCEPTED_COUNTRIES = {
     "en:us",
     "en:united-states-of-america",
 }
+# Most of the ~75 GB OFF dump is non-US. A product can only pass the exact
+# countries_tags check if one of these quoted tags appears in its raw line, so
+# checking the bytes first skips decoding and parsing everything else.
+OFF_COUNTRY_MARKERS = tuple(f'"{tag}"'.encode() for tag in OFF_ACCEPTED_COUNTRIES)
 
 
 def configure_connection(conn):
@@ -95,16 +109,6 @@ def configure_connection(conn):
     ]
     for pragma in pragmas:
         conn.execute(pragma)
-
-
-def extract_foods(data, root_key):
-    """Normalize USDA exports that wrap foods under a top-level key."""
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        foods = data.get(root_key, [])
-        return foods if isinstance(foods, list) else []
-    return []
 
 
 def safe_float(value):
@@ -162,8 +166,8 @@ def normalize_barcode(value):
     digits = "".join(ch for ch in str(value) if ch.isdigit())
     if not digits:
         return None
-    stripped = digits.lstrip("0")
-    return stripped or "0"
+    # All-zero codes are placeholders, not barcodes; as "0" they matched unrelated products.
+    return digits.lstrip("0") or None
 
 
 def is_missing_text(value):
@@ -197,98 +201,6 @@ def format_serving_description(serving_g):
     if abs(grams - round(grams)) < 0.01:
         return f"{int(round(grams))} g"
     return f"{grams:.1f} g"
-
-
-USDA_PORTION_TEXT_WEIGHTS = [
-    ("cup", 9),
-    ("large", 9),
-    ("medium", 8),
-    ("small", 8),
-    ("extra large", 8),
-    ("jumbo", 8),
-    ("tablespoon", 7),
-    ("tbsp", 7),
-    ("teaspoon", 6),
-    ("tsp", 6),
-    ("slice", 7),
-    ("piece", 7),
-    ("leaf", 5),
-    ("clove", 6),
-    ("stalk", 6),
-    ("spear", 6),
-    ("spears", 6),
-    ("wedge", 6),
-    ("fillet", 6),
-    ("patty", 6),
-]
-USDA_PORTION_AVOID_WORDS = {
-    "bunch", "package", "packages", "pkg", "bag", "box", "carton",
-    "container", "loaf", "bottle", "can", "jar", "tray",
-}
-
-
-def build_usda_portion_description(portion):
-    portion_desc = normalize_whitespace(portion.get("portionDescription"))
-    modifier = normalize_whitespace(portion.get("modifier"))
-    measure_name = normalize_whitespace((portion.get("measureUnit") or {}).get("name"))
-    raw = portion_desc or modifier or measure_name
-    if not raw:
-        return None
-    raw = re.sub(r"^[\s,;:()]+|[\s,;:()]+$", "", raw)
-    if not raw:
-        return None
-    if re.match(r"^\d", raw):
-        return raw
-    return f"1 {raw.lower()}"
-
-
-def choose_usda_serving(portions):
-    best = None
-    best_score = None
-
-    for portion in portions or []:
-        grams = safe_float(portion.get("gramWeight"))
-        if grams is None or grams <= 0:
-            continue
-
-        desc = build_usda_portion_description(portion)
-        if not desc:
-            continue
-
-        key = normalize_lookup_key(desc) or ""
-        score = 0
-
-        if 20 <= grams <= 120:
-            score += 8
-        elif 5 <= grams <= 180:
-            score += 5
-        elif grams <= 300:
-            score += 2
-        else:
-            score -= 2
-
-        if "(" in desc or ")" in desc:
-            score -= 4
-
-        matched_weights = [
-            weight for token, weight in USDA_PORTION_TEXT_WEIGHTS
-            if re.search(rf"\b{re.escape(token)}\b", key)
-        ]
-        if matched_weights:
-            score += max(matched_weights)
-
-        for token in USDA_PORTION_AVOID_WORDS:
-            if token in key:
-                score -= 10
-
-        if best is None or score > best_score or (score == best_score and grams < best[0]):
-            best = (grams, desc)
-            best_score = score
-
-    if best is not None and best_score is not None and best_score >= 8:
-        return best[0], best[1], "explicit_serving"
-
-    return 100.0, "100g", "fallback_raw"
 
 
 def nutrient_value(nutrients, nutrient_id):
@@ -487,7 +399,9 @@ def parse_serving_quantity_from_text(serving_size):
 def discover_open_food_facts_path():
     override = normalize_whitespace(os.environ.get("OPEN_FOOD_FACTS_PATH"))
     if override:
-        return override if os.path.exists(override) else None
+        if not os.path.exists(override):
+            raise RuntimeError(f"OPEN_FOOD_FACTS_PATH does not exist: {override}")
+        return override
 
     matches = []
     for pattern in OFF_GLOB_PATTERNS:
@@ -501,53 +415,55 @@ def discover_open_food_facts_path():
 
 
 def open_json_lines(path):
+    """Open a JSONL dump for binary line reads (json.loads accepts bytes)."""
     if path.endswith(".gz"):
-        return gzip.open(path, "rt", encoding="utf-8")
-    return open(path, "r", encoding="utf-8")
+        return gzip.open(path, "rb")
+    return open(path, "rb")
+
+
+FOODS_TABLE_COLUMNS = """
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fdc_id          INTEGER UNIQUE,
+    name            TEXT NOT NULL,
+    brand           TEXT,
+    source          TEXT NOT NULL,
+    search_terms    TEXT,
+    serving_g       REAL,
+    serving_desc    TEXT,
+    portion_basis   TEXT NOT NULL DEFAULT 'grams',
+    serving_source  TEXT,
+    default_serving_g REAL,
+    default_serving_desc TEXT,
+    default_serving_source TEXT,
+    calories        REAL,
+    protein_g       REAL,
+    carbs_g         REAL,
+    fat_g           REAL,
+    fiber_g         REAL,
+    sugar_g         REAL,
+    sodium_mg       REAL,
+    saturated_fat_g REAL,
+    trans_fat_g     REAL,
+    cholesterol_mg  REAL,
+    added_sugar_g   REAL,
+    vitamin_d_mcg   REAL,
+    calcium_mg      REAL,
+    iron_mg         REAL,
+    potassium_mg    REAL,
+    vitamin_a_mcg_rae REAL,
+    vitamin_c_mg    REAL,
+    vitamin_b12_mcg REAL,
+    folate_mcg_dfe  REAL,
+    magnesium_mg    REAL,
+    zinc_mg         REAL,
+    barcode         TEXT
+"""
 
 
 def create_schema(conn):
     cursor = conn.cursor()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS foods (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            fdc_id          INTEGER UNIQUE,
-            name            TEXT NOT NULL,
-            brand           TEXT,
-            source          TEXT NOT NULL,
-            search_terms    TEXT,
-            serving_g       REAL,
-            serving_desc    TEXT,
-            portion_basis   TEXT NOT NULL DEFAULT 'grams',
-            serving_source  TEXT,
-            default_serving_g REAL,
-            default_serving_desc TEXT,
-            default_serving_source TEXT,
-            calories        REAL,
-            protein_g       REAL,
-            carbs_g         REAL,
-            fat_g           REAL,
-            fiber_g         REAL,
-            sugar_g         REAL,
-            sodium_mg       REAL,
-            saturated_fat_g REAL,
-            trans_fat_g     REAL,
-            cholesterol_mg  REAL,
-            added_sugar_g   REAL,
-            vitamin_d_mcg   REAL,
-            calcium_mg      REAL,
-            iron_mg         REAL,
-            potassium_mg    REAL,
-            vitamin_a_mcg_rae REAL,
-            vitamin_c_mg    REAL,
-            vitamin_b12_mcg REAL,
-            folate_mcg_dfe  REAL,
-            magnesium_mg    REAL,
-            zinc_mg         REAL,
-            barcode         TEXT
-        )
-    """)
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS foods ({FOODS_TABLE_COLUMNS})")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_barcode ON foods(barcode)")
     cursor.execute("""
@@ -564,178 +480,108 @@ def create_schema(conn):
     conn.commit()
 
 
-def insert_sr_legacy(conn):
-    """Parse and insert SR Legacy whole foods."""
+def insert_branded(conn, branded_json):
+    """Stream Branded Foods into the catalog one food at a time."""
     cursor = conn.cursor()
-    files = glob.glob(os.path.join(SR_LEGACY_DIR, "**", "*.json"), recursive=True)
-    count = 0
-
-    for filepath in files:
-        with open(filepath, "r", encoding="utf-8") as file:
-            try:
-                data = json.load(file)
-            except Exception:
-                continue
-
-        foods = extract_foods(data, "SRLegacyFoods")
-
-        for food in foods:
-            nutrients = food.get("foodNutrients", [])
-            portions = food.get("foodPortions", [])
-            portion_basis = "grams"
-            serving_g, serving_desc, serving_source = choose_usda_serving(portions)
-
-            calories = per_serving(nutrient_value(nutrients, 1008), serving_g)
-            protein = per_serving(nutrient_value(nutrients, 1003), serving_g)
-            carbs = per_serving(nutrient_value(nutrients, 1005), serving_g)
-            fat = per_serving(nutrient_value(nutrients, 1004), serving_g)
-            fiber = per_serving(nutrient_value(nutrients, 1079), serving_g)
-            sugar = per_serving(nutrient_value(nutrients, 2000), serving_g)
-            sodium = per_serving(nutrient_value(nutrients, 1093), serving_g)
-            micros = usda_micronutrients(nutrients, serving_g)
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO foods
-                    (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
-                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
-                     saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
-                     vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
-                     vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
-                     folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                food.get("fdcId"),
-                prettify_label(food.get("description")) or "Unknown Food",
-                None,
-                "sr_legacy",
-                serving_g,
-                serving_desc,
-                portion_basis,
-                serving_source,
-                calories,
-                protein,
-                carbs,
-                fat,
-                fiber,
-                sugar,
-                sodium,
-                *nutrient_tuple(micros),
-                None,
-            ))
-            count += 1
-
-    conn.commit()
-    print(f"SR Legacy: inserted {count:,} foods")
-    return count
-
-
-def insert_branded(conn):
-    """Parse and insert Branded Foods."""
-    cursor = conn.cursor()
-    files = glob.glob(os.path.join(BRANDED_DIR, "**", "*.json"), recursive=True)
     count = 0
     skipped = 0
 
-    for filepath in files:
-        with open(filepath, "r", encoding="utf-8") as file:
-            try:
-                data = json.load(file)
-            except Exception:
-                continue
+    for food in iter_usda_foods(branded_json, "BrandedFoods"):
+        if not isinstance(food, dict):
+            skipped += 1
+            continue
+        nutrients = food.get("foodNutrients", [])
+        label_nutrients = food.get("labelNutrients", {})
+        explicit_serving_g = safe_float(food.get("servingSize"))
+        label_calories = safe_float((label_nutrients.get("calories") or {}).get("value"))
+        if explicit_serving_g and explicit_serving_g > 0:
+            serving_g = explicit_serving_g
+            portion_basis = "grams"
+            serving_source = "explicit_serving"
+        elif label_calories is not None:
+            serving_g = None
+            portion_basis = "fixed_serving"
+            serving_source = "fallback_raw"
+        else:
+            serving_g = 100.0
+            portion_basis = "grams"
+            serving_source = "fallback_raw"
 
-        foods = extract_foods(data, "BrandedFoods")
+        calories = label_nutrient_value(
+            label_nutrients,
+            "calories",
+            per_serving(nutrient_value(nutrients, 1008), serving_g)
+        )
 
-        for food in foods:
-            nutrients = food.get("foodNutrients", [])
-            label_nutrients = food.get("labelNutrients", {})
-            explicit_serving_g = safe_float(food.get("servingSize"))
-            label_calories = safe_float((label_nutrients.get("calories") or {}).get("value"))
-            if explicit_serving_g and explicit_serving_g > 0:
-                serving_g = explicit_serving_g
-                portion_basis = "grams"
-                serving_source = "explicit_serving"
-            elif label_calories is not None:
-                serving_g = None
-                portion_basis = "fixed_serving"
-                serving_source = "fallback_raw"
-            else:
-                serving_g = 100.0
-                portion_basis = "grams"
-                serving_source = "fallback_raw"
+        if calories is None or calories <= 0:
+            skipped += 1
+            continue
 
-            calories = label_nutrient_value(
-                label_nutrients,
-                "calories",
-                per_serving(nutrient_value(nutrients, 1008), serving_g)
-            )
+        protein = label_nutrient_value(
+            label_nutrients,
+            "protein",
+            per_serving(nutrient_value(nutrients, 1003), serving_g)
+        )
+        carbs = label_nutrient_value(
+            label_nutrients,
+            "carbohydrates",
+            per_serving(nutrient_value(nutrients, 1005), serving_g)
+        )
+        fat = label_nutrient_value(
+            label_nutrients,
+            "fat",
+            per_serving(nutrient_value(nutrients, 1004), serving_g)
+        )
+        fiber = label_nutrient_value(
+            label_nutrients,
+            "fiber",
+            per_serving(nutrient_value(nutrients, 1079), serving_g)
+        )
+        sugar = label_nutrient_value(
+            label_nutrients,
+            "sugars",
+            per_serving(nutrient_value(nutrients, 2000), serving_g)
+        )
+        sodium = label_nutrient_value(
+            label_nutrients,
+            "sodium",
+            per_serving(nutrient_value(nutrients, 1093), serving_g)
+        )
+        micros = usda_micronutrients(nutrients, serving_g, label_nutrients)
 
-            if calories is None or calories <= 0:
-                skipped += 1
-                continue
-
-            protein = label_nutrient_value(
-                label_nutrients,
-                "protein",
-                per_serving(nutrient_value(nutrients, 1003), serving_g)
-            )
-            carbs = label_nutrient_value(
-                label_nutrients,
-                "carbohydrates",
-                per_serving(nutrient_value(nutrients, 1005), serving_g)
-            )
-            fat = label_nutrient_value(
-                label_nutrients,
-                "fat",
-                per_serving(nutrient_value(nutrients, 1004), serving_g)
-            )
-            fiber = label_nutrient_value(
-                label_nutrients,
-                "fiber",
-                per_serving(nutrient_value(nutrients, 1079), serving_g)
-            )
-            sugar = label_nutrient_value(
-                label_nutrients,
-                "sugars",
-                per_serving(nutrient_value(nutrients, 2000), serving_g)
-            )
-            sodium = label_nutrient_value(
-                label_nutrients,
-                "sodium",
-                per_serving(nutrient_value(nutrients, 1093), serving_g)
-            )
-            micros = usda_micronutrients(nutrients, serving_g, label_nutrients)
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO foods
-                    (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
-                     calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
-                     saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
-                     vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
-                     vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
-                     folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                food.get("fdcId"),
-                prettify_label(food.get("description")) or "Unknown Food",
-                prettify_label(food.get("brandOwner")),
-                "branded",
-                serving_g,
-                normalize_whitespace(food.get("householdServingFullText"))
-                    or normalize_whitespace(food.get("servingSizeUnit"))
-                    or (format_serving_description(serving_g) if portion_basis == "grams" else "1 serving"),
-                portion_basis,
-                serving_source,
-                calories,
-                protein,
-                carbs,
-                fat,
-                fiber,
-                sugar,
-                sodium,
-                *nutrient_tuple(micros),
-                normalize_barcode(food.get("gtinUpc") or food.get("gtin")),
-            ))
-            count += 1
+        cursor.execute("""
+            INSERT OR IGNORE INTO foods
+                (fdc_id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
+                 calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg,
+                 saturated_fat_g, trans_fat_g, cholesterol_mg, added_sugar_g,
+                 vitamin_d_mcg, calcium_mg, iron_mg, potassium_mg,
+                 vitamin_a_mcg_rae, vitamin_c_mg, vitamin_b12_mcg,
+                 folate_mcg_dfe, magnesium_mg, zinc_mg, barcode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            food.get("fdcId"),
+            prettify_label(food.get("description")) or "Unknown Food",
+            prettify_label(food.get("brandOwner")),
+            "branded",
+            serving_g,
+            normalize_whitespace(food.get("householdServingFullText"))
+                or normalize_whitespace(food.get("servingSizeUnit"))
+                or (format_serving_description(serving_g) if portion_basis == "grams" else "1 serving"),
+            portion_basis,
+            serving_source,
+            calories,
+            protein,
+            carbs,
+            fat,
+            fiber,
+            sugar,
+            sodium,
+            *nutrient_tuple(micros),
+            normalize_barcode(food.get("gtinUpc") or food.get("gtin")),
+        ))
+        count += 1
+        if count % 100000 == 0:
+            print(f"  Branded progress: inserted={count:,} skipped={skipped:,}")
 
     conn.commit()
     print(f"Branded Foods: inserted {count:,} foods, skipped {skipped:,} (no calorie data)")
@@ -965,8 +811,7 @@ def off_food_from_product(product):
     }
 
 
-def merge_open_food_facts(conn):
-    off_path = discover_open_food_facts_path()
+def merge_open_food_facts(conn, off_path):
     if not off_path:
         print("Open Food Facts: no dump found, skipping")
         return {
@@ -996,15 +841,23 @@ def merge_open_food_facts(conn):
     }
 
     with open_json_lines(off_path) as file:
-        for line_number, line in enumerate(file, start=1):
+        for line in file:
             summary["seen"] += 1
-            payload = line.strip()
-            if not payload:
+            if summary["seen"] % 250000 == 0:
+                print(
+                    "  OFF progress:"
+                    f" seen={summary['seen']:,}"
+                    f" merged={summary['merged']:,}"
+                    f" inserted={summary['inserted']:,}"
+                    f" skipped={summary['skipped']:,}"
+                )
+            if not any(marker in line for marker in OFF_COUNTRY_MARKERS):
+                summary["skipped"] += 1
                 continue
 
             try:
-                product = json.loads(payload)
-            except json.JSONDecodeError:
+                product = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 summary["invalid"] += 1
                 continue
 
@@ -1129,15 +982,6 @@ def merge_open_food_facts(conn):
             index_food_record(indexes, row_id)
             summary["inserted"] += 1
 
-            if line_number % 100000 == 0:
-                print(
-                    "  OFF progress:"
-                    f" seen={summary['seen']:,}"
-                    f" merged={summary['merged']:,}"
-                    f" inserted={summary['inserted']:,}"
-                    f" skipped={summary['skipped']:,}"
-                )
-
     conn.commit()
     print(
         "Open Food Facts:"
@@ -1150,14 +994,84 @@ def merge_open_food_facts(conn):
     return summary
 
 
-def build_fts_index(conn):
-    """Populate the FTS5 index from the foods table."""
-    conn.execute("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')")
+def max_food_id(connection):
+    """Largest food id this catalog lineage has ever assigned (ids are never reused)."""
+    candidates = [connection.execute("SELECT MAX(id) FROM foods").fetchone()[0] or 0]
+    for sql in (
+        "SELECT seq FROM sqlite_sequence WHERE name = 'foods'",
+        "SELECT value FROM metadata WHERE key = 'max_food_id'",
+    ):
+        try:
+            row = connection.execute(sql).fetchone()
+        except sqlite3.Error:
+            row = None
+        if row and row[0] is not None:
+            candidates.append(int(row[0]))
+    return max(candidates)
+
+
+def assign_stable_ids(conn, previous_db):
+    """Give every food the row id it had in the previously shipped catalog.
+
+    The apps save catalog row ids on logged foods (foodDatabaseId) and look
+    foods up by them later, so an id must keep naming the same food across
+    rebuilds. USDA foods match on fdc_id and Open Food Facts foods on barcode;
+    new foods get ids above every id used before, so retired ids stay unused.
+    """
+    by_fdc_id, by_off_barcode = {}, {}
+    with closing(sqlite3.connect(Path(previous_db).resolve().as_uri() + "?mode=ro", uri=True)) as previous:
+        for row_id, fdc_id, source, barcode in previous.execute(
+            "SELECT id, fdc_id, source, barcode FROM foods"
+        ):
+            if fdc_id is not None:
+                by_fdc_id[fdc_id] = row_id
+            elif source == "open_food_facts" and barcode:
+                by_off_barcode[barcode] = row_id
+        next_id = max_food_id(previous) + 1
+
+    mapping, used, kept = [], set(), 0
+    for build_id, fdc_id, source, barcode in conn.execute(
+        "SELECT id, fdc_id, source, barcode FROM foods ORDER BY id"
+    ).fetchall():
+        if fdc_id is not None:
+            stable_id = by_fdc_id.get(fdc_id)
+        else:
+            stable_id = by_off_barcode.get(barcode) if source == "open_food_facts" else None
+        if stable_id is None or stable_id in used:
+            stable_id, next_id = next_id, next_id + 1
+        else:
+            kept += 1
+        used.add(stable_id)
+        mapping.append((build_id, stable_id))
+
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(foods)") if row[1] != "id"]
+    conn.execute("CREATE TEMP TABLE id_map (build_id INTEGER PRIMARY KEY, stable_id INTEGER NOT NULL UNIQUE)")
+    conn.executemany("INSERT INTO id_map VALUES (?, ?)", mapping)
+    conn.execute(f"CREATE TABLE foods_stable ({FOODS_TABLE_COLUMNS})")
+    conn.execute(f"""
+        INSERT INTO foods_stable (id, {", ".join(columns)})
+        SELECT m.stable_id, {", ".join("f." + column for column in columns)}
+        FROM foods f JOIN id_map m ON m.build_id = f.id
+        ORDER BY m.stable_id
+    """)
+    conn.execute("DROP TABLE foods")
+    conn.execute("ALTER TABLE foods_stable RENAME TO foods")
+    conn.execute("CREATE INDEX idx_barcode ON foods(barcode)")
+    conn.execute("DROP TABLE id_map")
+    high_water = next_id - 1
+    conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('foods', 'foods_stable')")
+    conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('foods', ?)", (high_water,))
     conn.commit()
-    print("FTS5 index built")
+    return {
+        "kept": kept,
+        "new": len(mapping) - kept,
+        "retired": len(by_fdc_id) + len(by_off_barcode) - kept,
+        "max_food_id": high_water,
+    }
 
 
-def write_metadata(conn, sr_count, foundation_count, fndds_count, branded_count, off_summary):
+def write_metadata(conn, sr_count, foundation_count, fndds_count, branded_count, off_summary,
+                   reference_data_version):
     total_foods = conn.execute("SELECT COUNT(*) FROM foods").fetchone()[0]
     values = {
         "total_foods": str(total_foods),
@@ -1165,13 +1079,14 @@ def write_metadata(conn, sr_count, foundation_count, fndds_count, branded_count,
         "sr_legacy_count": str(sr_count),
         "foundation_count": str(foundation_count),
         "survey_fndds_count": str(fndds_count),
-        "reference_data_version": "foundation-2026-04-30;fndds-2021-2023",
+        "reference_data_version": reference_data_version,
         "branded_count": str(branded_count),
         "open_food_facts_seen": str(off_summary["seen"]),
         "open_food_facts_merged": str(off_summary["merged"]),
         "open_food_facts_inserted": str(off_summary["inserted"]),
         "open_food_facts_skipped": str(off_summary["skipped"]),
         "open_food_facts_path": off_summary["path"] or "",
+        "max_food_id": str(max_food_id(conn)),
     }
 
     for key, value in values.items():
@@ -1180,56 +1095,102 @@ def write_metadata(conn, sr_count, foundation_count, fndds_count, branded_count,
     return total_foods
 
 
-def main():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+def build(db_path=DB_PATH, sr_legacy_dir=SR_LEGACY_DIR, foundation_dir=FOUNDATION_DIR,
+          fndds_dir=FNDDS_DIR, branded_dir=BRANDED_DIR, off_path=None,
+          reference_data_version=None, previous_db=None):
+    """Build the catalog beside db_path and move it into place only on success.
 
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-
-    conn = sqlite3.connect(DB_PATH)
-    configure_connection(conn)
-
-    print("Creating schema...")
-    create_schema(conn)
-
-    print("Inserting SR Legacy...")
-    sr_json = discover_single_json(SR_LEGACY_DIR)
-    if not sr_json:
-        raise RuntimeError("SR Legacy JSON is missing")
-    sr_count = insert_reference_foods(
-        conn, sr_json, "SRLegacyFoods", "sr_legacy"
-    )["inserted"]
-
-    foundation_json = discover_single_json(FOUNDATION_DIR)
-    fndds_json = discover_single_json(FNDDS_DIR)
-    if not foundation_json or not fndds_json:
+    A failed or interrupted build leaves the existing database untouched.
+    previous_db is the catalog being replaced; its row ids are kept.
+    """
+    exports = {
+        "SR Legacy": discover_single_json(sr_legacy_dir),
+        "Foundation": discover_single_json(foundation_dir),
+        "FNDDS": discover_single_json(fndds_dir),
+        "Branded": discover_single_json(branded_dir),
+    }
+    missing = [name for name, export in exports.items() if not export]
+    if missing:
         raise RuntimeError(
-            "USDA Foundation and FNDDS JSON are required. Run rebuild_full_db.py to download them."
+            f"USDA JSON missing for {', '.join(missing)}. Run rebuild_full_db.py to download it."
         )
-    foundation_count = insert_reference_foods(
-        conn, foundation_json, "FoundationFoods", "foundation"
-    )["inserted"]
-    fndds_count = insert_reference_foods(
-        conn, fndds_json, "SurveyFoods", "survey_fndds"
-    )["inserted"]
+    if reference_data_version is None:
+        reference_data_version = ";".join(
+            f"{name}={os.path.basename(export)}" for name, export in exports.items()
+        )
 
-    print("Inserting Branded Foods...")
-    branded_count = insert_branded(conn)
+    output_dir = os.path.dirname(os.path.abspath(db_path))
+    os.makedirs(output_dir, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=".foods-build-", suffix=".sqlite", dir=output_dir)
+    os.close(handle)
+    try:
+        conn = sqlite3.connect(temporary)
+        try:
+            configure_connection(conn)
 
-    print("Merging Open Food Facts...")
-    off_summary = merge_open_food_facts(conn)
+            print("Creating schema...")
+            create_schema(conn)
 
-    print("Building FTS5 index...")
-    rebuild_search_index(conn)
+            print("Inserting USDA reference foods...")
+            sr_count = insert_reference_foods(
+                conn, exports["SR Legacy"], "SRLegacyFoods", "sr_legacy"
+            )["inserted"]
+            foundation_count = insert_reference_foods(
+                conn, exports["Foundation"], "FoundationFoods", "foundation"
+            )["inserted"]
+            fndds_count = insert_reference_foods(
+                conn, exports["FNDDS"], "SurveyFoods", "survey_fndds"
+            )["inserted"]
+            print(f"SR Legacy {sr_count:,}, Foundation {foundation_count:,}, FNDDS {fndds_count:,}")
 
-    total_foods = write_metadata(
-        conn, sr_count, foundation_count, fndds_count, branded_count, off_summary
-    )
-    conn.close()
+            print("Inserting Branded Foods...")
+            branded_count = insert_branded(conn, exports["Branded"])
 
-    size_mb = os.path.getsize(DB_PATH) / (1024 * 1024)
-    print(f"\nDone. Database: {DB_PATH} ({size_mb:.1f} MB)")
+            print("Merging Open Food Facts...")
+            off_summary = merge_open_food_facts(conn, off_path)
+
+            if previous_db:
+                print(f"Keeping row ids from {previous_db}...")
+                ids = assign_stable_ids(conn, previous_db)
+                print(
+                    f"Row ids: kept {ids['kept']:,}, new {ids['new']:,}, retired {ids['retired']:,},"
+                    f" highest {ids['max_food_id']:,}"
+                )
+            else:
+                print("warning: no previous catalog, so row ids differ from shipped catalogs. Don't ship this build.")
+
+            print("Building FTS5 index...")
+            rebuild_search_index(conn)
+
+            total_foods = write_metadata(
+                conn, sr_count, foundation_count, fndds_count, branded_count, off_summary,
+                reference_data_version,
+            )
+            sources = conn.execute(
+                "SELECT source, COUNT(*) FROM foods GROUP BY source ORDER BY source"
+            ).fetchall()
+        finally:
+            conn.close()
+        os.chmod(temporary, 0o644)  # mkstemp creates 0600; the catalog is a shipped resource
+        os.replace(temporary, db_path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+    size_mb = os.path.getsize(db_path) / (1024 * 1024)
+    print(f"\nDone. Database: {db_path} ({size_mb:.1f} MB)")
     print(f"Total foods: {total_foods:,}")
+    for source, count in sources:
+        print(f"  {source}: {count:,}")
+    return total_foods
+
+
+def main():
+    build(
+        off_path=discover_open_food_facts_path(),
+        reference_data_version=normalize_whitespace(os.environ.get("NOMVA_USDA_DATASETS")),
+        previous_db=normalize_whitespace(os.environ.get("NOMVA_PREVIOUS_FOOD_DB")),
+    )
 
 
 if __name__ == "__main__":

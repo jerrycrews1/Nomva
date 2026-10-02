@@ -101,6 +101,22 @@ def nutrient_value(nutrients, nutrient_id):
     return None
 
 
+def first_nutrient_value(nutrients, nutrient_ids):
+    for nutrient_id in nutrient_ids:
+        value = nutrient_value(nutrients, nutrient_id)
+        if value is not None:
+            return value
+    return None
+
+
+# Most Foundation Foods report kcal only as Atwater energy (2048 specific,
+# 2047 general), never as 1008. Specific factors match how SR Legacy computed
+# 1008, so they come first.
+ENERGY_KCAL_IDS = (1008, 2048, 2047)
+# Foundation Foods publish total sugars as 1063 rather than 2000.
+TOTAL_SUGAR_IDS = (2000, 1063)
+
+
 def per_serving(amount_per_100g, serving_g):
     amount = safe_float(amount_per_100g)
     grams = safe_float(serving_g)
@@ -110,10 +126,11 @@ def per_serving(amount_per_100g, serving_g):
 
 
 def _portion_amount(portion):
-    amount = safe_float(portion.get("amount"))
-    if amount is None:
-        amount = safe_float(portion.get("value"))
-    return amount if amount is not None and amount > 0 else 1.0
+    for key in ("amount", "value"):
+        amount = safe_float(portion.get(key))
+        if amount is not None and amount > 0:
+            return amount
+    return 1.0
 
 
 def _display_number(number):
@@ -138,7 +155,9 @@ def portion_description(portion):
 
     modifier = normalize_whitespace(portion.get("modifier"))
     if modifier and not modifier.isdigit():
-        return modifier if re.match(r"^\d", modifier) else f"1 {modifier.lower()}"
+        if re.match(r"^[\d¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]", modifier):
+            return modifier
+        return f"{_display_number(_portion_amount(portion))} {modifier.lower()}"
 
     measure = normalize_whitespace((portion.get("measureUnit") or {}).get("name"))
     if not measure:
@@ -305,7 +324,7 @@ def food_record(food, source):
     default_serving_g, default_serving_desc, default_serving_source = choose_default_serving(
         portions, serving_g, serving_desc, source
     )
-    calories = per_serving(nutrient_value(nutrients, 1008), serving_g)
+    calories = per_serving(first_nutrient_value(nutrients, ENERGY_KCAL_IDS), serving_g)
     if calories is None:
         return None
 
@@ -332,7 +351,7 @@ def food_record(food, source):
         "carbs_g": per_serving(nutrient_value(nutrients, 1005), serving_g),
         "fat_g": per_serving(nutrient_value(nutrients, 1004), serving_g),
         "fiber_g": per_serving(nutrient_value(nutrients, 1079), serving_g),
-        "sugar_g": per_serving(nutrient_value(nutrients, 2000), serving_g),
+        "sugar_g": per_serving(first_nutrient_value(nutrients, TOTAL_SUGAR_IDS), serving_g),
         "sodium_mg": per_serving(nutrient_value(nutrients, 1093), serving_g),
         "barcode": None,
         **micros,
@@ -340,11 +359,51 @@ def food_record(food, source):
     return tuple(values[column] for column in INSERT_COLUMNS)
 
 
-def load_foods(json_path, root_key):
-    with open(json_path, "r", encoding="utf-8") as file:
-        payload = json.load(file)
-    foods = payload.get(root_key, []) if isinstance(payload, dict) else payload
-    return foods if isinstance(foods, list) else []
+_EXPORT_ARRAY_START = re.compile(r'\s*(?:\{\s*"([^"]+)"\s*:\s*)?\[')
+_EXPORT_SEPARATORS = re.compile(r"[\s,]*")
+_MAX_FOOD_CHARS = 64 * 1024 * 1024
+
+
+def iter_usda_foods(json_path, root_key, chunk_size=1024 * 1024):
+    """Yield the foods in a FoodData Central JSON export one at a time.
+
+    Exports are {"<root_key>": [food, food, ...]}. json.load on the 3+ GB
+    Branded Foods file needs ~17 GB of RAM, more than GitHub's 16 GB runner
+    has, so decode one array element at a time and keep memory flat.
+    """
+    decoder = json.JSONDecoder()
+    with open(json_path, "r", encoding="utf-8-sig") as stream:
+        buffer = stream.read(chunk_size)
+        while "[" not in buffer and len(buffer) < 4096:
+            more = stream.read(chunk_size)
+            if not more:
+                break
+            buffer += more
+        start = _EXPORT_ARRAY_START.match(buffer)
+        if not start:
+            raise ValueError(f"{json_path}: not a FoodData Central JSON export")
+        if start.group(1) not in (None, root_key):
+            raise ValueError(f"{json_path}: expected {root_key}, found {start.group(1)}")
+        position = start.end()
+        yielded = 0
+        while True:
+            position = _EXPORT_SEPARATORS.match(buffer, position).end()
+            if position < len(buffer) and buffer[position] == "]":
+                return
+            try:
+                food, position = decoder.raw_decode(buffer, position)
+            except json.JSONDecodeError:
+                # Usually the chunk ended mid-food: read more and retry.
+                more = stream.read(chunk_size)
+                if not more or len(buffer) - position > _MAX_FOOD_CHARS:
+                    raise ValueError(
+                        f"{json_path}: malformed or truncated export after {yielded:,} foods"
+                    ) from None
+                buffer = buffer[position:] + more
+                position = 0
+                continue
+            yielded += 1
+            yield food
 
 
 def ensure_search_schema(connection):
@@ -385,7 +444,7 @@ def insert_reference_foods(connection, json_path, root_key, source, update_exist
         statement = f"INSERT OR IGNORE INTO foods ({columns}) VALUES ({placeholders})"
     inserted = 0
     skipped = 0
-    for food in load_foods(json_path, root_key):
+    for food in iter_usda_foods(json_path, root_key):
         record = food_record(food, source)
         if record is None:
             skipped += 1
