@@ -1,104 +1,192 @@
 name: Rebuild Food Database
 
-permissions:
-  contents: write
-
 on:
   schedule:
     # Runs quarterly: Jan 1, Apr 1, Jul 1, Oct 1 at 9am UTC
     - cron: '0 9 1 1,4,7,10 *'
   workflow_dispatch:   # Also allows manual trigger from GitHub UI anytime
+    inputs:
+      publish:
+        description: Publish the release and push the pin branch (unchecked = build, validate and test only)
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # release asset + pin branch
+
+concurrency:
+  group: rebuild-food-database
+  cancel-in-progress: false
 
 jobs:
   build-database:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      PYTHONUNBUFFERED: "1"   # stream build progress into the log
+      PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+      PREVIOUS_DB: ${{ github.workspace }}/../previous-foods.sqlite
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
-      - name: Install Python dependencies
-        run: pip install requests pandas
+      - name: Test the database builder
+        run: python -m unittest discover -s scripts/tests
 
-      - name: Download USDA SR Legacy dataset
+      - name: Download the pinned catalog
         run: |
-          curl --fail --location --retry 3 -o sr_legacy.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2018-04.zip"
-          unzip -q sr_legacy.zip -d sr_legacy/
-          rm sr_legacy.zip
+          # Required: the new catalog keeps this catalog's row ids, which the
+          # apps store on logged foods.
+          set -euo pipefail
+          . ci_scripts/food-database.env
+          curl --fail --location --retry 3 --silent --show-error -o "$PREVIOUS_DB.gz" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$NOMVA_FOOD_DB_RELEASE/$NOMVA_FOOD_DB_ASSET"
+          gzip -d "$PREVIOUS_DB.gz"
 
-      - name: Download USDA Foundation and FNDDS datasets
-        run: |
-          mkdir -p _build_data/foundation _build_data/fndds
-          curl --fail --location --retry 3 -o foundation.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_json_2026-04-30.zip"
-          curl --fail --location --retry 3 -o fndds.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip"
-          unzip -q foundation.zip -d _build_data/foundation/
-          unzip -q fndds.zip -d _build_data/fndds/
-          rm foundation.zip fndds.zip
+      - name: Find the newest USDA FoodData Central releases
+        id: usda
+        run: python scripts/fdc_datasets.py
 
-      - name: Download USDA Branded Foods dataset
+      - name: Download USDA datasets
+        env:
+          SR_LEGACY_URL: ${{ steps.usda.outputs.sr_legacy_url }}
+          FOUNDATION_URL: ${{ steps.usda.outputs.foundation_url }}
+          FNDDS_URL: ${{ steps.usda.outputs.fndds_url }}
+          BRANDED_URL: ${{ steps.usda.outputs.branded_url }}
         run: |
-          # Check https://fdc.nal.usda.gov/download-foods.html for the current filename
-          curl --fail --location --retry 3 -o branded.zip \
-            "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_branded_food_json_2026-04-30.zip"
-          unzip -q branded.zip -d branded/
-          rm branded.zip
+          set -euo pipefail
+          fetch() {
+            curl --fail --location --retry 3 --retry-all-errors --silent --show-error -o download.zip "$1"
+            mkdir -p "$2"
+            unzip -q download.zip -d "$2"
+            rm download.zip
+          }
+          fetch "$SR_LEGACY_URL" sr_legacy
+          fetch "$FOUNDATION_URL" _build_data/foundation
+          fetch "$FNDDS_URL" _build_data/fndds
+          fetch "$BRANDED_URL" branded
 
       - name: Build SQLite database
+        env:
+          NOMVA_USDA_DATASETS: ${{ steps.usda.outputs.datasets }}
+          OPEN_FOOD_FACTS_PATH: open_food_facts/openfoodfacts-products.jsonl.gz
         run: |
-          # Stream the large gzip through a FIFO so it does not exhaust runner disk.
+          # Stream the ~12 GB gzip through a FIFO so it does not exhaust runner disk.
           mkdir -p open_food_facts
-          mkfifo open_food_facts/openfoodfacts-products.jsonl.gz
+          mkfifo "$OPEN_FOOD_FACTS_PATH"
           curl --fail --location --show-error --silent \
             "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz" \
-            > open_food_facts/openfoodfacts-products.jsonl.gz &
+            > "$OPEN_FOOD_FACTS_PATH" &
           off_download_pid=$!
           trap 'kill "$off_download_pid" 2>/dev/null || true' EXIT
-          OPEN_FOOD_FACTS_PATH=open_food_facts/openfoodfacts-products.jsonl.gz python scripts/build_db.py
+          NOMVA_PREVIOUS_FOOD_DB="$PREVIOUS_DB" python scripts/build_db.py
           wait "$off_download_pid"
           trap - EXIT
 
-      - name: Package and publish database
+      - name: Validate against the pinned catalog
+        env:
+          NOMVA_USDA_DATASETS: ${{ steps.usda.outputs.datasets }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/food-db-report.md"
+          {
+            echo "## Food database build"
+            echo
+            echo "USDA releases: \`$NOMVA_USDA_DATASETS\`, Open Food Facts export of $(date -u +%F)"
+            echo
+          } > "$report"
+          status=0
+          python scripts/validate_food_db.py Nomva/Resources/foods.sqlite --previous "$PREVIOUS_DB" \
+            --summary "$report" || status=$?
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Set up Node for the server tests
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Run the server tests against the new catalog
+        working-directory: server
+        env:
+          FOODS_DB_PATH: ${{ github.workspace }}/Nomva/Resources/foods.sqlite
+        run: |
+          npm ci
+          npm test
+
+      - name: Upload database for inspection
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: foods-sqlite
+          path: Nomva/Resources/foods.sqlite
+          retention-days: 7
+
+      - name: Publish release and push the pin branch
+        if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          gzip -9 -c Nomva/Resources/foods.sqlite > /tmp/foods.sqlite.gz
-
-          database_sha="$(sha256sum Nomva/Resources/foods.sqlite | awk '{print $1}')"
-          archive_sha="$(sha256sum /tmp/foods.sqlite.gz | awk '{print $1}')"
+          set -euo pipefail
+          database=Nomva/Resources/foods.sqlite
+          archive="$RUNNER_TEMP/foods.sqlite.gz"
+          gzip -9 -n -c "$database" > "$archive"
+          database_sha="$(sha256sum "$database" | awk '{print $1}')"
+          archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
           release_tag="food-db-${database_sha:0:8}"
+          branch="food-db/$release_tag"
+          compare="https://github.com/$GITHUB_REPOSITORY/compare/$GITHUB_REF_NAME...$branch?expand=1"
 
-          if gh release view "$release_tag" >/dev/null 2>&1; then
-            gh release upload "$release_tag" /tmp/foods.sqlite.gz --clobber
-            gh release edit "$release_tag" --notes-file ci_scripts/food-database-release-notes.md
-          else
-            gh release create "$release_tag" /tmp/foods.sqlite.gz \
-              --target "$GITHUB_SHA" \
-              --title "Nomva food database ${database_sha:0:8}" \
-              --notes-file ci_scripts/food-database-release-notes.md
-          fi
-
-          mkdir -p ci_scripts
           printf '%s\n' \
             "NOMVA_FOOD_DB_RELEASE=$release_tag" \
             "NOMVA_FOOD_DB_ASSET=foods.sqlite.gz" \
             "NOMVA_FOOD_DB_ARCHIVE_SHA256=$archive_sha" \
+            "# Built by the Rebuild Food Database workflow; no label patch applies." \
+            "NOMVA_FOOD_DB_BASE_SHA256=$database_sha" \
+            "# Legacy asset-check consumers only." \
             "NOMVA_FOOD_DB_SHA256=$database_sha" \
             > ci_scripts/food-database.env
+          pinned=1
+          git diff --quiet -- ci_scripts/food-database.env || pinned=0
 
-      - name: Commit database release manifest
-        run: |
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
+          notes="$RUNNER_TEMP/release-notes.md"
+          {
+            cat ci_scripts/food-database-release-notes.md
+            echo
+            cat "$RUNNER_TEMP/food-db-report.md"
+            if [ "$pinned" = 0 ]; then
+              echo
+              echo "To ship this catalog, merge the pin: $compare"
+            fi
+          } > "$notes"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" "$archive" --clobber
+            gh release edit "$release_tag" --notes-file "$notes"
+          else
+            gh release create "$release_tag" "$archive" \
+              --target "$GITHUB_SHA" \
+              --title "Nomva food database ${database_sha:0:8}" \
+              --notes-file "$notes"
+          fi
+
+          if [ "$pinned" = 1 ]; then
+            echo "The pinned catalog is already $release_tag."
+            exit 0
+          fi
+          # The pin is proposed on a branch, not pushed to $GITHUB_REF_NAME:
+          # merging it there runs that branch's normal CI on the new pin.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
           git add ci_scripts/food-database.env
-          git diff --cached --quiet || \
-            git commit -m "Update food database release $(date +'%Y-%m-%d')"
-          git push
+          git commit -m "Update food database to $release_tag"
+          git push --force origin "$branch"
+          echo "Merge the pin to ship $release_tag: $compare" >> "$GITHUB_STEP_SUMMARY"
