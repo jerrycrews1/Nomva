@@ -3,8 +3,9 @@
 
 Fails (exit 1) when the catalog is corrupt, is missing a column the iOS app,
 Android app, or server reads, has implausibly few rows for a source, lost more
-than 10% of a source compared with the previously pinned catalog, or gave a
-food's row id to a different food (the apps store row ids on logged foods).
+than 10% of a source compared with the previously pinned catalog, gave a
+food's row id to a different food (the apps store row ids on logged foods), or
+changed the default serving of many USDA reference foods.
 
     python3 scripts/validate_food_db.py NEW.sqlite [--previous OLD.sqlite] [--summary FILE]
 
@@ -32,6 +33,8 @@ MINIMUM_ROWS = {
 MINIMUM_TOTAL = 600_000
 MINIMUM_BARCODED = 500_000
 MAX_SOURCE_DROP = 0.10
+# A rebuild keeps reference foods' servings; many changes mean that broke.
+MAX_SERVING_CHANGES = 0.05
 SEARCH_PROBES = ("banana", "broccoli", "chicken breast", "oatmeal", "greek yogurt", "peanut butter")
 
 
@@ -137,6 +140,21 @@ def compare_ids(path, previous_path):
     return report, problems
 
 
+def compare_servings(path, previous_path):
+    """Return (report line, problems): kept USDA reference foods should keep their serving."""
+    with readonly(path) as connection:
+        connection.execute("ATTACH DATABASE ? AS previous", (Path(previous_path).resolve().as_uri() + "?mode=ro",))
+        kept, changed = connection.execute("""
+            SELECT COUNT(*), COALESCE(SUM(f.serving_g IS NOT p.serving_g), 0)
+            FROM foods f JOIN previous.foods p ON p.id = f.id AND p.fdc_id = f.fdc_id
+            WHERE p.source IN ('sr_legacy', 'foundation', 'survey_fndds')
+        """).fetchone()
+    problems = []
+    if changed > kept * MAX_SERVING_CHANGES:
+        problems.append(f"USDA reference foods whose default serving changed: {changed:,} of {kept:,}")
+    return f"Default servings: {changed:,} of {kept:,} kept USDA reference foods changed grams.", problems
+
+
 def markdown(new_counts, old_counts, problems, notes=()):
     lines = ["| Source | Pinned catalog | New build | Change |", "| --- | ---: | ---: | ---: |"]
     rows = sorted(set(new_counts) | set(old_counts))
@@ -172,9 +190,10 @@ def main():
         with readonly(args.previous) as connection:
             old_counts = source_counts(connection)
         problems += compare(new_counts, old_counts)
-        id_report, id_problems = compare_ids(args.database, args.previous)
-        notes.append(id_report)
-        problems += id_problems
+        for check in (compare_ids, compare_servings):
+            note, check_problems = check(args.database, args.previous)
+            notes.append(note)
+            problems += check_problems
 
     report = markdown(new_counts, old_counts, problems, notes)
     print(report)
