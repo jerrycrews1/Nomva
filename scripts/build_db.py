@@ -8,8 +8,9 @@ Builds `Nomva/Resources/foods.sqlite` from:
   - Optional Open Food Facts JSONL/NDJSON dump (plain or gzip-compressed)
 
 USDA remains the source of truth. Open Food Facts only:
-  - backfills missing barcode / brand / serving metadata on matched USDA rows
+  - backfills missing barcode / brand / serving metadata on matched USDA branded rows
   - inserts OFF-only foods as new searchable rows when no USDA match exists
+It never edits USDA's generic reference foods (SR Legacy, Foundation, FNDDS).
 
 This is the single builder: CI runs it directly, and rebuild_full_db.py
 downloads the sources on a Mac and then calls build().
@@ -595,10 +596,13 @@ def build_match_indexes(conn):
     brand_name_serving_index = {}
     unbranded_name_index = {}
 
+    # USDA's generic reference foods are never matched: a packaged product that
+    # merely shares a name would stamp its barcode, brand, or serving onto them.
     cursor = conn.execute(f"""
         SELECT id, name, brand, source, serving_g, serving_desc, portion_basis, serving_source,
                {", ".join(MICRONUTRIENT_COLUMNS)}, barcode
         FROM foods
+        WHERE source NOT IN ('sr_legacy', 'foundation', 'survey_fndds')
     """)
 
     for row in cursor:
@@ -994,6 +998,23 @@ def merge_open_food_facts(conn, off_path):
     return summary
 
 
+def open_readonly(path):
+    return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+
+
+def previous_reference_rows(previous_db):
+    """Serving fields of the USDA reference foods in the catalog being replaced, by fdc_id."""
+    with closing(open_readonly(previous_db)) as previous:
+        previous.row_factory = sqlite3.Row
+        return {
+            row["fdc_id"]: dict(row)
+            for row in previous.execute(
+                "SELECT fdc_id, serving_g, serving_desc, serving_source, default_serving_g FROM foods"
+                " WHERE source IN ('sr_legacy', 'foundation', 'survey_fndds') AND fdc_id IS NOT NULL"
+            )
+        }
+
+
 def max_food_id(connection):
     """Largest food id this catalog lineage has ever assigned (ids are never reused)."""
     candidates = [connection.execute("SELECT MAX(id) FROM foods").fetchone()[0] or 0]
@@ -1019,7 +1040,7 @@ def assign_stable_ids(conn, previous_db):
     new foods get ids above every id used before, so retired ids stay unused.
     """
     by_fdc_id, by_off_barcode = {}, {}
-    with closing(sqlite3.connect(Path(previous_db).resolve().as_uri() + "?mode=ro", uri=True)) as previous:
+    with closing(open_readonly(previous_db)) as previous:
         for row_id, fdc_id, source, barcode in previous.execute(
             "SELECT id, fdc_id, source, barcode FROM foods"
         ):
@@ -1101,7 +1122,8 @@ def build(db_path=DB_PATH, sr_legacy_dir=SR_LEGACY_DIR, foundation_dir=FOUNDATIO
     """Build the catalog beside db_path and move it into place only on success.
 
     A failed or interrupted build leaves the existing database untouched.
-    previous_db is the catalog being replaced; its row ids are kept.
+    previous_db is the catalog being replaced: its row ids are kept, and its
+    USDA reference foods keep their default servings.
     """
     exports = {
         "SR Legacy": discover_single_json(sr_legacy_dir),
@@ -1132,14 +1154,15 @@ def build(db_path=DB_PATH, sr_legacy_dir=SR_LEGACY_DIR, foundation_dir=FOUNDATIO
             create_schema(conn)
 
             print("Inserting USDA reference foods...")
+            previous_rows = previous_reference_rows(previous_db) if previous_db else {}
             sr_count = insert_reference_foods(
-                conn, exports["SR Legacy"], "SRLegacyFoods", "sr_legacy"
+                conn, exports["SR Legacy"], "SRLegacyFoods", "sr_legacy", previous_rows=previous_rows
             )["inserted"]
             foundation_count = insert_reference_foods(
-                conn, exports["Foundation"], "FoundationFoods", "foundation"
+                conn, exports["Foundation"], "FoundationFoods", "foundation", previous_rows=previous_rows
             )["inserted"]
             fndds_count = insert_reference_foods(
-                conn, exports["FNDDS"], "SurveyFoods", "survey_fndds"
+                conn, exports["FNDDS"], "SurveyFoods", "survey_fndds", previous_rows=previous_rows
             )["inserted"]
             print(f"SR Legacy {sr_count:,}, Foundation {foundation_count:,}, FNDDS {fndds_count:,}")
 
@@ -1166,6 +1189,8 @@ def build(db_path=DB_PATH, sr_legacy_dir=SR_LEGACY_DIR, foundation_dir=FOUNDATIO
                 conn, sr_count, foundation_count, fndds_count, branded_count, off_summary,
                 reference_data_version,
             )
+            # Reclaim the pages freed by the row-id rewrite (about 120 MB).
+            conn.execute("VACUUM")
             sources = conn.execute(
                 "SELECT source, COUNT(*) FROM foods GROUP BY source ORDER BY source"
             ).fetchall()

@@ -11,8 +11,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import build_db  # noqa: E402
 from fdc_datasets import newest_releases, resolve_releases  # noqa: E402
-from usda_reference_data import INSERT_COLUMNS, food_record, iter_usda_foods  # noqa: E402
-from validate_food_db import compare, compare_ids  # noqa: E402
+from usda_reference_data import (  # noqa: E402
+    INSERT_COLUMNS, food_record, iter_usda_foods, keep_previous_serving, portion_description,
+)
+from validate_food_db import compare, compare_ids, compare_servings  # noqa: E402
 
 
 def write_fdc_export(path, root_key, foods):
@@ -36,6 +38,16 @@ def write_catalog(path, rows, max_food_id=None):
         if max_food_id is not None:
             connection.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'foods'", (max_food_id,))
         connection.commit()
+
+
+# Raw broccoli as SR Legacy publishes it: the natural chooser picks the 91 g cup,
+# but older catalogs chose the 44 g half cup and labelled it "1 cup, ...".
+BROCCOLI_PORTIONS = [
+    {"modifier": "cup chopped", "amount": 1, "gramWeight": 91, "sequenceNumber": 1},
+    {"modifier": "cup, chopped or diced", "amount": 0.5, "gramWeight": 44, "sequenceNumber": 2},
+]
+PREVIOUS_BROCCOLI = {"serving_g": 44, "serving_desc": "1 cup, chopped or diced",
+                     "serving_source": "explicit_serving", "default_serving_g": None}
 
 
 def branded_food(fdc_id, name, upc, calories):
@@ -116,6 +128,33 @@ class ReferenceFoodTests(unittest.TestCase):
                 values = self.values({"foodNutrients": nutrients(kcal=34),
                                       "foodPortions": [dict(portion, sequenceNumber=1)]})
                 self.assertEqual((values["serving_desc"], values["serving_g"]), (expected, portion["gramWeight"]))
+        self.assertEqual(portion_description({"modifier": "cup,", "amount": 1}), "1 cup")
+
+    def test_existing_foods_keep_their_serving_with_the_source_amount_in_the_label(self):
+        broccoli = {"foodNutrients": nutrients(kcal=34), "foodPortions": BROCCOLI_PORTIONS}
+        self.assertEqual(self.values(broccoli)["serving_g"], 91)  # a new food gets the natural choice
+        record = food_record({"fdcId": 1, "description": "Broccoli, raw", **broccoli}, "sr_legacy",
+                             PREVIOUS_BROCCOLI)
+        values = dict(zip(INSERT_COLUMNS, record))
+        self.assertEqual((values["serving_g"], values["serving_desc"]), (44, "0.5 cup, chopped or diced"))
+        self.assertAlmostEqual(values["calories"], 14.96)
+        self.assertIsNone(values["default_serving_g"])  # the replaced catalog had no separate default
+
+    def test_same_weight_portions_follow_the_stored_label(self):
+        portions = [
+            {"modifier": "cup, whole", "amount": 1, "gramWeight": 144, "sequenceNumber": 1},
+            {"modifier": "cup, halves", "amount": 1, "gramWeight": 144, "sequenceNumber": 2},
+        ]
+        previous = {"serving_g": 144, "serving_desc": "1 cup, halves", "serving_source": "explicit_serving"}
+        self.assertEqual(keep_previous_serving(portions, previous), (144, "1 cup, halves", "explicit_serving"))
+
+    def test_fallback_is_kept_and_a_vanished_portion_falls_back_to_the_chooser(self):
+        fallback = {"serving_g": 100, "serving_desc": "100g", "serving_source": "fallback_raw"}
+        self.assertEqual(keep_previous_serving(BROCCOLI_PORTIONS, fallback), (100, "100g", "fallback_raw"))
+        stamped = dict(fallback, serving_desc="1 serving")  # left by an old Open Food Facts match
+        self.assertEqual(keep_previous_serving(BROCCOLI_PORTIONS, stamped), (100, "100 g", "fallback_raw"))
+        vanished = dict(PREVIOUS_BROCCOLI, serving_g=50)
+        self.assertIsNone(keep_previous_serving(BROCCOLI_PORTIONS, vanished))
 
     def test_all_zero_codes_are_not_barcodes(self):
         self.assertIsNone(build_db.normalize_barcode("0000000000000"))
@@ -181,6 +220,21 @@ class BuildTests(unittest.TestCase):
             )
         self.assertEqual(os.listdir(self.db_path.parent), ["foods.sqlite"])
 
+    def test_open_food_facts_never_edits_usda_reference_foods(self):
+        with gzip.open(self.off_path, "wt", encoding="utf-8") as stream:
+            stream.write(json.dumps({"code": "0042", "countries_tags": ["en:united-states"],
+                                     "product_name": "Bananas, raw", "serving_size": "1 serving",
+                                     "nutriments": {"energy-kcal_serving": 105}}) + "\n")
+        self.build()
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            rows = connection.execute(
+                "SELECT source, barcode, portion_basis, serving_desc FROM foods WHERE name = 'Bananas, raw' ORDER BY source"
+            ).fetchall()
+        self.assertEqual(rows, [
+            ("open_food_facts", "42", "fixed_serving", "1 serving"),
+            ("sr_legacy", None, "grams", "1 cup"),
+        ])
+
     def test_failed_build_leaves_the_existing_database_untouched(self):
         self.db_path.parent.mkdir()
         self.db_path.write_bytes(b"previous catalog")
@@ -217,6 +271,41 @@ class BuildTests(unittest.TestCase):
         report, problems = compare_ids(self.db_path, previous)
         self.assertEqual(problems, [])
         self.assertIn("2 of 2 pinned foods keep their id", report)
+
+    def test_rebuilds_keep_reference_servings_the_apps_already_use(self):
+        write_fdc_export(Path(self.dirs["sr_legacy_dir"]) / "sr_legacy.json", "SRLegacyFoods", [
+            {"fdcId": 10, "description": "Broccoli, raw", "foodNutrients": nutrients(kcal=34),
+             "foodPortions": BROCCOLI_PORTIONS},
+        ])
+        previous = self.root / "previous.sqlite"
+        write_catalog(previous, [(500, 10, "Broccoli, raw", "sr_legacy", None)])
+        with closing(sqlite3.connect(previous)) as connection:
+            connection.execute(
+                "UPDATE foods SET serving_g = 44, serving_desc = '1 cup, chopped or diced',"
+                " serving_source = 'explicit_serving' WHERE id = 500"
+            )
+            connection.commit()
+        self.build(previous_db=str(previous))
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            row = connection.execute(
+                "SELECT id, serving_g, serving_desc, round(calories, 2), default_serving_g FROM foods WHERE fdc_id = 10"
+            ).fetchone()
+        self.assertEqual(row, (500, 44.0, "0.5 cup, chopped or diced", 14.96, None))
+        report, problems = compare_servings(self.db_path, previous)
+        self.assertEqual(problems, [])
+        self.assertIn("0 of 1 kept USDA reference foods changed grams", report)
+
+    def test_row_id_rewrite_leaves_no_free_pages(self):
+        # Enough foods that the dropped pre-rewrite table outgrows what the search index reuses.
+        write_fdc_export(Path(self.dirs["branded_dir"]) / "branded.json", "BrandedFoods", [
+            branded_food(100 + index, f"Granola bar flavor {index}", str(10 ** 10 + index), 120)
+            for index in range(1500)
+        ])
+        previous = self.root / "previous.sqlite"
+        write_catalog(previous, [(500, 10, "Bananas, raw", "sr_legacy", None)])
+        self.build(previous_db=str(previous))
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            self.assertEqual(connection.execute("PRAGMA freelist_count").fetchone()[0], 0)
 
     def test_missing_usda_export_fails_before_touching_anything(self):
         with self.assertRaisesRegex(RuntimeError, "USDA JSON missing for Branded"):

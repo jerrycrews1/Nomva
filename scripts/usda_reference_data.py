@@ -153,7 +153,7 @@ def portion_description(portion):
     if explicit:
         return explicit
 
-    modifier = normalize_whitespace(portion.get("modifier"))
+    modifier = (normalize_whitespace(portion.get("modifier")) or "").rstrip(",;: ")  # USDA has "cup,"
     if modifier and not modifier.isdigit():
         if re.match(r"^[\d¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]", modifier):
             return modifier
@@ -245,6 +245,53 @@ def choose_natural_serving(portions):
     return 100.0, "100 g", "fallback_raw"
 
 
+def _legacy_portion_label(portion):
+    """The label older catalogs stored, e.g. "1 cup, chopped or diced" for half a cup."""
+    raw = (
+        normalize_whitespace(portion.get("portionDescription"))
+        or normalize_whitespace(portion.get("modifier"))
+        or normalize_whitespace((portion.get("measureUnit") or {}).get("name"))
+    )
+    raw = re.sub(r"^[\s,;:()]+|[\s,;:()]+$", "", raw or "")
+    if not raw:
+        return None
+    return raw if re.match(r"^\d", raw) else f"1 {raw.lower()}"
+
+
+def keep_previous_serving(portions, previous):
+    """Reuse the serving an earlier catalog chose for this food, relabelled from source.
+
+    A rebuild refreshes data but must not change what an unquantified "egg" or
+    "broccoli" logs as; only foods new to the catalog use choose_natural_serving.
+    previous is {"serving_g", "serving_desc", "serving_source"}. Returns None
+    when the source no longer offers that portion.
+    """
+    grams = safe_float(previous.get("serving_g"))
+    if grams is None or grams <= 0:
+        return None
+    if previous.get("serving_source") == "fallback_raw":
+        # Keep "100g"-style labels; any other label was stamped on by an
+        # Open Food Facts product match in older builds.
+        label = (previous.get("serving_desc") or "").strip()
+        return grams, label if re.fullmatch(r"100\s?g", label) else "100 g", "fallback_raw"
+    matches = [
+        portion for portion in portions or []
+        if math.isclose(safe_float(portion.get("gramWeight")) or -1, grams, rel_tol=0, abs_tol=1e-6)
+        and portion_description(portion)
+    ]
+    if len(matches) > 1:
+        # Same grams, different labels: prefer the portion the stored label names.
+        label = previous.get("serving_desc")
+        named = [
+            portion for portion in matches
+            if label and label in (portion_description(portion), _legacy_portion_label(portion))
+        ]
+        matches = sorted(named or matches, key=lambda portion: safe_float(portion.get("sequenceNumber")) or float("inf"))
+    if not matches:
+        return None
+    return grams, portion_description(matches[0]), "explicit_serving"
+
+
 def choose_default_serving(portions, serving_g, serving_desc, source):
     """Keep FNDDS's likely consumed amount separate from unit conversions."""
     base_grams = safe_float(serving_g)
@@ -315,15 +362,20 @@ def _vitamin_d(nutrients):
     return None if iu is None else iu / 40.0
 
 
-def food_record(food, source):
+def food_record(food, source, previous=None):
+    """Return INSERT_COLUMNS values, or None. previous: this food's row in the replaced catalog."""
     if not isinstance(food, dict):
         return None
     nutrients = food.get("foodNutrients") or []
     portions = food.get("foodPortions") or []
-    serving_g, serving_desc, serving_source = choose_natural_serving(portions)
-    default_serving_g, default_serving_desc, default_serving_source = choose_default_serving(
-        portions, serving_g, serving_desc, source
-    )
+    kept = keep_previous_serving(portions, previous) if previous else None
+    serving_g, serving_desc, serving_source = kept or choose_natural_serving(portions)
+    if kept and previous.get("default_serving_g") is None:
+        default_serving_g = default_serving_desc = default_serving_source = None
+    else:
+        default_serving_g, default_serving_desc, default_serving_source = choose_default_serving(
+            portions, serving_g, serving_desc, source
+        )
     calories = per_serving(first_nutrient_value(nutrients, ENERGY_KCAL_IDS), serving_g)
     if calories is None:
         return None
@@ -429,7 +481,9 @@ def ensure_search_schema(connection):
     """)
 
 
-def insert_reference_foods(connection, json_path, root_key, source, update_existing=False):
+def insert_reference_foods(connection, json_path, root_key, source, update_existing=False,
+                           previous_rows=None):
+    """previous_rows maps fdc_id to that food's serving fields in the replaced catalog."""
     placeholders = ", ".join("?" for _ in INSERT_COLUMNS)
     columns = ", ".join(INSERT_COLUMNS)
     if update_existing:
@@ -444,8 +498,10 @@ def insert_reference_foods(connection, json_path, root_key, source, update_exist
         statement = f"INSERT OR IGNORE INTO foods ({columns}) VALUES ({placeholders})"
     inserted = 0
     skipped = 0
+    previous_rows = previous_rows or {}
     for food in iter_usda_foods(json_path, root_key):
-        record = food_record(food, source)
+        previous = previous_rows.get(food.get("fdcId")) if isinstance(food, dict) else None
+        record = food_record(food, source, previous)
         if record is None:
             skipped += 1
             continue
